@@ -1,9 +1,9 @@
 # 家教媒合與評價平台 系統規格書
 
 **文件編號**：TMP-SPEC-2026-001
-**版本**：v4.0
+**版本**：v5.0
 **建立日期**：2026 年 3 月 28 日
-**最後更新**：2026 年 3 月 28 日
+**最後更新**：2026 年 3 月 29 日
 
 ---
 
@@ -15,6 +15,20 @@
 | v2.0 | 2026-03-28 | 新增訊息系統、媒合狀態機重構、三向評價、匯入匯出功能 |
 | v3.0 | 2026-03-28 | 新增技術架構設計（huey worker、Repository Pattern、統一回應格式、一鍵啟動） |
 | v4.0 | 2026-03-28 | 全文改寫為正式規格書格式，補充細部規格與邊界條件 |
+| v5.0 | 2026-03-29 | 前半段（第 1~5 節）改寫為平易近人版本，降低閱讀門檻；後半段維持專業規格 |
+
+---
+
+## 閱讀指引
+
+本文件依讀者背景分為兩個段落：
+
+| 段落 | 適用對象 | 內容風格 |
+|------|---------|---------|
+| **第 1~5 節** | 全體組員 | 以白話文說明系統的功能與運作方式，不需要程式基礎即可閱讀 |
+| **第 6~13 節** | 技術開發者 | 資料庫欄位、API 規格、程式碼範例等技術細節，供開發時查閱 |
+
+> 負責簡報、測試或書面報告的組員，**閱讀第 1~5 節即可掌握系統全貌**。第 6 節以後可視需要再行查閱。
 
 ---
 
@@ -38,275 +52,306 @@
 
 ## 1. 專案總覽
 
-### 1.1 專案背景
+### 1.1 專案簡介
 
-本專案為 SQL（MS Access）通識課程之期末分組專題。課程要求使用 MS Access 作為資料庫管理系統，並於學期末進行上台報告與現場操作展示。
+本專案是一個**家教媒合網站**，定位類似「家教版的 104 人力銀行」。
 
-### 1.2 系統定位
+以一個典型的使用情境為例：某位家長希望為孩子尋找數學家教，於系統中輸入「數學、時薪 500~800 元」等條件後，系統列出符合條件的老師。家長參考老師的自我介紹與歷史評價後，透過站內訊息進一步溝通，隨後發出媒合邀請。老師收到邀請後可選擇接受或拒絕，接受後即進入正式教學階段。教學結束後，雙方可互相評價。
 
-本系統為一**雙邊媒合平台**，連結「家長（需求端）」與「家教老師（供給端）」兩方角色。系統核心功能涵蓋以下三大領域：
+系統的三大核心功能如下：
 
-- **媒合機制**：家長依據科目、時薪、評分等條件搜尋老師，透過訊息溝通後發起媒合邀請，經雙方確認後成立教學合約。
-- **教學管理**：老師於系統中記錄上課日誌與學生考試成績，家長可依權限查閱相關紀錄。
-- **雙向評價**：合約結束後，家長可對老師、老師可對學生及家長分別進行多維度評價，評價結果構成平台信任機制。
+| 核心功能 | 說明 |
+|---------|------|
+| **媒合** | 家長搜尋老師 → 訊息溝通 → 發送邀請 → 老師接受 → 開始上課 |
+| **教學管理** | 老師記錄上課日誌與考試成績，家長可依權限查閱孩子的學習狀況 |
+| **三向評價** | 合作結束後，家長可評老師，老師可評學生及家長 |
+
+### 1.2 課程背景
+
+本專案為 **SQL（MS Access）通識課**之期末分組專題。課程要求如下：
+
+- 須使用 **MS Access** 作為資料庫（即所有資料的儲存位置）
+- 學期末須**上台報告**並**現場操作展示**系統功能
 
 ### 1.3 設計目標
 
 | 目標 | 說明 |
 |------|------|
-| 滿足課程要求 | 使用 MS Access 作為唯一資料庫，資料表設計與關聯圖可於 Access 內展示 |
-| 展現軟體工程能力 | 採用三層式架構、RESTful API、JWT 認證、Repository Pattern、非同步任務引擎等業界標準實踐 |
-| 不進行線上部署 | 全部服務運行於 localhost，展示時於本機操作 |
+| 滿足課程要求 | 使用 MS Access 作為資料庫，資料表與關聯圖可於 Access 中直接展示 |
+| 嘗試業界實踐 | 採用三層式架構、RESTful API、JWT 認證等常見做法，希望藉此提升專題的技術深度 |
+| 本機運行即可 | 全部服務運行於本機環境，展示時於本機操作，不做線上部署 |
 
 ### 1.4 專案時程
 
-預計開發期間為 5 週以上。最終交付形式為上台報告，搭配系統現場操作展示。
+預計開發期間為 **5 週以上**。最終交付形式為上台報告，搭配系統現場操作展示。
 
 ---
 
 ## 2. 系統架構
 
-### 2.1 架構總覽
+### 2.1 架構概覽
 
-本系統採用三層式架構，分為前端展示層、後端 API 層、資料儲存層，另搭配獨立之非同步任務處理器（worker）。全部服務運行於 Windows 本機環境。
+本系統由三個程式組成，同時運行於同一台 Windows 電腦上。以餐廳作為類比：前端相當於「點餐櫃台」（使用者看到的畫面），後端相當於「廚房」（處理所有業務邏輯），Access 資料庫相當於「倉庫」（儲存所有資料），另有一個背景任務處理器（相當於負責雜務的人員）負責執行較耗時的工作。
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                            Windows 本機環境                              │
-│                                                                          │
-│  ┌──────────────┐    HTTP/JSON     ┌──────────────┐    ODBC      ┌─────┐│
-│  │  Vue 3 前端   │ ←─────────────→ │ FastAPI 後端  │ ←─────────→ │ MS  ││
-│  │  (Vite)       │  localhost:5173  │  (uvicorn)    │   pyodbc   │Acce-││
-│  │               │                  │               │            │ ss  ││
-│  │  - Router     │                  │  - JWT 認證   │            │.acc-││
-│  │  - Pinia      │                  │  - Pydantic   │            │ db  ││
-│  │  - Axios      │                  │  - Repository │            │     ││
-│  └──────────────┘                  │  - Logging    │            └─────┘│
-│                                     └──────┬────────┘               ▲   │
-│                                            │ 派發任務               │   │
-│                                            ▼                       │   │
-│                                     ┌──────────────┐    ODBC      │   │
-│                                     │ huey worker   │ ────────────┘   │
-│                                     │  (SQLite Q)   │                  │
-│                                     │               │                  │
-│                                     │  - CSV 匯入出 │                  │
-│                                     │  - 報表計算   │                  │
-│                                     │  - 定時任務   │                  │
-│                                     │  - 假資料生成 │                  │
-│                                     └──────────────┘                  │
-│                                                                        │
-│  啟動方式：start.bat 一鍵啟動三個 process                                │
-└──────────────────────────────────────────────────────────────────────────┘
++----------+          +----------+          +----------+
+|          |  HTTP /  |          |  ODBC /  |          |
+| Vue 前端  | -------> | FastAPI  | -------> | MS       |
+| (瀏覽器)  | <------- | 後端     | <------- | Access   |
+|          |  JSON    |          |  pyodbc  | 資料庫    |
++----------+          +-----+----+          +----------+
+ 點餐櫃台               廚房 |                  倉庫 ^
+                             |                       |
+                             | 派工作         讀寫資料 |
+                             v                       |
+                       +----------+                  |
+                       | huey     | -----------------+
+                       | worker   |
+                       | 背景雜務  |
+                       +----------+
+                        匯入匯出、報表計算、
+                        假資料生成等耗時工作
+
+  三個程式皆運行於本機，透過 start.bat 一鍵啟動
 ```
 
-### 2.2 Process 清單
+### 2.2 三個程式的職責
 
-系統運行時共啟動三個獨立 process，由 `start.bat` 統一管理。
+| 程式 | 使用技術 | 職責 |
+|------|---------|------|
+| **前端（Vue）** | Vue 3 + Vite | 使用者在瀏覽器中看到的所有畫面，包含登入頁、搜尋頁、聊天室等 |
+| **後端（FastAPI）** | Python FastAPI | 系統的核心邏輯層，負責登入驗證、老師搜尋、配對邀請、資料寫入等所有處理 |
+| **背景任務（huey）** | Python huey | 負責執行匯入匯出 CSV、產生假資料、計算統計報表等較耗時的工作，避免阻塞使用者畫面 |
 
-| Process | 啟動指令 | 預設埠號 | 職責 |
-|---------|---------|---------|------|
-| FastAPI Server | `uvicorn app.main:app --reload --port 8000` | 8000 | 處理所有 HTTP 請求，提供 RESTful API |
-| huey Worker | `python -m app.worker` | — | 執行背景任務（匯入匯出、報表計算、定時排程） |
-| Vue Dev Server | `npm run dev` | 5173 | 提供前端單頁應用之開發伺服器 |
+### 2.3 為什麼分成三個程式？
 
-### 2.3 技術棧
+以便利商店結帳為例：若店員一邊結帳、一邊又要去後方加熱餐點，顧客就必須等待。因此合理的做法是讓店員專心結帳（後端），另一位人員負責加熱（背景任務），顧客則只需關注螢幕上的金額（前端）。三者各司其職，互不阻塞。
 
-| 層級 | 技術 | 版本 | 用途 |
-|------|------|------|------|
-| 前端框架 | Vue 3 + Vite | 3.x | 單頁應用（SPA） |
-| 前端路由 | Vue Router | 4.x | 頁面路由與角色守衛 |
-| 前端狀態管理 | Pinia | 2.x | 全域狀態（認證、快取） |
-| HTTP 客戶端 | Axios | 1.x | API 呼叫，統一 interceptor |
-| 後端框架 | FastAPI | 0.110+ | RESTful API，自動生成 Swagger 文件 |
-| 資料驗證 | Pydantic | 2.x | Request/Response schema 定義 |
-| 認證機制 | python-jose + passlib | — | JWT 簽發驗證、bcrypt 密碼雜湊 |
-| 資料庫驅動 | pyodbc | 5.x | 透過 ODBC 連接 MS Access |
-| 資料庫 | MS Access (.accdb) | 2016+ | 滿足課程要求之關聯式資料庫 |
-| 任務佇列 | huey | 2.x | 輕量非同步任務引擎 |
-| 任務 Broker | SQLite | — | huey 的訊息佇列儲存（零額外依賴） |
-| 環境設定 | python-dotenv + pydantic-settings | — | .env 檔案管理組態 |
-| 日誌 | Python logging (stdlib) | — | 結構化日誌，檔案輪轉 |
-| 執行環境 | Windows 10/11 | — | pyodbc + Access ODBC Driver 僅支援 Windows |
+### 2.4 技術清單
+
+以下列出本專案使用的技術。此處僅提供概覽，不需要全部記住：
+
+| 類別 | 技術名稱 | 簡要說明 |
+|------|---------|---------|
+| 前端畫面 | Vue 3 | 用於建構網頁畫面的框架，成果運行於瀏覽器中 |
+| 前端打包 | Vite | 負責打包前端程式碼並啟動開發伺服器 |
+| 頁面切換 | Vue Router | 控制頁面之間的跳轉邏輯 |
+| 前端資料管理 | Pinia | 在不同頁面之間共享資料，例如「目前登入的使用者是誰」 |
+| 前端呼叫後端 | Axios | 前端用來向後端發送請求的工具 |
+| 後端框架 | FastAPI | 以 Python 撰寫的後端框架，負責接收前端的請求並回傳結果 |
+| 資料驗證 | Pydantic | 確保前端傳來的資料格式正確，例如「分數必須是數字」 |
+| 登入驗證 | JWT + bcrypt | JWT 是登入後取得的「通行證」，後續每次操作皆須攜帶以證明身份；bcrypt 負責將密碼加密後儲存 |
+| 資料庫連線 | pyodbc | Python 透過此工具與 MS Access 資料庫溝通 |
+| 資料庫 | MS Access | 儲存所有資料的關聯式資料庫（課程要求使用） |
+| 背景任務 | huey + SQLite | huey 是輕量的任務排隊系統，SQLite 作為其記錄待辦任務的小型資料庫 |
+| 環境設定 | .env 檔案 | 系統的設定檔，用於存放密碼、資料庫路徑等不適合寫死在程式碼中的資訊 |
+| 日誌記錄 | Python logging | 自動記錄系統運行中的事件，便於事後追查問題 |
 
 ---
 
 ## 3. 技術架構詳細設計
 
+> **提示：** 本節包含較多程式碼，主要供開發者撰寫程式時參考。非技術組員可僅閱讀各段開頭的說明文字，程式碼區塊可跳過。
+
 ### 3.1 原始碼目錄結構
 
-本專案採前後端分離架構，分置於兩個獨立之版本控制儲存庫（repository）。
+程式碼分為兩個獨立的資料夾（儲存庫）：一個存放後端（Python），一個存放前端（Vue）。概念上類似將廚房用品與外場用品分開管理。
 
-#### 3.1.1 後端儲存庫：`tutor-platform-api`
+#### 3.1.1 後端資料夾：`tutor-platform-api`
+
+以下樹狀圖列出後端所有檔案與資料夾，各檔案旁附有用途說明。
 
 ```
 tutor-platform-api/
-├── .env                              # 環境變數（不納入版控）
-├── .env.example                      # 環境變數範本（納入版控）
+├── .env                              # 設定檔（密碼、路徑等，不納入版控）
+├── .env.example                      # 設定檔範本（告知需填寫哪些設定）
 ├── requirements.txt                  # Python 套件依賴清單
 ├── start.bat                         # 一鍵啟動腳本
 ├── README.md                         # 專案說明文件
 │
-├── app/
-│   ├── __init__.py
-│   ├── main.py                       # FastAPI 應用程式入口
-│   ├── config.py                     # Pydantic Settings 組態類別
-│   ├── database.py                   # pyodbc 連線管理
-│   ├── dependencies.py               # FastAPI 依賴注入定義
-│   ├── exceptions.py                 # 自定義例外與統一錯誤處理器
-│   ├── worker.py                     # huey 實例初始化與任務註冊
+├── app/                              # [主要程式碼]
+│   ├── main.py                       # 程式入口——啟動後端伺服器
+│   ├── config.py                     # 讀取 .env 設定檔
+│   ├── database.py                   # 負責建立與 MS Access 資料庫的連線
+│   ├── dependencies.py               # 共用的依賴注入定義
+│   ├── exceptions.py                 # 定義錯誤類型（找不到資源、無權限等）
+│   ├── worker.py                     # 背景任務處理器的啟動入口
 │   │
-│   ├── models/                       # Pydantic Schema 定義
-│   │   ├── __init__.py
-│   │   ├── common.py                 # ApiResponse、PaginatedResponse
-│   │   ├── auth.py                   # LoginRequest、RegisterRequest、TokenResponse
-│   │   ├── tutor.py                  # TutorCard、TutorDetail、TutorUpdate
-│   │   ├── student.py                # StudentCreate、StudentUpdate
-│   │   ├── match.py                  # MatchCreate、MatchStatusUpdate、ContractTerms
-│   │   ├── session.py                # SessionCreate、SessionUpdate
-│   │   ├── exam.py                   # ExamCreate、ExamUpdate
-│   │   ├── review.py                 # ReviewCreate（三向共用）
-│   │   ├── message.py                # MessageCreate
-│   │   └── stats.py                  # IncomeStats、ExpenseStats、ProgressStats
+│   ├── models/                       # [資料格式定義]
+│   │   │                             #  定義各類請求與回應的資料結構
+│   │   ├── common.py                 # 統一回應格式
+│   │   ├── auth.py                   # 登入/註冊相關
+│   │   ├── tutor.py                  # 老師相關
+│   │   ├── student.py                # 學生相關
+│   │   ├── match.py                  # 媒合配對相關
+│   │   ├── session.py                # 上課日誌相關
+│   │   ├── exam.py                   # 考試紀錄相關
+│   │   ├── review.py                 # 評價相關
+│   │   ├── message.py                # 訊息相關
+│   │   └── stats.py                  # 統計數據相關
 │   │
-│   ├── repositories/                 # 資料存取層（所有 SQL 語句僅存在於此層）
-│   │   ├── __init__.py
-│   │   ├── base.py                   # BaseRepository（通用 CRUD 輔助方法）
-│   │   ├── auth_repo.py              # 使用者註冊、登入驗證、帳號查詢
-│   │   ├── tutor_repo.py             # 老師搜尋、檔案管理、可用時段
-│   │   ├── student_repo.py           # 學生資料 CRUD
-│   │   ├── match_repo.py             # 媒合建立、狀態轉換、合約管理
-│   │   ├── session_repo.py           # 上課日誌 CRUD、修改歷史記錄
-│   │   ├── exam_repo.py              # 考試紀錄 CRUD
-│   │   ├── review_repo.py            # 三向評價 CRUD、七日鎖定檢查
-│   │   ├── message_repo.py           # 對話與訊息管理
-│   │   └── stats_repo.py             # 統計彙總查詢
+│   ├── repositories/                 # [資料存取層]
+│   │   │                             #  所有與資料庫溝通的程式碼皆集中於此
+│   │   ├── base.py                   # 共用的基本功能（查詢、新增、修改）
+│   │   ├── auth_repo.py              # 帳號相關的資料庫操作
+│   │   ├── tutor_repo.py             # 老師相關
+│   │   ├── student_repo.py           # 學生相關
+│   │   ├── match_repo.py             # 媒合配對相關
+│   │   ├── session_repo.py           # 上課日誌相關
+│   │   ├── exam_repo.py              # 考試紀錄相關
+│   │   ├── review_repo.py            # 評價相關
+│   │   ├── message_repo.py           # 訊息相關
+│   │   └── stats_repo.py             # 統計相關
 │   │
-│   ├── routers/                      # API 路由層（不包含業務邏輯）
-│   │   ├── __init__.py
-│   │   ├── auth.py
-│   │   ├── tutors.py
-│   │   ├── students.py
-│   │   ├── matches.py
-│   │   ├── sessions.py
-│   │   ├── exams.py
-│   │   ├── reviews.py
-│   │   ├── messages.py
-│   │   ├── stats.py
-│   │   └── admin.py                  # Super Admin 專用端點
+│   ├── routers/                      # [API 路由層]
+│   │   │                             #  定義網址與功能的對應關係
+│   │   ├── auth.py                   # /api/auth/... 登入註冊
+│   │   ├── tutors.py                 # /api/tutors/... 老師相關
+│   │   ├── students.py               # /api/students/... 學生相關
+│   │   ├── matches.py                # /api/matches/... 媒合配對
+│   │   ├── sessions.py               # /api/sessions/... 上課日誌
+│   │   ├── exams.py                  # /api/exams/... 考試紀錄
+│   │   ├── reviews.py                # /api/reviews/... 評價
+│   │   ├── messages.py               # /api/messages/... 訊息
+│   │   ├── stats.py                  # /api/stats/... 統計
+│   │   └── admin.py                  # /api/admin/... 管理員專用
 │   │
-│   ├── tasks/                        # huey 背景任務定義
-│   │   ├── __init__.py
-│   │   ├── import_export.py          # CSV 匯入匯出
-│   │   ├── stats_tasks.py            # 報表預計算
+│   ├── tasks/                        # [背景任務] 較耗時的工作放置於此
+│   │   ├── import_export.py          # CSV 檔案的匯入和匯出
+│   │   ├── stats_tasks.py            # 統計報表的計算
 │   │   ├── seed_tasks.py             # 假資料生成
-│   │   └── scheduled.py              # 定時排程任務
+│   │   └── scheduled.py              # 定時執行的任務（如每日凌晨 3 點檢查過期評價）
 │   │
-│   └── utils/                        # 工具函式庫
-│       ├── __init__.py
-│       ├── security.py               # JWT 簽發驗證、密碼雜湊
-│       ├── csv_handler.py            # CSV 讀寫與解析
+│   └── utils/                        # [工具函式] 輔助用的小型程式
+│       ├── security.py               # 密碼加密、JWT 的產生與驗證
+│       ├── csv_handler.py            # CSV 檔案讀寫
 │       └── logger.py                 # 日誌組態
 │
-├── logs/                             # 日誌輸出目錄
+├── logs/                             # 日誌檔案存放處
 │   └── app.log
 │
 ├── data/
-│   ├── tutoring.accdb                # MS Access 資料庫檔案
-│   └── huey.db                       # huey SQLite Broker 資料庫
+│   ├── tutoring.accdb                # [重要] MS Access 資料庫檔案
+│   └── huey.db                       # 背景任務的排隊紀錄
 │
 └── seed/
-    ├── generator.py                  # 假資料生成邏輯
-    └── output/                       # 生成之 CSV 檔案暫存目錄
+    ├── generator.py                  # 假資料產生邏輯
+    └── output/                       # 產生之 CSV 暫存目錄
 ```
 
-#### 3.1.2 前端儲存庫：`tutor-platform-web`
+#### 3.1.2 前端資料夾：`tutor-platform-web`
 
 ```
 tutor-platform-web/
-├── .env                              # 環境變數（API Base URL 等）
-├── package.json
-├── vite.config.js
-├── README.md
+├── .env                              # 設定（如後端的網址）
+├── package.json                      # 前端套件依賴清單
+├── vite.config.js                    # 前端打包設定
 │
-├── public/
-│
-└── src/
-    ├── main.js                       # Vue 應用程式入口
-    ├── App.vue
+└── src/                              # [主要程式碼]
+    ├── main.js                       # 前端程式入口
+    ├── App.vue                       # 最外層的畫面框架
     │
-    ├── router/
-    │   └── index.js                  # 路由定義與守衛邏輯
+    ├── router/                       # [頁面路由] 定義網址與頁面的對應
+    │   └── index.js
     │
-    ├── stores/                       # Pinia 狀態管理模組
-    │   ├── auth.js                   # 認證狀態、JWT Token、角色資訊
-    │   ├── tutor.js                  # 老師搜尋與檔案快取
-    │   ├── match.js                  # 配對狀態管理
-    │   └── message.js                # 訊息狀態管理
+    ├── stores/                       # [全域狀態管理] 跨頁面共享的資料
+    │   ├── auth.js                   # 登入狀態（目前登入者的資訊）
+    │   ├── tutor.js                  # 老師搜尋結果的暫存
+    │   ├── match.js                  # 配對狀態
+    │   └── message.js                # 訊息狀態
     │
-    ├── api/                          # Axios API 封裝層
-    │   ├── index.js                  # Axios 實例建立與 Interceptor 設定
-    │   ├── auth.js
-    │   ├── tutors.js
-    │   ├── matches.js
-    │   ├── sessions.js
-    │   ├── exams.js
-    │   ├── reviews.js
-    │   ├── messages.js
-    │   ├── stats.js
-    │   └── admin.js
+    ├── api/                          # [後端溝通層] 封裝所有 API 呼叫
+    │   ├── index.js                  # 統一設定（自動攜帶通行證等）
+    │   ├── auth.js                   # 登入/註冊 API
+    │   ├── tutors.js                 # 老師相關 API
+    │   ├── matches.js                # 媒合相關 API
+    │   ├── sessions.js               # 上課日誌 API
+    │   ├── exams.js                  # 考試紀錄 API
+    │   ├── reviews.js                # 評價 API
+    │   ├── messages.js               # 訊息 API
+    │   ├── stats.js                  # 統計 API
+    │   └── admin.js                  # 管理員 API
     │
-    ├── views/                        # 頁面級元件
-    │   ├── LoginView.vue
-    │   ├── RegisterView.vue
-    │   ├── parent/
-    │   │   ├── DashboardView.vue
-    │   │   ├── SearchView.vue
-    │   │   ├── TutorDetailView.vue
-    │   │   ├── StudentsView.vue
-    │   │   ├── MatchDetailView.vue
-    │   │   └── ExpenseView.vue
-    │   ├── tutor/
-    │   │   ├── DashboardView.vue
-    │   │   ├── ProfileView.vue
-    │   │   ├── MatchDetailView.vue
-    │   │   └── IncomeView.vue
-    │   ├── messages/
-    │   │   ├── ConversationListView.vue
-    │   │   └── ChatView.vue
-    │   └── admin/
-    │       └── AdminDashboardView.vue
+    ├── views/                        # [頁面級元件] 各個獨立頁面
+    │   ├── LoginView.vue             # 登入頁
+    │   ├── RegisterView.vue          # 註冊頁
+    │   ├── parent/                   # 家長端頁面
+    │   │   ├── DashboardView.vue     #   家長首頁
+    │   │   ├── SearchView.vue        #   搜尋老師
+    │   │   ├── TutorDetailView.vue   #   老師詳情
+    │   │   ├── StudentsView.vue      #   管理子女
+    │   │   ├── MatchDetailView.vue   #   配對詳情
+    │   │   └── ExpenseView.vue       #   支出統計
+    │   ├── tutor/                    # 老師端頁面
+    │   │   ├── DashboardView.vue     #   老師首頁
+    │   │   ├── ProfileView.vue       #   編輯個人檔案
+    │   │   ├── MatchDetailView.vue   #   配對詳情
+    │   │   └── IncomeView.vue        #   收入統計
+    │   ├── messages/                 # 訊息相關頁面
+    │   │   ├── ConversationListView.vue  # 對話列表
+    │   │   └── ChatView.vue              # 聊天頁面
+    │   └── admin/                    # 管理員頁面
+    │       └── AdminDashboardView.vue    # 管理後台
     │
-    └── components/                   # 可重用元件
-        ├── common/
-        │   ├── AppHeader.vue
-        │   ├── AppSidebar.vue
-        │   └── LoadingSpinner.vue
-        ├── tutor/
-        │   ├── TutorCard.vue
-        │   ├── TutorFilter.vue
-        │   └── AvailabilityCalendar.vue
-        ├── match/
-        │   ├── MatchStatusBadge.vue
-        │   ├── ContractForm.vue
-        │   └── InviteForm.vue
-        ├── review/
-        │   ├── ReviewForm.vue        # 三向共用元件
-        │   ├── ReviewList.vue
-        │   └── RadarChart.vue
-        ├── session/
-        │   ├── SessionForm.vue
-        │   └── SessionTimeline.vue
-        └── stats/
-            ├── IncomeChart.vue
-            ├── ExpenseChart.vue
-            └── ProgressChart.vue
+    └── components/                   # [可重用元件] 各頁面共用的畫面零件
+        ├── common/                   #   共用元件（頂部選單、側邊欄、載入動畫）
+        ├── tutor/                    #   老師相關元件（搜尋卡片、篩選器、行事曆）
+        ├── match/                    #   配對相關元件（狀態標籤、合約表單）
+        ├── review/                   #   評價相關元件（評分表單、雷達圖）
+        ├── session/                  #   上課日誌元件（表單、時間軸）
+        └── stats/                    #   統計圖表元件（收入圖、支出圖、成績趨勢圖）
 ```
 
 ### 3.2 統一 API 回應格式
 
-所有 API 端點之回應均採用統一之 `ApiResponse` 結構封裝。此設計使前端 Axios Interceptor 得以統一處理成功與失敗情境，無需逐端點判斷回應格式。
+前端每次向後端發出請求時，後端皆以**統一格式**回應。無論請求內容為何，回應結構都包含三個欄位：是否成功、回傳資料、補充訊息。此設計使前端能以一致的方式處理所有回應。
 
-#### 3.2.1 回應結構定義
+回應結構如下：
+
+```json
+{
+  "success": true 或 false,
+  "data": 回傳資料（成功時）或 null（失敗時）,
+  "message": 補充訊息（通常失敗時才有，例如「該老師目前不接受新學生」）
+}
+```
+
+**成功範例**——登入後取得使用者資訊：
+```json
+{
+  "success": true,
+  "data": { "user_id": 1, "role": "tutor", "display_name": "王小明" },
+  "message": null
+}
+```
+
+**失敗範例**——操作不被允許：
+```json
+{
+  "success": false,
+  "data": null,
+  "message": "該老師目前不接受新學生"
+}
+```
+
+**分頁查詢範例**——共 87 筆結果，目前為第 1 頁：
+```json
+{
+  "success": true,
+  "data": {
+    "items": [ ... ],
+    "total": 87,
+    "page": 1,
+    "page_size": 20
+  },
+  "message": null
+}
+```
+
+<details>
+<summary>技術細節（開發者展開）</summary>
+
+#### 回應結構定義
 
 ```python
 # app/models/common.py
@@ -327,41 +372,7 @@ class PaginatedData(BaseModel, Generic[T]):
     page_size: int
 ```
 
-#### 3.2.2 回應範例
-
-**一般成功回應**
-```json
-{
-  "success": true,
-  "data": { "user_id": 1, "role": "tutor", "display_name": "王小明" },
-  "message": null
-}
-```
-
-**分頁查詢回應**
-```json
-{
-  "success": true,
-  "data": {
-    "items": [ ... ],
-    "total": 87,
-    "page": 1,
-    "page_size": 20
-  },
-  "message": null
-}
-```
-
-**錯誤回應**
-```json
-{
-  "success": false,
-  "data": null,
-  "message": "該老師目前不接受新學生"
-}
-```
-
-#### 3.2.3 統一錯誤處理
+#### 統一錯誤處理
 
 ```python
 # app/exceptions.py
@@ -392,16 +403,22 @@ async def app_exception_handler(request: Request, exc: AppException):
     )
 ```
 
-### 3.3 Repository Pattern
+</details>
 
-本系統採用 Repository Pattern 作為資料存取抽象層。所有 SQL 語句僅存在於 `repositories/` 目錄下之各 Repository 類別中，Router 層透過呼叫 Repository 方法存取資料，不得直接撰寫 SQL。
+### 3.3 Repository Pattern——資料存取方式
 
-此設計之目的如下：
-- 將資料存取邏輯集中管理，便於維護與除錯。
-- Router 層僅負責請求驗證與回應封裝，職責單一。
-- 未來若需替換資料庫引擎（如由 Access 遷移至 PostgreSQL），僅需修改 Repository 層。
+本系統採用 Repository Pattern 管理資料存取。以圖書館為類比：讀者不需要自行進入書庫翻找，只需告訴館員所需的書籍，由館員代為處理。
 
-#### 3.3.1 BaseRepository
+在系統中，各 Repository 類別即扮演「館員」的角色。後端的路由層（Router）需要資料時，不直接撰寫 SQL 查詢資料庫，而是呼叫對應的 Repository 方法。此設計有以下好處：
+
+- SQL 語句集中於同一層，便於維護
+- 若日後需更換資料庫引擎，僅需修改 Repository 層
+- 各層職責明確，程式碼不易混雜
+
+<details>
+<summary>技術細節（開發者展開）</summary>
+
+#### BaseRepository
 
 ```python
 # app/repositories/base.py
@@ -455,7 +472,7 @@ class BaseRepository:
         return items, total
 ```
 
-#### 3.3.2 Repository 使用範例
+#### Repository 使用範例
 
 ```python
 # app/repositories/tutor_repo.py
@@ -472,10 +489,6 @@ class TutorRepository(BaseRepository):
         min_rating: float | None = None,
         school: str | None = None
     ) -> list[dict]:
-        """
-        依據篩選條件搜尋老師。
-        所有篩選條件皆為可選，未提供之條件不納入查詢。
-        """
         sql = """
             SELECT t.tutor_id, u.display_name, t.university, t.department,
                    t.grade_year, t.max_students, t.show_university,
@@ -503,7 +516,6 @@ class TutorRepository(BaseRepository):
         return self.fetch_all(sql, tuple(params))
 
     def get_avg_rating(self, tutor_id: int) -> dict | None:
-        """取得指定老師之各維度平均評分與評價總數。"""
         sql = """
             SELECT AVG(rating_1) AS avg_teaching,
                    AVG(rating_2) AS avg_punctuality,
@@ -517,7 +529,6 @@ class TutorRepository(BaseRepository):
         return self.fetch_one(sql, (tutor_id,))
 
     def get_active_student_count(self, tutor_id: int) -> int:
-        """取得指定老師目前進行中之學生數（status 為 active 或 trial）。"""
         sql = """
             SELECT COUNT(*) AS cnt
             FROM Matches
@@ -527,9 +538,9 @@ class TutorRepository(BaseRepository):
         return result["cnt"] if result else 0
 ```
 
-#### 3.3.3 Router 層呼叫規範
+#### Router 層呼叫規範
 
-Router 層之職責限定為：接收請求、驗證參數、呼叫 Repository、封裝回應。不得包含 SQL 語句或複雜業務邏輯。
+Router 層的職責：接收請求 → 驗證參數 → 呼叫 Repository → 封裝回應。不得包含 SQL 語句或複雜業務邏輯。
 
 ```python
 # app/routers/tutors.py
@@ -556,17 +567,22 @@ async def search_tutors(
     for t in tutors:
         rating_info = repo.get_avg_rating(t["tutor_id"])
         t["avg_rating"] = rating_info
-        # 依據 show_xxx 欄位過濾不公開之資訊
         if not t.pop("show_university"):
             t.pop("university", None)
         if not t.pop("show_department"):
             t.pop("department", None)
-        # ... 其餘 show_xxx 欄位同理
 
     return ApiResponse(success=True, data=tutors)
 ```
 
+</details>
+
 ### 3.4 資料庫連線管理
+
+每次前端發出請求時，後端會建立一條通往 Access 資料庫的連線，處理完畢後立即關閉，以避免資源浪費。類似於前往圖書館借書——進門、借書、出門，不長時間佔用座位。
+
+<details>
+<summary>技術細節（開發者展開）</summary>
 
 ```python
 # app/database.py
@@ -592,9 +608,25 @@ def get_db():
         conn.close()
 ```
 
+</details>
+
 ### 3.5 環境變數管理
 
-系統組態透過 `.env` 檔案管理，並以 `pydantic-settings` 進行型別安全之讀取與驗證。
+部分資訊不適合直接寫死在程式碼中（例如密碼、資料庫路徑），因此統一存放於 `.env` 設定檔，程式啟動時自動讀取。
+
+專案中附有 `.env.example` 範本檔，列出所有需要填寫的欄位。取得專案後，將其複製並改名為 `.env`，再依環境填入對應的值即可。
+
+| 設定項目 | 範例值 | 說明 |
+|---------|--------|------|
+| ACCESS_DB_PATH | data/tutoring.accdb | Access 資料庫檔案的路徑 |
+| JWT_SECRET_KEY | your-secret-key-here | 用來加密通行證的密鑰 |
+| JWT_EXPIRE_MINUTES | 60 | 登入後通行證的有效時間（分鐘） |
+| ADMIN_USERNAME | admin | 管理員帳號 |
+| ADMIN_PASSWORD | change-me | 管理員密碼 |
+| LOG_LEVEL | INFO | 日誌記錄的詳細程度 |
+
+<details>
+<summary>技術細節（開發者展開）</summary>
 
 ```python
 # app/config.py
@@ -641,9 +673,25 @@ LOG_LEVEL=INFO
 CORS_ORIGINS=http://localhost:5173
 ```
 
-### 3.6 統一日誌機制
+</details>
 
-系統採用 Python 標準函式庫之 `logging` 模組，搭配 `RotatingFileHandler` 實現日誌檔案輪轉。所有日誌同時輸出至 console 與檔案。
+### 3.6 系統日誌
+
+系統會自動將運行過程中的事件記錄至 log 檔案，包含「誰在什麼時間做了什麼事」。當系統出現問題時，可開啟 log 檔案回溯事發經過，功能類似便利商店的監視器錄影。
+
+日誌格式範例：
+
+```
+2026-04-15 14:23:01 | INFO     | 使用者 john_parent 登入成功
+2026-04-15 14:23:05 | WARNING  | 配對 #42 狀態轉換被拒絕：trial → paused 不合法
+2026-04-15 14:24:00 | INFO     | CSV 匯入完成：Users 表，共 25 筆
+2026-04-15 14:25:30 | ERROR    | SQL 執行失敗：INSERT INTO Sessions ... [詳細錯誤]
+```
+
+每一行包含時間、嚴重程度（INFO = 正常資訊、WARNING = 警告、ERROR = 錯誤），以及事件描述。
+
+<details>
+<summary>技術細節（開發者展開）</summary>
 
 ```python
 # app/utils/logger.py
@@ -678,15 +726,26 @@ def setup_logger() -> logging.Logger:
     return root_logger
 ```
 
-**日誌輸出格式範例**：
+</details>
+
+### 3.7 一鍵啟動
+
+無需逐一手動啟動三個程式。雙擊 `start.bat` 即可自動啟動後端、背景任務處理器與前端開發伺服器。
+
+啟動完成後會顯示以下資訊：
+
 ```
-2026-04-15 14:23:01 | INFO     | app.routers.auth          | 使用者 john_parent 登入成功
-2026-04-15 14:23:05 | WARNING  | app.repositories.match    | 配對 #42 狀態轉換被拒絕：trial → paused 不合法
-2026-04-15 14:24:00 | INFO     | app.tasks.import_export   | CSV 匯入完成：Users 表，共 25 筆，模式 upsert
-2026-04-15 14:25:30 | ERROR    | app.repositories.base     | SQL 執行失敗：INSERT INTO Sessions ... [詳細錯誤]
+================================================
+  全部服務啟動完成
+
+  API Server:   http://localhost:8000
+  Swagger UI:   http://localhost:8000/docs     <- 所有 API 的互動式文件
+  前端介面:     http://localhost:5173           <- 於瀏覽器開啟即可使用系統
+================================================
 ```
 
-### 3.7 一鍵啟動腳本
+<details>
+<summary>技術細節（開發者展開）</summary>
 
 ```bat
 @REM start.bat — 一鍵啟動系統全部服務
@@ -742,7 +801,16 @@ echo ================================================
 pause
 ```
 
-### 3.8 前端 Axios 統一封裝
+</details>
+
+### 3.8 前端 API 呼叫的統一封裝
+
+前端每次向後端請求資料時，皆需執行幾項重複動作：攜帶登入通行證、檢查回應是否成功、處理登入過期的情況。這些共通邏輯統一封裝於 Axios interceptor 中，各頁面呼叫 API 時無需重複撰寫。
+
+概念上類似公文流程的統一規範——蓋章、編號、歸檔等步驟由行政部門統一處理，各部門無需自行記住。
+
+<details>
+<summary>技術細節（開發者展開）</summary>
 
 ```javascript
 // src/api/index.js
@@ -768,7 +836,6 @@ api.interceptors.response.use(
   response => {
     const { success, data, message } = response.data
     if (!success) {
-      // 通知 UI 顯示錯誤訊息（依所選元件庫實作）
       return Promise.reject(new Error(message))
     }
     return data  // 成功時直接回傳 data 層，呼叫端無需逐層解包
@@ -787,402 +854,412 @@ api.interceptors.response.use(
 export default api
 ```
 
+</details>
+
 ---
 
 ## 4. 角色與權限模型
 
-### 4.1 角色定義
+### 4.1 三種使用者角色
 
-本系統定義三種使用者角色，各角色之帳號建立方式與權限範圍如下表所述。
+本系統定義三種角色，各有不同的權限範圍。類似於學校中「校長」、「老師」、「家長」各有不同的可進入區域與可執行事項。
 
-| 角色 | 識別碼 | 帳號建立方式 | 說明 |
-|------|--------|-------------|------|
-| Super Admin | `admin` | `.env` 檔案指定帳號密碼，系統啟動時自動寫入 Users 表 | 系統管理者，負責資料匯入匯出、假資料生成、系統狀態監控 |
-| 家長 | `parent` | 使用者自行於註冊頁面建立 | 需求端，搜尋老師、管理子女資料、發起媒合、撰寫評價 |
-| 家教老師 | `tutor` | 使用者自行於註冊頁面建立 | 供給端，管理個人檔案、接受媒合、記錄教學日誌與考試成績 |
+| 角色 | 帳號建立方式 | 職責說明 |
+|------|------------|---------|
+| **管理員（Super Admin）** | 系統啟動時自動建立（帳密設定於 `.env` 中） | 管理整個系統——匯入匯出資料、產生假資料、監控系統狀態，相當於網站的站長 |
+| **家長（Parent）** | 自行於註冊頁面建立 | 需求端——搜尋老師、管理子女資料、發送媒合邀請、撰寫評價 |
+| **家教老師（Tutor）** | 自行於註冊頁面建立 | 供給端——管理個人檔案、接受或拒絕邀請、記錄上課日誌與考試成績 |
 
-### 4.2 權限矩陣
+### 4.2 權限對照表
 
-| 功能 | Super Admin | 家長 | 老師 |
-|------|:-----------:|:----:|:----:|
+下表列出各功能對應的角色權限。
+
+| 功能 | 管理員 | 家長 | 老師 |
+|------|:------:|:----:|:----:|
 | 系統管理後台 | ✓ | ✗ | ✗ |
-| 一鍵匯入匯出 | ✓ | ✗ | ✗ |
-| 假資料生成 | ✓ | ✗ | ✗ |
+| 匯入匯出資料 | ✓ | ✗ | ✗ |
+| 產生假資料 | ✓ | ✗ | ✗ |
 | 清空資料庫 | ✓ | ✗ | ✗ |
-| 查看所有使用者帳號 | ✓ | ✗ | ✗ |
+| 查看所有帳號 | ✓ | ✗ | ✗ |
 | 搜尋老師 | ✓ | ✓ | ✗ |
 | 管理子女資料 | ✗ | ✓ | ✗ |
-| 發起媒合邀請 | ✗ | ✓ | ✗ |
-| 接受/拒絕媒合 | ✗ | ✗ | ✓ |
-| 記錄上課日誌 | ✗ | ✗ | ✓ |
-| 查看上課日誌 | ✗ | 依 visible_to_parent | ✓（自己的） |
-| 新增考試紀錄 | ✗ | ✓ | ✓ |
-| 查看考試紀錄 | ✗ | 依 visible_to_parent | ✓（自己的） |
-| 撰寫評價 | ✗ | ✓（評老師） | ✓（評學生、評家長） |
+| 發送媒合邀請 | ✗ | ✓ | ✗ |
+| 接受/拒絕邀請 | ✗ | ✗ | ✓ |
+| 撰寫上課日誌 | ✗ | ✗ | ✓ |
+| 查看上課日誌 | ✗ | 依老師是否設為公開 | ✓（自己的） |
+| 新增考試成績 | ✗ | ✓ | ✓ |
+| 查看考試成績 | ✗ | 依老師是否設為公開 | ✓（自己的） |
+| 撰寫評價 | ✗ | ✓（評老師） | ✓（評學生 + 評家長） |
 | 傳送訊息 | ✓ | ✓ | ✓ |
 | 查看收入統計 | ✗ | ✗ | ✓（自己的） |
 | 查看支出統計 | ✗ | ✓（自己的） | ✗ |
-| 編輯老師檔案 | ✗ | ✗ | ✓（自己的） |
+| 編輯老師個人檔案 | ✗ | ✗ | ✓（自己的） |
 
-### 4.3 前端路由守衛規則
+### 4.3 頁面存取規則
 
-| 使用者狀態 | 嘗試訪問路徑 | 系統行為 |
+系統會依據使用者的角色，自動決定可進入的頁面：
+
+| 使用者狀態 | 嘗試存取的頁面 | 系統行為 |
 |-----------|-------------|---------|
-| 未登入 | 任何受保護頁面 | 重導至 `/login` |
-| role = parent | `/tutor/*` 或 `/admin/*` | 重導至 `/parent/dashboard` |
-| role = tutor | `/parent/*` 或 `/admin/*` | 重導至 `/tutor/dashboard` |
-| role = admin | 任何路徑 | 允許存取 |
+| 未登入 | 任何需登入的頁面 | 自動導向登入頁 |
+| 家長帳號 | 老師端頁面或管理員頁面 | 自動導回家長首頁 |
+| 老師帳號 | 家長端頁面或管理員頁面 | 自動導回老師首頁 |
+| 管理員帳號 | 任何頁面 | 皆可存取 |
+
+類似學校的門禁系統——各角色僅能進入其權限範圍內的區域，管理員則擁有全域存取權限。
 
 ---
 
 ## 5. 功能模組規格
 
-### 5.1 模組 A：身份驗證
+> 以下依英文字母 A~K 為各功能模組編號。每個模組代表系統中一個獨立的功能區塊。
 
-#### 5.1.1 註冊
+### 5.1 模組 A：登入與註冊
 
-- 使用者選擇角色（家長或老師），填寫帳號、密碼、姓名、電話、電子信箱。
-- 密碼以 bcrypt 演算法雜湊後儲存。
-- 若角色為老師，註冊完成後自動建立一筆空白之 Tutors 延伸資料。
+本模組為使用者進入系統的第一步。
 
-#### 5.1.2 登入
+#### 註冊流程
 
-- 驗證帳號密碼後簽發 JWT Token，Token 中包含 `user_id`、`role`、過期時間。
-- Token 有效期限預設為 60 分鐘，可於 `.env` 中調整。
-- 前端將 Token 存入 localStorage，每次 API 請求自動附加於 `Authorization` 標頭。
+1. 使用者於註冊頁面選擇身份（家長或老師）
+2. 填寫帳號、密碼、姓名、電話、電子信箱
+3. 密碼經加密後方存入資料庫（不儲存明碼）
+4. 若註冊身份為老師，系統將自動建立一筆空白的老師個人檔案，供後續填寫
 
-#### 5.1.3 Super Admin 初始化
+#### 登入流程
 
-系統啟動時（`main.py` 之 `startup` 事件），檢查 Users 表中是否已存在 `.env` 中指定之管理員帳號。若不存在，則自動插入一筆 `role = admin` 之使用者紀錄。
+1. 輸入帳號與密碼
+2. 驗證通過後，系統簽發一張「通行證」（JWT Token）
+3. 通行證預設有效期限為 60 分鐘，逾期須重新登入
+4. 後續每次操作，前端皆自動攜帶此通行證，無需重複登入
+
+#### 管理員帳號
+
+管理員帳號無需註冊。系統首次啟動時，會自動讀取 `.env` 設定檔中的管理員帳密並寫入資料庫。
 
 ### 5.2 模組 B：訊息系統
 
-#### 5.2.1 設計原則
+本模組提供一對一的純文字即時訊息功能，概念上類似 LINE 的文字聊天，但不含貼圖、檔案傳送或已讀標記。
 
-- 一對一對話模式，每兩位使用者之間最多存在一個 Conversation。
-- 僅支援純文字訊息，不支援檔案傳送、已讀標記或即時推播。
-- 任何使用者均可主動向任何其他使用者發起對話。
+#### 設計原則
 
-#### 5.2.2 功能規格
+- 任意兩位使用者之間最多存在一個對話（不會重複建立）
+- 僅支援純文字訊息
+- 任何使用者皆可主動向其他使用者開啟對話
+
+#### 功能清單
 
 | 功能 | 說明 |
 |------|------|
-| 對話列表 | 依最後訊息時間降冪排列，顯示對方姓名與最新訊息摘要 |
-| 對話頁面 | 依時間序列顯示雙方訊息，底部設有文字輸入區與送出按鈕 |
-| 開啟新對話 | 由老師詳情頁之「傳送訊息」按鈕觸發；API 先查詢雙方是否已有既存對話，有則回傳既有 conversation_id，無則新建 |
+| 對話列表 | 依最新訊息時間排列，顯示對方姓名與最新訊息摘要 |
+| 聊天頁面 | 依時間順序顯示雙方訊息，底部設有文字輸入區與送出按鈕 |
+| 開啟新對話 | 於老師詳情頁點擊「傳送訊息」即可開啟對話；若雙方已有既存對話，則自動導向該對話 |
 
-### 5.3 模組 C：搜尋與老師檔案
+### 5.3 模組 C：搜尋老師與個人檔案
 
-#### 5.3.1 搜尋頁面
+#### 搜尋頁面
 
-**篩選條件**
+**篩選條件**（可組合使用）
 
-| 條件 | 輸入方式 | 說明 |
+| 條件 | 操作方式 | 說明 |
 |------|---------|------|
-| 科目 | 下拉選單或多選標籤 | 篩選可教授指定科目之老師 |
-| 時薪範圍 | 數值輸入（最低～最高） | 篩選時薪落於指定區間之老師 |
-| 評分門檻 | 數值輸入 | 僅顯示平均評分大於等於指定值之老師 |
-| 學校/科系 | 文字輸入 | 模糊比對 |
+| 科目 | 下拉選單 | 例如選「數學」，僅顯示可教數學的老師 |
+| 時薪範圍 | 填寫最低與最高金額 | 例如 500~800，僅顯示時薪落於此區間的老師 |
+| 最低評分 | 填寫數字 | 例如填 4，僅顯示平均評分 4 分以上的老師 |
+| 學校 | 文字輸入 | 例如輸入「台大」，以模糊比對找出學校名稱含「台大」的老師 |
 
-**排序方式**
+**排序方式**（三選一）
 
-使用者可自行選擇排序依據，系統提供以下選項：評分最高優先、時薪最低優先、最新註冊優先。
+- 評分最高優先
+- 時薪最低優先
+- 最新註冊優先
 
-**老師卡片顯示規則**
+**老師卡片的顯示內容**
 
-系統強制顯示（不可隱藏）之欄位：姓名、平均評分、評價數量。
+- **系統強制顯示**：老師姓名、平均評分、評價數量
+- **由老師自行控制是否公開**：學校、科系、年級、時薪、可教科目
 
-老師可透過個人檔案設定之 `show_xxx` 欄位，控制以下資訊是否對外顯示：學校、科系、年級、時薪範圍、可教科目。
+此頁面的運作方式類似 Airbnb 的搜尋功能——設定篩選條件後，結果以卡片列表呈現，每張卡片包含關鍵資訊。
 
-#### 5.3.2 老師詳情頁
-
-於搜尋結果卡片資訊之基礎上，額外顯示以下內容：
+#### 老師詳情頁
 
 | 區塊 | 內容 |
 |------|------|
-| 自我介紹 | 完整自介文字與教學經歷 |
-| 評價 | 各維度平均分之雷達圖、歷史評價列表 |
-| 接案狀態 | 已接 N 位學生 / 上限 M 位（源自 `max_students` 設定） |
-| 可用時段 | 行事曆形式呈現每週可用時段（源自 `Tutor_Availability` 表） |
-| 操作按鈕 | 「傳送訊息」（開啟對話）、「送出邀請」（進入媒合流程） |
+| 自我介紹 | 完整的自介文字與教學經歷 |
+| 評價 | 各維度平均分數的雷達圖（蜘蛛網圖），以及歷史評價列表 |
+| 接案狀態 | 已接學生數 / 接案上限（例如「已接 3 位 / 上限 5 位」） |
+| 可用時段 | 以行事曆形式呈現每週可用時段 |
+| 操作按鈕 | 「傳送訊息」與「送出邀請」 |
 
-#### 5.3.3 老師個人檔案編輯
+#### 老師個人檔案編輯
 
-老師可編輯之欄位清單：
-
-| 類別 | 欄位 |
-|------|------|
+| 類別 | 可編輯欄位 |
+|------|----------|
 | 基本資料 | 姓名、學校、科系、年級、自我介紹、教學經歷 |
-| 教學設定 | 可教科目（多選，各科可設定不同時薪）、最大接案學生數 |
-| 時段設定 | 每週可用時段（星期幾、起訖時間） |
-| 隱私設定 | 各欄位對外公開與否（show_university、show_department 等） |
+| 教學設定 | 可教科目（各科可設定不同時薪）、最大接案學生數 |
+| 時段設定 | 每週哪幾天的哪些時段有空 |
+| 隱私設定 | 控制學校、科系、年級、時薪、科目等欄位是否對外公開 |
 
 ### 5.4 模組 D：媒合流程與合約
 
-#### 5.4.1 狀態機定義
+本模組是系統中最核心的部分。一段配對從「送出邀請」到「合作結束」，會經歷多個階段。
 
-Matches 表之 `status` 欄位管理配對生命週期，共定義 8 種狀態。
+#### 配對生命週期
 
 ```
-                    ┌──────────────────────────────────────────────────────┐
-                    │                                                      │
-  [家長送出邀請]     │    [家長撤回]                                         │
-       │            │         │                                            │
-       ▼            │         ▼                                            │
-   ┌────────┐       │    ┌──────────┐                                     │
-   │pending │───────┘──→ │cancelled │                                     │
-   └────────┘             └──────────┘                                    │
-       │                                                                   │
-       │ [老師接受]                                                         │
-       │                                                                   │
-       │ ┌─ want_trial=Yes ─→ ┌───────┐ [雙方確認] → ┌────────┐          │
-       │ │                     │ trial │─────────────→│ active │          │
-       │ │                     └───────┘              └────────┘          │
-       │ │                          │                      │  ▲           │
-       │ │                   [任一方不滿意]          [暫停]  │  │[恢復]    │
-       │ │                          │                      ▼  │           │
-       │ │                          ▼                 ┌────────┐          │
-       │ │                     ┌──────────┐           │ paused │          │
-       │ │                     │ rejected │           └────────┘          │
-       │ │                     └──────────┘                │              │
-       │ │                                          [提出終止]             │
-       │ └─ want_trial=No ──→ 直接進入 active              │              │
-       │                                                   ▼              │
-       │ [老師拒絕]                                 ┌──────────────┐      │
-       └──────────→ rejected                        │ terminating  │      │
-                                                    │ (等對方同意)  │      │
-                                                    └──────────────┘      │
-                                                           │               │
-                                                    [對方同意]              │
-                                                           │    [對方不同意]│
-                                                           ▼       ────────┘
-                                                     ┌────────┐
-                                                     │ ended  │
-                                                     └────────┘
-                                                           │
-                                                    [開放評價，7 日內可修改]
+  [pending] -----> [cancelled]
+  等待中    家長撤回   已撤回
+    |
+    +-- 老師拒絕 --> [rejected] 已拒絕
+    |
+    +-- 老師接受
+          |
+          +-- 有勾試教 --> [trial] --> 雙方滿意 --> [active]
+          |                試教中      不滿意 ----> [rejected]
+          |
+          +-- 沒勾試教 --> [active]
+                          正式上課
+                            |
+              [paused] <--> + <-- 暫停 / 恢復
+              暫停中        |
+                            +-- 任一方提出終止
+                            |
+                            v
+                      [terminating]
+                      等對方同意
+                            |
+                  +---------+---------+
+                  |                   |
+             對方同意            對方不同意
+                  |                   |
+                  v                   v
+              [ended]           回到之前狀態
+              已結束            繼續上課
+                  |
+             開放撰寫評價
+             (7 天內可修改)
 ```
 
-#### 5.4.2 狀態轉換規則
+#### 狀態轉換規則（完整版）
 
-| 當前狀態 | 觸發動作 | 操作者 | 目標狀態 | 備註 |
-|---------|---------|--------|---------|------|
-| pending | 撤回邀請 | 家長 | cancelled | — |
-| pending | 拒絕邀請 | 老師 | rejected | — |
-| pending | 接受邀請 | 老師 | trial 或 active | 依 `want_trial` 欄位決定 |
-| trial | 雙方確認 | 家長＋老師 | active | 需雙方均確認方可轉換 |
-| trial | 不滿意 | 家長或老師 | rejected | 任一方即可觸發 |
-| active | 暫停 | 家長或老師 | paused | — |
-| active | 提出終止 | 家長或老師 | terminating | 記錄 `terminated_by` |
-| paused | 恢復 | 家長或老師 | active | — |
-| paused | 提出終止 | 家長或老師 | terminating | — |
-| terminating | 同意終止 | 對方 | ended | — |
-| terminating | 不同意 | 對方 | active 或 paused | 回到提出終止前之狀態 |
+| 目前狀態 | 操作者 | 執行動作 | 轉換至 |
+|---------|--------|---------|-------|
+| 等待中 pending | 家長 | 撤回邀請 | 已撤回 cancelled |
+| 等待中 pending | 老師 | 拒絕邀請 | 已拒絕 rejected |
+| 等待中 pending | 老師 | 接受邀請 | 試教 trial 或 正式 active（依是否勾選試教而定） |
+| 試教 trial | 雙方皆確認 | 試教通過 | 正式 active |
+| 試教 trial | 任一方 | 試教不滿意 | 已拒絕 rejected |
+| 正式 active | 任一方 | 暫停 | 暫停 paused |
+| 正式 active | 任一方 | 提出終止 | 等待終止確認 terminating |
+| 暫停 paused | 任一方 | 恢復 | 正式 active |
+| 暫停 paused | 任一方 | 提出終止 | 等待終止確認 terminating |
+| 等待終止 terminating | 對方 | 同意終止 | 已結束 ended |
+| 等待終止 terminating | 對方 | 不同意 | 回到提出終止前的狀態 |
 
-#### 5.4.3 合約條款欄位
+#### 合約條款
 
-以下欄位儲存於 Matches 表中，於雙方簽約階段填入。
+配對進入正式階段時，須記錄以下合約內容：
 
-| 欄位 | 型態 | 說明 |
-|------|------|------|
-| hourly_rate | Currency | 正式授課時薪 |
-| sessions_per_week | Integer | 約定之每週堂數 |
-| start_date | Date | 合約起始日期 |
-| end_date | Date | 合約結束日期（可為空值，於終止時填入） |
-| penalty_amount | Currency | 提前終止之違約金金額 |
-| trial_price | Currency | 試教單次費用（通常低於正式時薪） |
-| trial_count | Integer | 約定之試教次數 |
-| contract_notes | Memo | 其他附加條款（自由文字） |
+| 欄位 | 說明 |
+|------|------|
+| 正式時薪 | 每小時費用 |
+| 每週堂數 | 約定之每週上課次數 |
+| 合約起始日 | 開始日期 |
+| 合約結束日 | 結束日期（可留空，終止時再填入） |
+| 違約金 | 提前終止之違約金金額 |
+| 試教費 | 試教期間的單堂費用（通常低於正式時薪） |
+| 試教次數 | 約定之試教次數 |
+| 附加條款 | 其他雙方自訂之備註事項 |
 
-#### 5.4.4 邀請附帶資訊
-
-家長送出媒合邀請時，須填寫以下資訊：
+#### 邀請附帶資訊
 
 | 欄位 | 必填 | 說明 |
 |------|:----:|------|
-| 指定子女 | ✓ | 從家長已建立之子女清單中選取 |
+| 指定子女 | ✓ | 從已建立之子女清單中選取 |
 | 科目 | ✓ | 從老師可教授之科目中選取 |
-| 提議時薪 | ✓ | 家長提議之時薪金額 |
-| 提議每週堂數 | ✓ | 家長希望之每週上課次數 |
-| 是否試教 | ✓ | 布林值，勾選後配對將先進入 trial 階段 |
-| 留言 | 選填 | 文字留言，說明教學需求或期望 |
+| 建議時薪 | ✓ | 家長提議之金額 |
+| 建議每週堂數 | ✓ | 希望的每週上課次數 |
+| 是否試教 | ✓ | 勾選後配對將先進入試教階段 |
+| 留言 | 選填 | 向老師說明教學需求或期望 |
 
 ### 5.5 模組 E：上課日誌
 
-#### 5.5.1 日誌欄位
+每次上課結束後，老師可於系統中記錄一篇上課紀錄，包含教學內容、指派作業、學生表現等。家長可依老師設定的公開狀態查閱相關紀錄。
+
+#### 日誌欄位
 
 | 欄位 | 必填 | 說明 |
 |------|:----:|------|
 | 上課日期 | ✓ | 日期選擇 |
-| 上課時數 | ✓ | 數值輸入（支援小數，如 1.5 小時） |
-| 內容摘要 | ✓ | 本次上課之教學內容紀錄 |
-| 指派作業 | 選填 | 本次課後指派之作業內容 |
-| 學生當堂表現 | 選填 | 教師對學生該堂表現之觀察紀錄 |
-| 下次預計進度 | 選填 | 下次上課之預計教學範圍 |
-| 是否公開予家長 | ✓ | 布林值，預設為否 |
+| 上課時數 | ✓ | 支援小數，例如 1.5 小時 |
+| 內容摘要 | ✓ | 本次教學內容 |
+| 指派作業 | 選填 | 課後作業內容 |
+| 學生表現 | 選填 | 老師對學生當堂表現的觀察 |
+| 下次預計進度 | 選填 | 下次上課的預計教學範圍 |
+| 是否公開給家長 | ✓ | 預設為不公開，老師可自行決定是否讓家長看到 |
 
-#### 5.5.2 權限規則
+#### 權限規則
 
-- 僅配對之老師可新增與編輯上課日誌。
-- 家長僅能檢視 `visible_to_parent = Yes` 之日誌紀錄。
-- 家長 Dashboard 首頁顯示所有子女最近之已公開日誌。
+- 僅配對中的老師可新增與編輯上課日誌
+- 家長僅能查看老師設為「公開」的日誌
+- 家長首頁（Dashboard）會自動顯示所有子女最近的已公開日誌
 
-#### 5.5.3 修改歷史機制
+#### 修改歷史
 
-日誌送出後允許修改，惟每次修改均於 `Session_Edit_Logs` 表留下紀錄，記錄內容包含：被修改之欄位名稱、修改前內容、修改後內容、修改時間。
+日誌送出後仍允許修改，但每次修改皆會自動留下紀錄，包含：被修改的欄位、修改前內容、修改後內容、修改時間。概念類似 Google Docs 的版本紀錄。
 
 ### 5.6 模組 F：考試紀錄
 
-#### 5.6.1 紀錄欄位
+#### 紀錄欄位
 
 | 欄位 | 必填 | 說明 |
 |------|:----:|------|
 | 考試日期 | ✓ | 日期選擇 |
-| 科目 | ✓ | 從系統科目清單中選取 |
-| 考試類型 | ✓ | 下拉選單：段考、模考、隨堂考 |
-| 分數 | ✓ | 數值輸入 |
-| 是否公開予家長 | ✓ | 布林值 |
+| 科目 | ✓ | 從科目清單中選取 |
+| 考試類型 | ✓ | 段考、模考、或隨堂考 |
+| 分數 | ✓ | 數字 |
+| 是否公開給家長 | ✓ | 同上課日誌 |
 
-本版本不包含試題相關內容（如題目、錯題詳解等）。
+#### 權限規則
 
-#### 5.6.2 權限規則
+- 老師與家長皆可新增考試紀錄
+- 老師新增之紀錄，依「是否公開」決定家長是否可見
+- 家長自行新增之紀錄，一律設為公開
 
-- 老師與家長均可新增考試紀錄，系統記錄新增者之 `user_id`。
-- 老師新增之紀錄，依 `visible_to_parent` 決定家長是否可見。
-- 家長自行新增之紀錄，`visible_to_parent` 強制為 Yes。
+#### 進步幅度計算
 
-#### 5.6.3 進步幅度計算
+進步幅度不另存於資料庫。前端取得同一學生同一科目的歷次考試分數後，計算相鄰兩次的分數差值。
 
-進步幅度不儲存於資料庫，而是由前端取得同一學生同一科目之歷次考試分數後，計算相鄰兩次考試之分數差值進行顯示。
+> 範例：某學生數學段考 72 → 85 → 90，進步幅度依序為 +13、+5。
 
 ### 5.7 模組 G：三向評價系統
 
-#### 5.7.1 設計原則
+一般平台僅有「消費者評供應者」的單向評價。本系統則設計了三個方向的評價機制，於合作結束後分別進行：
 
-三種評價方向共用 `Reviews` 表，以 `review_type` 欄位區分方向。評分欄位使用通用命名（`rating_1` 至 `rating_4`），前端依據 `review_type` 之值顯示對應之維度標籤。此設計使評價相關之前端元件（`ReviewForm.vue`、`ReviewList.vue`）得以跨方向重複使用。
+1. 家長 → 評老師（教學品質如何？）
+2. 老師 → 評學生（學習態度如何？）
+3. 老師 → 評家長（配合度如何？）
 
-#### 5.7.2 各方向之維度定義
+#### 各方向的評分維度
 
-**家長 → 老師（`review_type = 'parent_to_tutor'`）**
+**家長評老師**
 
-| 通用欄位 | 維度標籤 | 分數範圍 |
-|---------|---------|---------|
-| rating_1 | 教學品質 | 1–5 |
-| rating_2 | 準時度 | 1–5 |
-| rating_3 | 學生進步程度 | 1–5 |
-| rating_4 | 溝通態度 | 1–5 |
-| personality_comment | 性格評價 | 自由文字 |
-| comment | 整體評論 | 自由文字 |
+| 評分項目 | 分數範圍 |
+|---------|---------|
+| 教學品質 | 1~5 分 |
+| 準時度 | 1~5 分 |
+| 學生進步程度 | 1~5 分 |
+| 溝通態度 | 1~5 分 |
+| 性格評價 | 文字描述 |
+| 整體評論 | 文字描述 |
 
-**老師 → 學生（`review_type = 'tutor_to_student'`）**
+**老師評學生**
 
-| 通用欄位 | 維度標籤 | 分數範圍 |
-|---------|---------|---------|
-| rating_1 | 學習態度 | 1–5 |
-| rating_2 | 作業完成度 | 1–5 |
-| rating_3 | 預留 | 可為空值 |
-| rating_4 | 預留 | 可為空值 |
-| personality_comment | 性格評價 | 自由文字 |
-| comment | 整體評論 | 自由文字 |
+| 評分項目 | 分數範圍 |
+|---------|---------|
+| 學習態度 | 1~5 分 |
+| 作業完成度 | 1~5 分 |
+| 性格評價 | 文字描述 |
+| 整體評論 | 文字描述 |
 
-**老師 → 家長（`review_type = 'tutor_to_parent'`）**
+**老師評家長**
 
-| 通用欄位 | 維度標籤 | 分數範圍 |
-|---------|---------|---------|
-| rating_1 | 配合度（準時、不臨時取消） | 1–5 |
-| rating_2 | 溝通態度（聯絡便利性、尊重程度） | 1–5 |
-| rating_3 | 繳費準時度 | 1–5 |
-| rating_4 | 預留 | 可為空值 |
-| personality_comment | 性格評價 | 自由文字 |
-| comment | 整體評論 | 自由文字 |
+| 評分項目 | 分數範圍 |
+|---------|---------|
+| 配合度（準時、不臨時取消） | 1~5 分 |
+| 溝通態度（聯絡便利、尊重程度） | 1~5 分 |
+| 繳費準時度 | 1~5 分 |
+| 性格評價 | 文字描述 |
+| 整體評論 | 文字描述 |
 
-#### 5.7.3 評價規則
+#### 評價規則
 
 | 規則 | 說明 |
 |------|------|
-| 觸發時機 | 配對狀態變為 `ended` 後方可撰寫評價 |
+| 觸發時機 | 配對狀態變為「已結束 ended」後方可撰寫 |
 | 次數限制 | 每段配對之每個方向僅限撰寫一次 |
-| 修改期限 | 評價送出後 7 日內允許修改，逾期後鎖定 |
-| 鎖定機制 | API 端計算 `created_at` 與目前時間之差值，超過 7 日則回傳 HTTP 403 |
-| 定時清理 | huey 排程任務於每日凌晨 3:00 執行，可進行過期評價之標記或其他清理作業 |
+| 修改期限 | 送出後 **7 天內**可修改，逾期鎖定 |
+| 鎖定機制 | 後端比對評價建立時間與目前時間，超過 7 天即拒絕修改 |
 
-#### 5.7.4 評價聚合顯示
+#### 評價呈現方式
 
-- 老師詳情頁：以雷達圖呈現四個維度之平均分數，並以列表形式展示歷史評價。
-- 配對詳情頁：展示該配對之所有方向評價。
+- **老師詳情頁**：以雷達圖呈現四個維度的平均分數，下方列出歷史評價
+- **配對詳情頁**：顯示該配對之所有方向評價
 
-### 5.8 模組 H：Dashboard
+### 5.8 模組 H：首頁 Dashboard
 
-#### 5.8.1 老師 Dashboard
+Dashboard 為登入後的首頁，彙整顯示使用者最需關注的資訊，功能類似手機的通知中心。
+
+#### 老師首頁
 
 | 區塊 | 顯示內容 |
 |------|---------|
 | 摘要卡片 | 目前學生數 / 接案上限、本月收入金額、待處理邀請數量 |
-| 待處理 | `status = pending` 之邀請列表 |
-| 進行中 | `status IN (active, trial, paused)` 之配對列表，點擊可進入配對詳情 |
+| 待處理 | 尚待回覆的邀請清單 |
+| 進行中 | 目前所有進行中的配對（正式上課、試教中、暫停中），可點擊進入詳情 |
 
-#### 5.8.2 家長 Dashboard
+#### 家長首頁
 
 | 區塊 | 顯示內容 |
 |------|---------|
-| 子女列表 | 各子女姓名及其目前配對狀態一覽 |
-| 待回覆邀請 | `status = pending` 之已送出邀請 |
-| 最近動態 | 跨子女之最新已公開上課日誌 |
-| 最新成績 | 各子女之最新已公開考試成績 |
+| 子女列表 | 各子女姓名及目前配對狀態一覽 |
+| 待回覆邀請 | 已送出但尚未獲得老師回覆的邀請 |
+| 最近動態 | 所有子女最新的已公開上課日誌 |
+| 最新成績 | 各子女最近的已公開考試成績 |
 
 ### 5.9 模組 I：統計報表
 
-#### 5.9.1 老師收入統計
+#### 老師收入統計
 
-- 支援三種分群維度：按月份、按學生、按科目。
-- 計算公式：`SUM(Sessions.hours × Matches.hourly_rate)`，依所選維度進行 `GROUP BY`。
-- 前端呈現：柱狀圖搭配數據表格。
-- 計算方式：透過 huey 背景任務執行，避免阻塞 API 回應。
+- 支援三種分群維度：**按月份** / **按學生** / **按科目**
+- 計算公式：`上課時數 x 時薪` 之加總
+- 畫面呈現：柱狀圖搭配數據表格
+- 計算透過背景任務執行，不阻塞使用者畫面
 
-#### 5.9.2 家長支出統計
+#### 家長支出統計
 
-- 與老師收入統計對稱，支援按月份、按子女、按科目分群。
-- 計算公式同上。
+- 與老師收入統計對稱，支援按月份 / 按子女 / 按科目分群
+- 計算公式相同
 
-#### 5.9.3 學生成績趨勢
+#### 學生成績趨勢
 
-- 折線圖：X 軸為考試日期，Y 軸為分數，支援按科目篩選。
-- 表格：歷次考試清單，各筆顯示與同科目上次考試之分數差值（前端計算）。
+- **折線圖**：X 軸為考試日期，Y 軸為分數，支援按科目篩選
+- **表格**：列出歷次考試，各筆顯示與同科目上次考試之分數差值
 
-### 5.10 模組 J：匯入匯出與假資料
+### 5.10 模組 J：資料匯入匯出與假資料
 
-#### 5.10.1 支援格式
+#### 匯出
 
-CSV（逗號分隔值）。
+- 全部 13 張資料表皆支援匯出為 **CSV 檔案**（可用 Excel 開啟）
+- 匯出操作透過背景任務執行，不阻塞畫面，完成後提供下載
 
-#### 5.10.2 匯出
+#### 匯入
 
-- 全部 13 張資料表均支援匯出。
-- 匯出操作透過 huey 背景任務執行，API 立即回傳 `task_id`，前端以 polling 方式查詢任務狀態，完成後提供檔案下載。
+- 提供兩種模式：
+  - **比對更新（upsert）**：依主鍵比對，存在則更新，不存在則新增
+  - **完全覆蓋（overwrite）**：清空目標表後全量寫入（僅管理員可用）
+- 同樣透過背景任務執行
 
-#### 5.10.3 匯入
+#### 假資料生成器
 
-- 預設模式：比對式更新（upsert）——依主鍵比對，存在則更新，不存在則新增。
-- Super Admin 專用模式：完全覆蓋（overwrite）——清空目標表後全量寫入。
-- 匯入操作同樣透過 huey 背景任務執行，避免大量資料阻塞 API。
+展示時需要一定數量的資料，但逐筆手動輸入並不實際。因此系統內建假資料產生器，可一鍵自動生成具有合理樣貌的假資料——包含中文姓名、台灣大專院校名稱、合理的評分分布與評語等。
 
-#### 5.10.4 假資料生成器
+### 5.11 模組 K：管理員後台
 
-- 以 huey 背景任務形式運行，由 Admin 後台之按鈕觸發。
-- 生成邏輯包含：中文姓名、台灣大專院校名稱、科目組合、合理之評價文字與分數分布等。
-- 生成流程：產出各表之 CSV 字串 → 呼叫匯入任務逐表寫入 Access → 回傳生成結果。
-
-### 5.11 模組 K：Super Admin 後台
+管理員專用的控制台，一般使用者無法存取。
 
 | 功能 | 說明 |
 |------|------|
-| 一鍵匯入/匯出 | 可選擇單表或全部資料表，操作透過 huey 背景任務執行 |
-| 清空資料庫 | 確認對話框 → 刪除所有資料表之內容（保留 Admin 帳號與表結構） |
-| 使用者管理 | 顯示所有帳號之列表（支援搜尋） |
-| 系統狀態 | 顯示統計數據：總帳號數、老師數、家長數、配對數、本月活躍配對數等 |
-| 假資料生成 | 按鈕觸發 → 背景生成並匯入 → 介面顯示進度 |
+| 匯入/匯出 | 可選擇單張或全部資料表進行匯入或匯出 |
+| 清空資料庫 | 刪除所有資料（保留管理員帳號與表結構），操作前有確認提示 |
+| 使用者管理 | 查看所有帳號列表，支援搜尋 |
+| 系統狀態 | 顯示統計數據：總帳號數、老師數、家長數、配對數等 |
+| 假資料生成 | 觸發背景任務產生並匯入假資料，介面顯示執行進度 |
 
 ---
+
+<!-- ============================================================ -->
+<!-- 以下為技術規格區（第 6~13 節），保留原始專業格式                     -->
+<!-- ============================================================ -->
 
 ## 6. 資料庫設計
 
@@ -1765,19 +1842,56 @@ def lock_expired_reviews():
 
 ## 10. 分工規劃
 
+### 10.1 團隊組成
+
+| 成員 | 技術背景 | 角色定位 |
+|------|---------|---------|
+| **A（Tech Lead）** | 全端開發 | 系統架構設計與核心開發 |
+| **B** | 基礎網頁知識 | 前端開發支援 |
+| **C** | 基礎網頁知識 | 前端開發支援 + 系統測試 |
+| **D** | 正在學習 Access | 資料庫建置 + 簡報製作 |
+| **E** | 正在學習 Access | 資料庫建置 + 書面報告 |
+
+### 10.2 各成員職責
+
 | 成員 | 負責範圍 | 交付物 |
 |------|---------|--------|
-| 技術負責人 | Access 資料表建立、FastAPI 後端開發、huey worker 建置、Vue 前端開發、假資料生成器撰寫 | 完整系統原始碼 |
-| 組員 A | 簡報製作、上台口頭報告 | PowerPoint 簡報檔案 |
-| 組員 B | 系統操作測試、書面報告撰寫（系統說明、功能截圖） | 書面報告文件 |
-| 全體 | 展示前排練、測試情境腳本準備 | Demo 流程表 |
+| **A** | 後端架構搭建（FastAPI、Repository、JWT 認證）、huey worker 建置、複雜前端頁面（媒合狀態機、評價雷達圖、統計圖表）、假資料生成器、程式碼審查與技術指導 | 後端完整原始碼、核心前端頁面、start.bat |
+| **B** | 前端頁面開發：登入/註冊頁、家長 Dashboard、搜尋頁面、老師卡片元件、訊息系統 UI | 所負責之 Vue 頁面與元件 |
+| **C** | 前端頁面開發：老師 Dashboard、老師個人檔案編輯頁、上課日誌表單/時間軸、考試紀錄頁面；系統整合測試 | 所負責之 Vue 頁面與元件、測試紀錄文件 |
+| **D** | 於 MS Access 中建立 13 張資料表與關聯圖、設定欄位型態與限制條件；簡報製作與上台口頭報告 | Access 資料庫檔案（.accdb）、PowerPoint 簡報 |
+| **E** | 協助 D 完成 Access 資料表建置（分工各負責約一半的表）；書面報告撰寫（系統說明、功能截圖、使用者操作手冊） | Access 資料庫檔案（.accdb）、書面報告文件 |
+| **全體** | 展示前排練、Demo 情境腳本設計與演練 | Demo 流程表 |
 
-### 組員可執行之具體任務
+### 10.3 協作方式與時程搭配
 
-- 使用 Admin 後台之假資料生成功能匯入測試資料後，按 demo 腳本操作系統並截圖記錄。
-- 撰寫使用者操作手冊（按步驟截圖搭配文字說明）。
-- 設計多組測試情境（老師暱稱、科目組合、評價內容等）。
-- 測試各種狀態轉換之正確性（如試教後拒絕、暫停後恢復、終止流程等）。
+| 週次 | A（Tech Lead） | B、C（前端） | D、E（Access + 文件） |
+|:----:|---------------|-------------|---------------------|
+| **1** | 搭建後端骨架、Auth 模組、huey 初始化、前端專案初始化 | 熟悉 Vue 開發環境、跑通範例頁面、練習 Axios 呼叫 API | 在 Access 中建立 13 張資料表、設定關聯圖，交付 .accdb 檔案 |
+| **2** | 開發核心 API（老師搜尋、學生 CRUD、媒合狀態機、訊息） | B：登入/註冊頁、搜尋頁、老師卡片；C：老師 Dashboard、個人檔案編輯頁 | 用 Admin 後台匯入假資料，驗證資料表結構是否正確；開始規劃簡報大綱 |
+| **3** | 開發教學管理 API（日誌、考試）、Admin 後台 API | B：家長 Dashboard、訊息系統 UI；C：上課日誌表單/時間軸、考試紀錄頁 | 按 Demo 腳本操作系統並截圖；撰寫書面報告初稿 |
+| **4** | 開發評價系統、統計報表、CSV 匯入匯出、假資料生成器 | B：配對詳情頁（邀請表單、合約表單）；C：評價表單、整合測試 | 完成簡報製作；完成書面報告（含功能截圖與操作手冊） |
+| **5** | 全系統 bug 修復、UI 細節調整 | 協助修復前端 bug、最終 UI 微調 | 全體排練展示流程、準備備用測試情境 |
+
+### 10.4 B、C 組員的前端開發指引
+
+B 和 C 負責的頁面不涉及後端邏輯，只需完成以下工作：
+
+1. **畫面排版**：依照設計稿（或口頭討論的樣式）用 Vue 元件搭出頁面
+2. **呼叫 API**：使用 `src/api/` 目錄下已封裝好的函式取得資料（A 會先寫好）
+3. **資料綁定**：把 API 回傳的資料顯示到畫面上
+4. **表單送出**：把使用者填寫的內容透過 API 送到後端
+
+> A 會負責建立好前端專案結構、API 封裝層、路由設定、以及 Pinia store，讓 B 和 C 可以專注在「把頁面畫出來、把資料接上去」。
+
+### 10.5 D、E 組員的 Access 建置指引
+
+D 和 E 負責的工作不需要寫程式，但需要在 Access 裡精確地建好資料表：
+
+1. **對照第 6 節的欄位規格表**，在 Access 的設計檢視中逐一建立欄位、設定資料型態和限制
+2. **建立資料表之間的關聯**（在 Access 的「資料庫關聯圖」工具中拉線）
+3. **建議分工**：D 負責 Users、Tutors、Students、Subjects、Tutor_Subjects、Tutor_Availability、Conversations（7 張）；E 負責 Messages、Matches、Sessions、Session_Edit_Logs、Exams、Reviews（6 張）
+4. **完成後交給 A 驗證**——A 會用 pyodbc 連上去跑測試，確認欄位名稱和型態都正確
 
 ---
 
