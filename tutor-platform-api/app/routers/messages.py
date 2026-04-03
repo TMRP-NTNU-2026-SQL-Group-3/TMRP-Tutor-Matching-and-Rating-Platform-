@@ -1,0 +1,74 @@
+from fastapi import APIRouter, Depends
+
+from app.dependencies import get_current_user, get_db
+from app.exceptions import AppException, ForbiddenException, NotFoundException
+from app.models.common import ApiResponse
+from app.models.message import ConversationCreate, MessageSend
+from app.repositories.base import BaseRepository
+from app.repositories.message_repo import MessageRepository
+
+router = APIRouter(prefix="/api/messages", tags=["messages"])
+
+
+@router.post("/conversations", response_model=ApiResponse)
+def create_conversation(
+    body: ConversationCreate,
+    user=Depends(get_current_user),
+    conn=Depends(get_db),
+):
+    user_id = int(user["sub"])
+    if user_id == body.target_user_id:
+        raise AppException("不能與自己建立對話")
+
+    # 驗證對方存在
+    base = BaseRepository(conn)
+    target = base.fetch_one("SELECT user_id FROM Users WHERE user_id = ?", (body.target_user_id,))
+    if not target:
+        raise NotFoundException("找不到該使用者")
+
+    repo = MessageRepository(conn)
+    conv_id = repo.get_or_create_conversation(user_id, body.target_user_id)
+    return ApiResponse(success=True, data={"conversation_id": conv_id})
+
+
+@router.get("/conversations", response_model=ApiResponse)
+def list_conversations(user=Depends(get_current_user), conn=Depends(get_db)):
+    repo = MessageRepository(conn)
+    conversations = repo.find_conversations_for_user(int(user["sub"]))
+    return ApiResponse(success=True, data=conversations)
+
+
+@router.get("/conversations/{conversation_id}", response_model=ApiResponse)
+def get_messages(
+    conversation_id: int,
+    user=Depends(get_current_user),
+    conn=Depends(get_db),
+):
+    user_id = int(user["sub"])
+    repo = MessageRepository(conn)
+
+    if not repo.user_is_participant(conversation_id, user_id):
+        raise ForbiddenException("無權查看此對話")
+
+    messages = repo.get_messages(conversation_id)
+    return ApiResponse(success=True, data=messages)
+
+
+@router.post("/conversations/{conversation_id}", response_model=ApiResponse)
+def send_message(
+    conversation_id: int,
+    body: MessageSend,
+    user=Depends(get_current_user),
+    conn=Depends(get_db),
+):
+    user_id = int(user["sub"])
+    if not body.content or not body.content.strip():
+        raise AppException("訊息內容不可為空")
+
+    repo = MessageRepository(conn)
+
+    if not repo.user_is_participant(conversation_id, user_id):
+        raise ForbiddenException("無權在此對話中發送訊息")
+
+    msg_id = repo.send_message(conversation_id, user_id, body.content.strip())
+    return ApiResponse(success=True, data={"message_id": msg_id}, message="訊息已送出")

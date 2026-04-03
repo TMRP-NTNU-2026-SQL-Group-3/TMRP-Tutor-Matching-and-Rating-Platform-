@@ -1,0 +1,55 @@
+<template>
+  <div>
+    <PageHeader title="對話列表" />
+
+    <div v-if="loading" class="text-center py-8 text-gray-500">載入中...</div>
+
+    <div v-else-if="conversations.length" class="space-y-2">
+      <div v-for="c in conversations" :key="c.conversation_id"
+           class="bg-white rounded-lg shadow-sm border border-gray-100 p-4
+                  hover:bg-gray-50 transition-colors cursor-pointer
+                  flex items-center gap-4"
+           @click="$router.push('/messages/' + c.conversation_id)">
+        <!-- Avatar circle -->
+        <div class="w-10 h-10 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center font-semibold text-sm shrink-0">
+          {{ (c.other_name || '?').charAt(0) }}
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-medium text-gray-900 truncate">{{ c.other_name }}</p>
+        </div>
+        <span v-if="c.last_message_at" class="text-xs text-gray-400 shrink-0">
+          {{ formatDate(c.last_message_at) }}
+        </span>
+      </div>
+    </div>
+
+    <EmptyState v-else message="尚無對話" />
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { messagesApi } from '@/api/messages'
+import PageHeader from '@/components/common/PageHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+
+const conversations = ref([])
+const loading = ref(false)
+
+function formatDate(dt) {
+  if (!dt) return ''
+  const d = new Date(dt)
+  return d.toLocaleDateString('zh-TW') + ' ' + d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
+}
+
+onMounted(async () => {
+  loading.value = true
+  try {
+    conversations.value = await messagesApi.listConversations()
+  } catch (e) {
+    console.error(e.message)
+  } finally {
+    loading.value = false
+  }
+})
+</script>

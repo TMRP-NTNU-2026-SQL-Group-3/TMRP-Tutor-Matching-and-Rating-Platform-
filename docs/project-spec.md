@@ -1,9 +1,9 @@
 # 家教媒合與評價平台 系統規格書
 
 **文件編號**：TMP-SPEC-2026-001
-**版本**：v5.0
+**版本**：v5.1
 **建立日期**：2026 年 3 月 28 日
-**最後更新**：2026 年 3 月 29 日
+**最後更新**：2026 年 4 月 3 日
 
 ---
 
@@ -213,6 +213,7 @@ tutor-platform-api/
 │   └── utils/                        # [工具函式] 輔助用的小型程式
 │       ├── security.py               # 密碼加密、JWT 的產生與驗證
 │       ├── csv_handler.py            # CSV 檔案讀寫
+│       ├── access_bits.py            # MS Access BIT 型態轉換（True ↔ -1）
 │       └── logger.py                 # 日誌組態
 │
 ├── logs/                             # 日誌檔案存放處
@@ -252,6 +253,8 @@ tutor-platform-web/
     │   ├── index.js                  # 統一設定（自動攜帶通行證等）
     │   ├── auth.js                   # 登入/註冊 API
     │   ├── tutors.js                 # 老師相關 API
+    │   ├── students.js               # 學生相關 API
+    │   ├── subjects.js               # 科目相關 API
     │   ├── matches.js                # 媒合相關 API
     │   ├── sessions.js               # 上課日誌 API
     │   ├── exams.js                  # 考試紀錄 API
@@ -569,23 +572,40 @@ async def search_tutors(
 
 每次前端發出請求時，後端會建立一條通往 Access 資料庫的連線，處理完畢後立即關閉，以避免資源浪費。類似於前往圖書館借書——進門、借書、出門，不長時間佔用座位。
 
+由於本系統有多個程式（FastAPI 與 huey worker）同時運行，可能同一時間存取 Access 資料庫。Access 的檔案鎖機制在高併發下較為保守，偶爾會出現「資料庫正被其他程式使用中」的暫時性錯誤。為此，連線建立時加入**自動重試機制**——若首次連線失敗，系統會短暫等待後再嘗試，最多重試三次。此設計可有效避免因瞬間併發而導致的連線失敗。
+
 <details>
 <summary>技術細節（開發者展開）</summary>
 
 ```python
 # app/database.py
+import time
 import pyodbc
 from app.config import Settings
 
 settings = Settings()
 
-def get_connection() -> pyodbc.Connection:
-    """建立並回傳一個新的 MS Access ODBC 連線。"""
+def get_connection(retries: int = 3, delay: float = 0.5) -> pyodbc.Connection:
+    """
+    建立並回傳一個新的 MS Access ODBC 連線。
+    內建重試機制以應對多 process 併發存取時的暫時性鎖定錯誤。
+
+    參數：
+        retries: 最大重試次數（預設 3 次）
+        delay: 每次重試前的等待秒數（預設 0.5 秒）
+    """
     conn_str = (
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={settings.access_db_path};"
     )
-    return pyodbc.connect(conn_str)
+    for attempt in range(retries):
+        try:
+            return pyodbc.connect(conn_str)
+        except pyodbc.Error:
+            if attempt < retries - 1:
+                time.sleep(delay)
+            else:
+                raise
 
 def get_db():
     """FastAPI 依賴注入用之 generator。每次請求建立連線，請求結束時關閉。"""
@@ -1478,9 +1498,9 @@ Students ─1:N─→ Exams                     （考試紀錄）
 |--------|------|------|------|
 | GET | `/api/tutors` | 搜尋老師列表 | 需登入 |
 | GET | `/api/tutors/{id}` | 老師詳情（含評分、接案狀態、時段） | 需登入 |
-| PUT | `/api/tutors/{id}` | 更新個人資料 | 老師本人 |
-| PUT | `/api/tutors/{id}/availability` | 更新可用時段 | 老師本人 |
-| PUT | `/api/tutors/{id}/visibility` | 更新欄位公開設定 | 老師本人 |
+| PUT | `/api/tutors/profile` | 更新個人資料（由 JWT 識別身份） | 老師本人 |
+| PUT | `/api/tutors/profile/availability` | 更新可用時段 | 老師本人 |
+| PUT | `/api/tutors/profile/visibility` | 更新欄位公開設定 | 老師本人 |
 
 **GET `/api/tutors` 查詢參數**
 
@@ -1507,10 +1527,10 @@ Students ─1:N─→ Exams                     （考試紀錄）
 
 | Method | Path | 說明 | 權限 |
 |--------|------|------|------|
-| GET | `/api/conversations` | 取得對話列表 | 需登入 |
-| POST | `/api/conversations` | 開啟新對話 | 需登入 |
-| GET | `/api/conversations/{id}/messages` | 取得訊息（分頁） | 對話參與者 |
-| POST | `/api/conversations/{id}/messages` | 發送訊息 | 對話參與者 |
+| GET | `/api/messages/conversations` | 取得對話列表 | 需登入 |
+| POST | `/api/messages/conversations` | 開啟新對話 | 需登入 |
+| GET | `/api/messages/conversations/{id}` | 取得訊息（分頁） | 對話參與者 |
+| POST | `/api/messages/conversations/{id}` | 發送訊息 | 對話參與者 |
 
 ### 7.5 Matches（媒合）
 
@@ -1554,7 +1574,7 @@ Students ─1:N─→ Exams                     （考試紀錄）
 | GET | `/api/tutors/{tutor_id}/reviews` | 取得老師之評價列表 | 需登入 |
 | GET | `/api/matches/{match_id}/reviews` | 取得配對之所有評價（三向） | 配對參與者 |
 | POST | `/api/matches/{match_id}/reviews` | 撰寫評價 | 配對參與者（match 須為 ended） |
-| PUT | `/api/reviews/{id}` | 修改評價 | 評價者本人（7 日內） |
+| PATCH | `/api/reviews/{id}` | 修改評價（部分更新） | 評價者本人（7 日內） |
 
 ### 7.9 Stats（統計）
 
@@ -1568,7 +1588,7 @@ Students ─1:N─→ Exams                     （考試紀錄）
 
 | 參數 | 適用端點 | 說明 |
 |------|---------|------|
-| group_by | income, expense | `month` / `student` / `subject`（收入）；`month` / `child` / `subject`（支出） |
+| month | income, expense | 年月篩選，格式 `YYYY-MM`（例如 `2026-03`），預設為當月 |
 
 ### 7.10 Admin（系統管理）
 
