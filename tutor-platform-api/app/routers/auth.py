@@ -10,7 +10,7 @@ from app.utils.security import create_access_token, hash_password, verify_passwo
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=ApiResponse)
+@router.post("/register", summary="使用者註冊", description="建立新帳號，角色可為 parent（家長）或 tutor（家教）。家教註冊時會同步建立 Tutors 資料。", response_model=ApiResponse)
 def register(body: RegisterRequest, conn=Depends(get_db)):
     repo = AuthRepository(conn)
 
@@ -33,7 +33,7 @@ def register(body: RegisterRequest, conn=Depends(get_db)):
     return ApiResponse(success=True, data={"user_id": user_id}, message="註冊成功")
 
 
-@router.post("/login", response_model=ApiResponse[TokenResponse])
+@router.post("/login", summary="使用者登入", description="驗證帳號密碼後核發 JWT Token，回傳使用者基本資訊。", response_model=ApiResponse[TokenResponse])
 def login(body: LoginRequest, conn=Depends(get_db)):
     repo = AuthRepository(conn)
     user = repo.find_by_username(body.username)
@@ -56,7 +56,7 @@ def login(body: LoginRequest, conn=Depends(get_db)):
     )
 
 
-@router.get("/me", response_model=ApiResponse)
+@router.get("/me", summary="取得個人資訊", description="依據 JWT Token 取得目前登入使用者的資料（不含密碼雜湊）。", response_model=ApiResponse)
 def get_me(user=Depends(get_current_user), conn=Depends(get_db)):
     repo = AuthRepository(conn)
     db_user = repo.find_by_id(int(user["sub"]))

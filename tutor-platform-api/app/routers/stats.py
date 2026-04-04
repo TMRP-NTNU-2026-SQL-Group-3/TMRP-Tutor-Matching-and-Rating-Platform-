@@ -19,13 +19,12 @@ def _parse_month(month: str | None) -> tuple[int, int]:
     return year, mon
 
 
-@router.get("/income", response_model=ApiResponse)
+@router.get("/income", summary="家教收入統計", description="查詢指定月份的教學收入統計，包含總時數、總收入、各學生/科目明細。預設為當月。僅限家教角色。", response_model=ApiResponse)
 def get_income_stats(
     month: str = Query(None, pattern=r"^\d{4}-\d{2}$"),
     user=Depends(require_role("tutor")),
     conn=Depends(get_db),
 ):
-    """家教收入統計（依月份）。"""
     repo = StatsRepository(conn)
     year, mon = _parse_month(month)
 
@@ -55,13 +54,12 @@ def get_income_stats(
     })
 
 
-@router.get("/expense", response_model=ApiResponse)
+@router.get("/expense", summary="家長支出統計", description="查詢指定月份的教學支出統計，包含總時數、總支出、各老師/科目/學生明細。預設為當月。僅限家長角色。", response_model=ApiResponse)
 def get_expense_stats(
     month: str = Query(None, pattern=r"^\d{4}-\d{2}$"),
     user=Depends(require_role("parent")),
     conn=Depends(get_db),
 ):
-    """家長支出統計（依月份）。"""
     repo = StatsRepository(conn)
     year, mon = _parse_month(month)
     user_id = int(user["sub"])
@@ -83,14 +81,13 @@ def get_expense_stats(
     })
 
 
-@router.get("/student-progress/{student_id}", response_model=ApiResponse)
+@router.get("/student-progress/{student_id}", summary="學生成績趨勢", description="查詢學生歷次考試分數，可按科目篩選。家長、配對中老師、管理員可查詢。", response_model=ApiResponse)
 def get_student_progress(
     student_id: int,
     subject_id: int | None = Query(None),
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
-    """取得學生歷次考試分數，支援按科目篩選。僅家長、配對中老師、Admin 可查詢。"""
     repo = StatsRepository(conn)
     user_id = int(user["sub"])
 

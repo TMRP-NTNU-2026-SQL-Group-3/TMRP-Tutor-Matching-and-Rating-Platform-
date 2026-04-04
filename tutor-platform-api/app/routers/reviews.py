@@ -11,13 +11,12 @@ router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 VALID_TYPES = {"parent_to_tutor", "tutor_to_parent", "tutor_to_student"}
 
 
-@router.post("", response_model=ApiResponse)
+@router.post("", summary="新增評價", description="建立三向評價（家長→老師、老師→家長、老師→學生）。每種類型對同一配對僅能提交一次。", response_model=ApiResponse)
 def create_review(
     body: ReviewCreate,
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
-    """新增評價（三向：家長→老師、老師→家長、老師→學生）。"""
     repo = ReviewRepository(conn)
     user_id = int(user["sub"])
 
@@ -53,13 +52,12 @@ def create_review(
     return ApiResponse(success=True, data={"review_id": review_id}, message="評價已提交")
 
 
-@router.get("", response_model=ApiResponse)
+@router.get("", summary="列出配對評價", description="列出指定配對的所有評價，包含評價者姓名。僅限配對參與者或管理員。", response_model=ApiResponse)
 def list_reviews(
     match_id: int = Query(...),
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
-    """列出指定配對的所有評價。"""
     repo = ReviewRepository(conn)
     user_id = int(user["sub"])
 
@@ -75,14 +73,13 @@ def list_reviews(
     return ApiResponse(success=True, data=reviews)
 
 
-@router.patch("/{review_id}", response_model=ApiResponse)
+@router.patch("/{review_id}", summary="修改評價", description="修改已提交的評價，僅限評價者本人且在 7 天編輯期限內。超過期限後評價將自動鎖定。", response_model=ApiResponse)
 def update_review(
     review_id: int,
     body: ReviewUpdate,
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
-    """修改評價（7 天編輯期限內）。"""
     repo = ReviewRepository(conn)
     user_id = int(user["sub"])
 

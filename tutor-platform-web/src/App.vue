@@ -9,6 +9,8 @@
         </Transition>
       </router-view>
     </main>
+
+    <ToastNotification />
   </div>
 </template>
 
@@ -16,6 +18,7 @@
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AppNav from '@/components/common/AppNav.vue'
+import ToastNotification from '@/components/common/ToastNotification.vue'
 
 const router = useRouter()
 const auth = useAuthStore()

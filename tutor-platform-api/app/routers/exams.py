@@ -9,13 +9,12 @@ from app.repositories.exam_repo import ExamRepository
 router = APIRouter(prefix="/api/exams", tags=["exams"])
 
 
-@router.post("", response_model=ApiResponse)
+@router.post("", summary="新增考試紀錄", description="為學生新增考試紀錄。家長可為自己的子女新增，老師可為有進行中配對的學生新增。", response_model=ApiResponse)
 def create_exam(
     body: ExamCreate,
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
-    """新增考試紀錄（老師或家長皆可）。"""
     repo = ExamRepository(conn)
     user_id = int(user["sub"])
 
@@ -41,13 +40,12 @@ def create_exam(
     return ApiResponse(success=True, data={"exam_id": exam_id}, message="考試紀錄已新增")
 
 
-@router.get("", response_model=ApiResponse)
+@router.get("", summary="列出考試紀錄", description="列出指定學生的所有考試紀錄。家長僅能看到 visible_to_parent 為 true 的紀錄。", response_model=ApiResponse)
 def list_exams(
     student_id: int = Query(...),
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
-    """列出指定學生的考試紀錄。"""
     repo = ExamRepository(conn)
     user_id = int(user["sub"])
 
@@ -65,14 +63,13 @@ def list_exams(
     return ApiResponse(success=True, data=exams)
 
 
-@router.put("/{exam_id}", response_model=ApiResponse)
+@router.put("/{exam_id}", summary="修改考試紀錄", description="修改考試紀錄的日期、類型、分數或家長可見狀態。僅限原新增者。", response_model=ApiResponse)
 def update_exam(
     exam_id: int,
     body: ExamUpdate,
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
-    """修改考試紀錄（僅限原新增者）。"""
     repo = ExamRepository(conn)
     user_id = int(user["sub"])
 

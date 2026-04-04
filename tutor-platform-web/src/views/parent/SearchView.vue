@@ -5,7 +5,13 @@
     <TutorFilter :subjects="subjects" @search="doSearch" />
 
     <!-- Results -->
-    <div v-if="loading" class="text-center py-8 text-gray-500">搜尋中...</div>
+    <div v-if="loading" class="animate-pulse grid gap-4 md:grid-cols-2">
+      <div v-for="n in 4" :key="n" class="bg-white rounded-xl border border-gray-100 p-5">
+        <div class="h-5 bg-gray-200 rounded w-1/3 mb-3"></div>
+        <div class="h-4 bg-gray-200 rounded w-2/3 mb-2"></div>
+        <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+      </div>
+    </div>
 
     <div v-else-if="tutors.length" class="grid gap-4 md:grid-cols-2">
       <TutorCard v-for="t in tutors" :key="t.tutor_id" :tutor="t"
@@ -18,6 +24,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useToastStore } from '@/stores/toast'
 import { tutorsApi } from '@/api/tutors'
 import { subjectsApi } from '@/api/subjects'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -25,6 +32,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import TutorFilter from '@/components/tutor/TutorFilter.vue'
 import TutorCard from '@/components/tutor/TutorCard.vue'
 
+const toast = useToastStore()
 const tutors = ref([])
 const subjects = ref([])
 const loading = ref(false)
@@ -40,7 +48,7 @@ async function doSearch(filters = {}) {
     params.sort_by = filters.sort_by || 'rating'
     tutors.value = await tutorsApi.search(params)
   } catch (e) {
-    console.error(e.message)
+    toast.error('搜尋失敗：' + e.message)
   } finally {
     loading.value = false
   }
@@ -50,7 +58,7 @@ onMounted(async () => {
   try {
     subjects.value = await subjectsApi.list()
   } catch (e) {
-    console.error(e.message)
+    toast.error('載入科目失敗')
   }
   await doSearch()
 })

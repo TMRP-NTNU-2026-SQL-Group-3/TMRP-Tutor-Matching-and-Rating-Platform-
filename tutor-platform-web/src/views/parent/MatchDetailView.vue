@@ -1,6 +1,23 @@
 <template>
   <div>
-    <div v-if="loading" class="text-center py-8 text-gray-500">載入中...</div>
+    <!-- Loading skeleton -->
+    <div v-if="loading" class="animate-pulse space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="h-8 bg-gray-200 rounded w-32"></div>
+        <div class="h-6 bg-gray-200 rounded-full w-20"></div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 p-6">
+        <div class="space-y-3">
+          <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+          <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+          <div class="h-4 bg-gray-200 rounded w-2/3"></div>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 p-6">
+        <div class="h-4 bg-gray-200 rounded w-24 mb-4"></div>
+        <div class="h-20 bg-gray-200 rounded"></div>
+      </div>
+    </div>
 
     <div v-else-if="match">
       <!-- Header with status -->
@@ -32,41 +49,41 @@
 
       <!-- Action buttons -->
       <div class="flex flex-wrap gap-2 mb-6">
-        <button v-if="match.status === 'pending'" @click="doAction('cancel')"
-          class="bg-gray-600 hover:bg-gray-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
-          取消邀請
+        <button v-if="match.status === 'pending'" @click="doAction('cancel')" :disabled="actionLoading"
+          class="bg-gray-600 hover:bg-gray-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
+          {{ actionLoading ? '處理中...' : '取消邀請' }}
         </button>
-        <button v-if="match.status === 'trial'" @click="doAction('confirm_trial')"
-          class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+        <button v-if="match.status === 'trial'" @click="doAction('confirm_trial')" :disabled="actionLoading"
+          class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           確認正式合作
         </button>
-        <button v-if="match.status === 'trial'" @click="doAction('reject_trial')"
-          class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+        <button v-if="match.status === 'trial'" @click="doAction('reject_trial')" :disabled="actionLoading"
+          class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           結束試教
         </button>
-        <button v-if="match.status === 'active'" @click="doAction('pause')"
-          class="bg-gray-600 hover:bg-gray-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+        <button v-if="match.status === 'active'" @click="doAction('pause')" :disabled="actionLoading"
+          class="bg-gray-600 hover:bg-gray-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           暫停
         </button>
-        <button v-if="match.status === 'active'" @click="showTerminate = true"
-          class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+        <button v-if="match.status === 'active'" @click="showTerminate = true" :disabled="actionLoading"
+          class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           申請終止
         </button>
-        <button v-if="match.status === 'paused'" @click="doAction('resume')"
-          class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+        <button v-if="match.status === 'paused'" @click="doAction('resume')" :disabled="actionLoading"
+          class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           恢復
         </button>
-        <button v-if="match.status === 'paused'" @click="showTerminate = true"
-          class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+        <button v-if="match.status === 'paused'" @click="showTerminate = true" :disabled="actionLoading"
+          class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           申請終止
         </button>
         <template v-if="match.status === 'terminating' && match.terminated_by !== userId">
-          <button @click="doAction('agree_terminate')"
-            class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+          <button @click="doAction('agree_terminate')" :disabled="actionLoading"
+            class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
             同意終止
           </button>
-          <button @click="doAction('disagree_terminate')"
-            class="bg-gray-600 hover:bg-gray-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+          <button @click="doAction('disagree_terminate')" :disabled="actionLoading"
+            class="bg-gray-600 hover:bg-gray-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
             不同意
           </button>
         </template>
@@ -159,7 +176,7 @@
               </div>
               <p v-if="reviewError" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ reviewError }}</p>
               <div class="flex gap-3">
-                <button @click="submitReview" :disabled="reviewSubmitting"
+                <button @click="handleSubmitReview" :disabled="reviewSubmitting"
                   class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
                   {{ reviewSubmitting ? '提交中...' : '提交評價' }}
                 </button>
@@ -179,13 +196,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
-import { matchesApi } from '@/api/matches'
-import { sessionsApi } from '@/api/sessions'
-import { examsApi } from '@/api/exams'
-import { reviewsApi } from '@/api/reviews'
+import { reactive, computed, onMounted } from 'vue'
+import { useMatchDetail } from '@/composables/useMatchDetail'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import SessionTimeline from '@/components/session/SessionTimeline.vue'
@@ -193,26 +205,19 @@ import ReviewList from '@/components/review/ReviewList.vue'
 import ContractForm from '@/components/match/ContractForm.vue'
 import ProgressChart from '@/components/stats/ProgressChart.vue'
 
-const route = useRoute()
-const auth = useAuthStore()
+const {
+  match, sessions, exams, reviews,
+  loading, error, actionLoading,
+  showTerminate, userId, displayReason,
+  fetchMatch, doAction, doTerminate,
+  showReviewForm, reviewSubmitting, reviewError, submitReview,
+  formatDate,
+} = useMatchDetail()
 
-const match = ref(null)
-const sessions = ref([])
-const exams = ref([])
-const reviews = ref([])
-const loading = ref(false)
-const error = ref('')
-const showTerminate = ref(false)
-
-const showReviewForm = ref(false)
-const reviewSubmitting = ref(false)
-const reviewError = ref('')
 const reviewForm = reactive({
   rating_1: 5, rating_2: 5, rating_3: 5, rating_4: 5,
   personality_comment: '', comment: ''
 })
-
-const userId = computed(() => auth.user?.user_id)
 
 const canReview = computed(() => {
   if (!match.value) return false
@@ -222,73 +227,8 @@ const canReview = computed(() => {
   return !alreadyReviewed && ['active', 'ended'].includes(match.value.status)
 })
 
-const displayReason = computed(() => {
-  const raw = match.value?.termination_reason || ''
-  return raw.includes('|') ? raw.split('|').slice(1).join('|') : raw
-})
-
-function formatDate(dt) {
-  if (!dt) return ''
-  return new Date(dt).toLocaleDateString('zh-TW')
-}
-
-async function fetchMatch() {
-  loading.value = true
-  try {
-    match.value = await matchesApi.getDetail(route.params.id)
-    const [sessData, reviewData] = await Promise.all([
-      sessionsApi.list({ match_id: route.params.id }),
-      reviewsApi.list({ match_id: route.params.id }),
-    ])
-    sessions.value = sessData
-    reviews.value = reviewData
-    if (match.value.student_id) {
-      exams.value = await examsApi.list({ student_id: match.value.student_id })
-    }
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    loading.value = false
-  }
-}
-
-async function doAction(action) {
-  error.value = ''
-  try {
-    await matchesApi.updateStatus(match.value.match_id, action)
-    await fetchMatch()
-  } catch (e) {
-    error.value = e.message
-  }
-}
-
-async function doTerminate(reason) {
-  error.value = ''
-  try {
-    await matchesApi.updateStatus(match.value.match_id, 'terminate', reason)
-    showTerminate.value = false
-    await fetchMatch()
-  } catch (e) {
-    error.value = e.message
-  }
-}
-
-async function submitReview() {
-  reviewError.value = ''
-  reviewSubmitting.value = true
-  try {
-    await reviewsApi.create({
-      match_id: match.value.match_id,
-      review_type: 'parent_to_tutor',
-      ...reviewForm,
-    })
-    showReviewForm.value = false
-    await fetchMatch()
-  } catch (e) {
-    reviewError.value = e.message
-  } finally {
-    reviewSubmitting.value = false
-  }
+function handleSubmitReview() {
+  submitReview({ review_type: 'parent_to_tutor', ...reviewForm })
 }
 
 onMounted(fetchMatch)

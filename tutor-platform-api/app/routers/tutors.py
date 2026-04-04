@@ -23,7 +23,7 @@ def _apply_visibility(tutor: dict) -> dict:
 
 # ── 靜態路徑（必須放在 /{tutor_id} 之前） ──────────────────────
 
-@router.get("/me", response_model=ApiResponse)
+@router.get("/me", summary="取得自己的老師檔案", description="取得目前登入老師的完整個人檔案，包含科目與可用時段。僅限老師角色。", response_model=ApiResponse)
 def get_my_profile(
     user=Depends(require_role("tutor")),
     conn=Depends(get_db),
@@ -37,7 +37,7 @@ def get_my_profile(
     return ApiResponse(success=True, data=tutor)
 
 
-@router.get("", response_model=ApiResponse)
+@router.get("", summary="搜尋老師", description="依科目、時薪範圍、評分、學校等條件搜尋老師，支援多種排序方式。結果會套用老師的隱私設定。", response_model=ApiResponse)
 def search_tutors(
     subject_id: int = Query(None),
     min_rate: float = Query(None),
@@ -97,7 +97,7 @@ def search_tutors(
     return ApiResponse(success=True, data=results)
 
 
-@router.put("/profile", response_model=ApiResponse)
+@router.put("/profile", summary="更新老師個人資料", description="更新老師的自我介紹、教學經驗、學歷、收生上限、欄位公開設定等。僅修改有傳入的欄位。", response_model=ApiResponse)
 def update_profile(
     body: TutorProfileUpdate,
     user=Depends(require_role("tutor")),
@@ -116,13 +116,12 @@ def update_profile(
     return ApiResponse(success=True, message="個人檔案更新成功")
 
 
-@router.put("/profile/subjects", response_model=ApiResponse)
+@router.put("/profile/subjects", summary="設定可教授科目", description="整批替換老師的可教授科目與對應時薪。會驗證所有科目 ID 是否存在。", response_model=ApiResponse)
 def update_subjects(
     body: SubjectUpdate,
     user=Depends(require_role("tutor")),
     conn=Depends(get_db),
 ):
-    """整批替換老師的可教授科目與時薪。"""
     repo = TutorRepository(conn)
     tutor = repo.find_by_user_id(int(user["sub"]))
     if not tutor:
@@ -143,13 +142,12 @@ def update_subjects(
     return ApiResponse(success=True, message="科目設定已更新")
 
 
-@router.put("/profile/availability", response_model=ApiResponse)
+@router.put("/profile/availability", summary="設定可用時段", description="整批替換老師的可用時段。每個時段需指定星期幾（0-6）、開始與結束時間。", response_model=ApiResponse)
 def update_availability(
     body: AvailabilityUpdate,
     user=Depends(require_role("tutor")),
     conn=Depends(get_db),
 ):
-    """整批替換老師的可用時段。"""
     repo = TutorRepository(conn)
     tutor = repo.find_by_user_id(int(user["sub"]))
     if not tutor:
@@ -160,13 +158,12 @@ def update_availability(
     return ApiResponse(success=True, message="可用時段已更新")
 
 
-@router.put("/profile/visibility", response_model=ApiResponse)
+@router.put("/profile/visibility", summary="更新欄位公開設定", description="設定老師個人檔案中各欄位（學校、科系、年級、時薪、科目）的公開/隱藏狀態。", response_model=ApiResponse)
 def update_visibility(
     body: VisibilityUpdate,
     user=Depends(require_role("tutor")),
     conn=Depends(get_db),
 ):
-    """更新老師的欄位公開設定。"""
     repo = TutorRepository(conn)
     tutor = repo.find_by_user_id(int(user["sub"]))
     if not tutor:
@@ -182,7 +179,7 @@ def update_visibility(
 
 # ── 動態路徑（/{tutor_id} 放在最後） ──────────────────────────
 
-@router.get("/{tutor_id}", response_model=ApiResponse)
+@router.get("/{tutor_id}", summary="取得老師詳情", description="取得指定老師的完整資料，包含科目、可用時段、評分、在教學生數。非本人查看時會套用隱私設定。", response_model=ApiResponse)
 def get_tutor_detail(
     tutor_id: int,
     user=Depends(get_current_user),
@@ -210,13 +207,12 @@ def get_tutor_detail(
     return ApiResponse(success=True, data=tutor)
 
 
-@router.get("/{tutor_id}/reviews", response_model=ApiResponse)
+@router.get("/{tutor_id}/reviews", summary="取得老師評價", description="取得指定老師收到的所有家長評價（parent_to_tutor 類型）。", response_model=ApiResponse)
 def get_tutor_reviews(
     tutor_id: int,
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
-    """取得某位老師收到的所有 parent_to_tutor 評價。"""
     tutor_repo = TutorRepository(conn)
     tutor = tutor_repo.find_by_id(tutor_id)
     if not tutor:

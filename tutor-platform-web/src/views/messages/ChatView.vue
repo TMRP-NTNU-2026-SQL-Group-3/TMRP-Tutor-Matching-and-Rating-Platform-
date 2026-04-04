@@ -2,7 +2,11 @@
   <div class="flex flex-col" style="height: calc(100vh - 120px);">
     <PageHeader title="聊天" />
 
-    <div v-if="loading" class="text-center py-8 text-gray-500 flex-1">載入中...</div>
+    <div v-if="loading" class="flex-1 bg-gray-50 rounded-xl p-4 animate-pulse space-y-3">
+      <div v-for="n in 5" :key="n" :class="n % 2 === 0 ? 'flex justify-end' : 'flex justify-start'">
+        <div class="bg-gray-200 rounded-2xl h-10 w-48"></div>
+      </div>
+    </div>
 
     <template v-else>
       <!-- Messages area -->
@@ -56,6 +60,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useToastStore } from '@/stores/toast'
 import { messagesApi } from '@/api/messages'
 import PageHeader from '@/components/common/PageHeader.vue'
 
@@ -68,6 +73,7 @@ const loading = ref(false)
 const sending = ref(false)
 const error = ref('')
 const chatContainer = ref(null)
+const toast = useToastStore()
 let pollTimer = null
 
 const userId = computed(() => auth.user?.user_id)
@@ -105,6 +111,7 @@ async function handleSend() {
     await fetchMessages()
   } catch (e) {
     error.value = e.message
+    toast.error('訊息傳送失敗')
   } finally {
     sending.value = false
   }

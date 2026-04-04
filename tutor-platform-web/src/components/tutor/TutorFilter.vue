@@ -23,7 +23,7 @@
       </div>
       <div class="flex flex-col gap-1">
         <label class="text-xs font-medium text-gray-500">學校</label>
-        <input v-model="local.school" type="text" placeholder="關鍵字"
+        <input v-model="local.school" type="text" placeholder="關鍵字" @input="onSchoolInput"
           class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
       </div>
       <div class="flex flex-col gap-1">
@@ -35,7 +35,7 @@
           <option value="newest">最新加入</option>
         </select>
       </div>
-      <button @click="$emit('search', { ...local })"
+      <button @click="emitSearch"
         class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
         搜尋
       </button>
@@ -44,14 +44,14 @@
 </template>
 
 <script setup>
-import { reactive } from 'vue'
+import { reactive, onUnmounted } from 'vue'
 
 const props = defineProps({
   subjects: { type: Array, default: () => [] },
   initial: { type: Object, default: () => ({}) },
 })
 
-defineEmits(['search'])
+const emit = defineEmits(['search'])
 
 const local = reactive({
   subject_id: props.initial.subject_id ?? null,
@@ -60,4 +60,20 @@ const local = reactive({
   school: props.initial.school ?? '',
   sort_by: props.initial.sort_by ?? 'rating',
 })
+
+let debounceTimer = null
+
+function onSchoolInput() {
+  clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    emitSearch()
+  }, 300)
+}
+
+function emitSearch() {
+  clearTimeout(debounceTimer)
+  emit('search', { ...local })
+}
+
+onUnmounted(() => clearTimeout(debounceTimer))
 </script>

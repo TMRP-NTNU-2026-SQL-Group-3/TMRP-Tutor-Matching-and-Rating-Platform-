@@ -9,14 +9,14 @@ from app.repositories.student_repo import StudentRepository
 router = APIRouter(prefix="/api/students", tags=["students"])
 
 
-@router.get("", response_model=ApiResponse)
+@router.get("", summary="列出我的子女", description="列出目前登入家長的所有子女資料。僅限家長角色。", response_model=ApiResponse)
 def list_students(user=Depends(require_role("parent")), conn=Depends(get_db)):
     repo = StudentRepository(conn)
     students = repo.find_by_parent(int(user["sub"]))
     return ApiResponse(success=True, data=students)
 
 
-@router.post("", response_model=ApiResponse)
+@router.post("", summary="新增子女", description="為目前登入的家長新增一位子女，姓名為必填欄位。", response_model=ApiResponse)
 def add_student(
     body: StudentCreate,
     user=Depends(require_role("parent")),
@@ -34,14 +34,13 @@ def add_student(
     return ApiResponse(success=True, data={"student_id": student_id}, message="新增成功")
 
 
-@router.put("/{student_id}", response_model=ApiResponse)
+@router.put("/{student_id}", summary="更新子女資料", description="修改指定子女的姓名、學校、年級、目標學校等資料。僅限子女的家長本人。", response_model=ApiResponse)
 def update_student(
     student_id: int,
     body: StudentUpdate,
     user=Depends(require_role("parent")),
     conn=Depends(get_db),
 ):
-    """修改子女資料（僅限家長本人）。"""
     repo = StudentRepository(conn)
     student = repo.find_by_id(student_id)
     if not student:

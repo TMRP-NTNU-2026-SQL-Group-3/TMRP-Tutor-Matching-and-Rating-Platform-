@@ -9,7 +9,15 @@
     <!-- Match list -->
     <h2 class="text-lg font-semibold text-gray-900 mb-3">我的配對</h2>
 
-    <div v-if="loading" class="text-center py-8 text-gray-500">載入中...</div>
+    <div v-if="loading" class="animate-pulse space-y-3">
+      <div v-for="n in 3" :key="n" class="bg-white rounded-lg border border-gray-100 p-4 flex items-center justify-between">
+        <div>
+          <div class="h-5 bg-gray-200 rounded w-24 mb-2"></div>
+          <div class="h-4 bg-gray-200 rounded w-40"></div>
+        </div>
+        <div class="h-6 bg-gray-200 rounded-full w-16"></div>
+      </div>
+    </div>
 
     <div v-else-if="matches.length" class="space-y-3">
       <div v-for="m in matches" :key="m.match_id"
@@ -32,11 +40,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useToastStore } from '@/stores/toast'
 import { matchesApi } from '@/api/matches'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
 const auth = useAuthStore()
+const toast = useToastStore()
 const matches = ref([])
 const loading = ref(false)
 
@@ -45,7 +55,7 @@ onMounted(async () => {
   try {
     matches.value = await matchesApi.list()
   } catch (e) {
-    console.error(e.message)
+    toast.error('載入配對資料失敗')
   } finally {
     loading.value = false
   }

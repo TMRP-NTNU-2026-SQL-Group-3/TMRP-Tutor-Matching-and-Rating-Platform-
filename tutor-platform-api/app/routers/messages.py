@@ -10,7 +10,7 @@ from app.repositories.message_repo import MessageRepository
 router = APIRouter(prefix="/api/messages", tags=["messages"])
 
 
-@router.post("/conversations", response_model=ApiResponse)
+@router.post("/conversations", summary="建立對話", description="與指定使用者建立新對話，若已存在則回傳既有的 conversation_id。不可與自己建立對話。", response_model=ApiResponse)
 def create_conversation(
     body: ConversationCreate,
     user=Depends(get_current_user),
@@ -31,14 +31,14 @@ def create_conversation(
     return ApiResponse(success=True, data={"conversation_id": conv_id})
 
 
-@router.get("/conversations", response_model=ApiResponse)
+@router.get("/conversations", summary="列出對話", description="列出目前登入使用者的所有對話，依最後訊息時間排序。", response_model=ApiResponse)
 def list_conversations(user=Depends(get_current_user), conn=Depends(get_db)):
     repo = MessageRepository(conn)
     conversations = repo.find_conversations_for_user(int(user["sub"]))
     return ApiResponse(success=True, data=conversations)
 
 
-@router.get("/conversations/{conversation_id}", response_model=ApiResponse)
+@router.get("/conversations/{conversation_id}", summary="取得對話訊息", description="取得指定對話的所有訊息，依送出時間排序。僅限對話參與者。", response_model=ApiResponse)
 def get_messages(
     conversation_id: int,
     user=Depends(get_current_user),
@@ -54,7 +54,7 @@ def get_messages(
     return ApiResponse(success=True, data=messages)
 
 
-@router.post("/conversations/{conversation_id}", response_model=ApiResponse)
+@router.post("/conversations/{conversation_id}", summary="傳送訊息", description="在指定對話中傳送一則訊息，內容不可為空。僅限對話參與者。", response_model=ApiResponse)
 def send_message(
     conversation_id: int,
     body: MessageSend,

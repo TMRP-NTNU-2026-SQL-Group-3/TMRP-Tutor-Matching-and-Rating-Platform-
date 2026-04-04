@@ -10,13 +10,12 @@ from app.utils.access_bits import to_access_bit
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 
-@router.post("", response_model=ApiResponse)
+@router.post("", summary="新增上課日誌", description="老師為進行中或試教中的配對新增上課紀錄。記錄教學日期、時數、內容摘要、作業、學生表現等。", response_model=ApiResponse)
 def create_session(
     body: SessionCreate,
     user=Depends(require_role("tutor")),
     conn=Depends(get_db),
 ):
-    """新增上課日誌（僅老師可操作）。"""
     repo = SessionRepository(conn)
     user_id = int(user["sub"])
 
@@ -41,13 +40,12 @@ def create_session(
     return ApiResponse(success=True, data={"session_id": session_id}, message="上課日誌已新增")
 
 
-@router.get("", response_model=ApiResponse)
+@router.get("", summary="列出上課日誌", description="列出指定配對的所有上課日誌。家長僅能看到 visible_to_parent 為 true 的紀錄。", response_model=ApiResponse)
 def list_sessions(
     match_id: int = Query(...),
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
-    """列出指定配對的上課日誌。"""
     repo = SessionRepository(conn)
     user_id = int(user["sub"])
 
@@ -65,14 +63,13 @@ def list_sessions(
     return ApiResponse(success=True, data=sessions)
 
 
-@router.put("/{session_id}", response_model=ApiResponse)
+@router.put("/{session_id}", summary="修改上課日誌", description="修改上課日誌的內容，系統會自動記錄每個欄位的修改前後差異至 Session_Edit_Logs。", response_model=ApiResponse)
 def update_session(
     session_id: int,
     body: SessionUpdate,
     user=Depends(require_role("tutor")),
     conn=Depends(get_db),
 ):
-    """修改上課日誌，並記錄修改差異至 Session_Edit_Logs。"""
     repo = SessionRepository(conn)
     user_id = int(user["sub"])
 
@@ -121,13 +118,12 @@ def update_session(
     return ApiResponse(success=True, data={"session_id": session_id}, message="上課日誌已更新")
 
 
-@router.get("/{session_id}/edit-logs", response_model=ApiResponse)
+@router.get("/{session_id}/edit-logs", summary="查看修改紀錄", description="查看指定上課日誌的所有修改歷史，包含欄位名稱、修改前後的值、修改時間。", response_model=ApiResponse)
 def get_edit_logs(
     session_id: int,
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
-    """查看某筆日誌的所有修改紀錄。"""
     repo = SessionRepository(conn)
     user_id = int(user["sub"])
 

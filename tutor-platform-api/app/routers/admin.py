@@ -67,7 +67,7 @@ def _validate_columns(columns: list) -> None:
 
 # ---------- 1. 使用者列表 ----------
 
-@router.get("/users", response_model=ApiResponse)
+@router.get("/users", summary="使用者列表", description="列出系統中所有使用者的基本資料。僅限管理員。", response_model=ApiResponse)
 def list_users(user=Depends(require_role("admin")), conn=Depends(get_db)):
     repo = BaseRepository(conn)
     rows = repo.fetch_all(
@@ -79,7 +79,7 @@ def list_users(user=Depends(require_role("admin")), conn=Depends(get_db)):
 
 # ---------- 2. 假資料生成 ----------
 
-@router.post("/seed", response_model=ApiResponse)
+@router.post("/seed", summary="生成假資料", description="呼叫假資料產生器，為系統填入測試用資料。若已有資料則可能跳過。僅限管理員。", response_model=ApiResponse)
 def seed_data(user=Depends(require_role("admin")), conn=Depends(get_db)):
     from seed.generator import run_seed
 
@@ -92,7 +92,7 @@ def seed_data(user=Depends(require_role("admin")), conn=Depends(get_db)):
 
 # ---------- 3. CSV 匯入 ----------
 
-@router.post("/import", response_model=ApiResponse)
+@router.post("/import", summary="匯入 CSV", description="上傳 CSV 檔案匯入指定資料表。欄位名稱需符合安全規範。僅限管理員。", response_model=ApiResponse)
 def import_csv(
     file: UploadFile = File(...),
     table_name: str = Query(..., description="目標資料表名稱"),
@@ -129,7 +129,7 @@ def import_csv(
 
 # ---------- 4. CSV 匯出 ----------
 
-@router.get("/export/{table_name}")
+@router.get("/export/{table_name}", summary="匯出 CSV", description="將指定資料表的所有資料匯出為 CSV 檔案下載。僅限管理員。")
 def export_csv(
     table_name: str,
     user=Depends(require_role("admin")),
@@ -156,13 +156,12 @@ def export_csv(
 
 # ---------- 5. 清空資料庫 ----------
 
-@router.post("/reset", response_model=ApiResponse)
+@router.post("/reset", summary="清空資料庫", description="刪除所有資料（保留管理員帳號與表結構）。需傳入 confirm=true 確認操作。僅限管理員。", response_model=ApiResponse)
 def reset_database(
     confirm: bool = Query(..., description="必須傳入 true 以確認操作"),
     user=Depends(require_role("admin")),
     conn=Depends(get_db),
 ):
-    """刪除所有資料（保留 Admin 帳號與表結構）。"""
     if not confirm:
         raise AppException("請傳入 confirm=true 以確認清空資料庫")
 
@@ -192,9 +191,8 @@ def reset_database(
 
 # ---------- 6. 系統狀態 ----------
 
-@router.get("/system-status", response_model=ApiResponse)
+@router.get("/system-status", summary="系統狀態", description="查詢各資料表的筆數、使用者角色分布、配對狀態分布等系統統計資訊。僅限管理員。", response_model=ApiResponse)
 def system_status(user=Depends(require_role("admin")), conn=Depends(get_db)):
-    """回傳系統統計數據。"""
     repo = BaseRepository(conn)
 
     counts = {}
@@ -225,9 +223,8 @@ def system_status(user=Depends(require_role("admin")), conn=Depends(get_db)):
 
 # ---------- 7. 一鍵匯出全部資料表 ----------
 
-@router.post("/export-all")
+@router.post("/export-all", summary="一鍵匯出全部", description="將所有資料表匯出為 CSV 並打包成 ZIP 下載。僅限管理員。")
 def export_all(user=Depends(require_role("admin")), conn=Depends(get_db)):
-    """一次匯出全部資料表為 CSV，打包成 ZIP 下載。"""
     repo = BaseRepository(conn)
     export_dir = Path("data/export")
     export_dir.mkdir(parents=True, exist_ok=True)
@@ -257,12 +254,11 @@ def export_all(user=Depends(require_role("admin")), conn=Depends(get_db)):
 
 # ---------- 8. 背景任務狀態查詢 ----------
 
-@router.get("/tasks/{task_id}", response_model=ApiResponse)
+@router.get("/tasks/{task_id}", summary="查詢背景任務", description="查詢 Huey 背景任務的執行狀態（pending / completed / failed）。僅限管理員。", response_model=ApiResponse)
 def get_task_status(
     task_id: str,
     user=Depends(require_role("admin")),
 ):
-    """查詢 Huey 背景任務的執行狀態。"""
     from app.worker import huey as huey_instance
 
     try:
@@ -299,14 +295,13 @@ def get_task_status(
 _IMPORT_ORDER = list(reversed(_DELETE_ORDER))
 
 
-@router.post("/import-all", response_model=ApiResponse)
+@router.post("/import-all", summary="一鍵匯入全部", description="上傳 ZIP 檔案（內含各表 CSV），一次匯入所有資料表。可選擇匯入前先清空。僅限管理員。", response_model=ApiResponse)
 def import_all(
     file: UploadFile = File(...),
     clear_first: bool = Query(False, description="匯入前先清空資料表"),
     user=Depends(require_role("admin")),
     conn=Depends(get_db),
 ):
-    """一次匯入全部資料表（接收 ZIP 檔案，內含各表 CSV）。"""
     content = file.file.read()
     buf = io.BytesIO(content)
 

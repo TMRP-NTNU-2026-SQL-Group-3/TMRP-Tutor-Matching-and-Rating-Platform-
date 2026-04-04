@@ -38,7 +38,7 @@ STATUS_LABELS = {
 }
 
 
-@router.post("", response_model=ApiResponse)
+@router.post("", summary="建立配對邀請", description="家長為指定學生向家教發送配對邀請，需包含科目、時薪、堂數等合約條件。系統會驗證學生歸屬、老師存在、科目對應、重複配對及容量上限。", response_model=ApiResponse)
 def create_match(
     body: MatchCreate,
     user=Depends(require_role("parent")),
@@ -87,7 +87,7 @@ def create_match(
     return ApiResponse(success=True, data={"match_id": match_id}, message="媒合邀請已送出")
 
 
-@router.get("", response_model=ApiResponse)
+@router.get("", summary="列出我的配對", description="列出目前登入使用者的所有配對。家長看到子女的配對，家教看到自己的配對。", response_model=ApiResponse)
 def list_matches(user=Depends(get_current_user), conn=Depends(get_db)):
     user_id = int(user["sub"])
     role = user["role"]
@@ -104,7 +104,7 @@ def list_matches(user=Depends(get_current_user), conn=Depends(get_db)):
     return ApiResponse(success=True, data=matches)
 
 
-@router.get("/{match_id}", response_model=ApiResponse)
+@router.get("/{match_id}", summary="取得配對詳情", description="取得指定配對的完整資訊，包含科目、學生、老師名稱。僅限配對參與者或管理員。", response_model=ApiResponse)
 def get_match_detail(
     match_id: int,
     user=Depends(get_current_user),
@@ -129,7 +129,7 @@ def get_match_detail(
     return ApiResponse(success=True, data=match)
 
 
-@router.patch("/{match_id}/status", response_model=ApiResponse)
+@router.patch("/{match_id}/status", summary="更新配對狀態", description="依照狀態機規則變更配對狀態。支援的操作包含：accept、reject、cancel、confirm_trial、reject_trial、pause、resume、terminate、agree_terminate、disagree_terminate。每個操作有對應的角色權限限制。", response_model=ApiResponse)
 def update_match_status(
     match_id: int,
     body: MatchStatusUpdate,
