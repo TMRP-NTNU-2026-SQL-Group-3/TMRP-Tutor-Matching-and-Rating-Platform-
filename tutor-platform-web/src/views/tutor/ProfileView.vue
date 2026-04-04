@@ -54,6 +54,30 @@
         </div>
       </div>
 
+      <!-- Subjects -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
+        <h2 class="text-lg font-semibold text-gray-900">授課科目</h2>
+        <div v-for="(item, idx) in subjectList" :key="idx" class="flex items-center gap-3">
+          <select v-model="item.subject_id"
+            class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition">
+            <option :value="null" disabled>選擇科目</option>
+            <option v-for="s in allSubjects" :key="s.subject_id" :value="s.subject_id">
+              {{ s.subject_name }}
+            </option>
+          </select>
+          <div class="flex items-center gap-1">
+            <span class="text-sm text-gray-500">$</span>
+            <input v-model.number="item.hourly_rate" type="number" min="1" placeholder="時薪"
+              class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
+            <span class="text-sm text-gray-500">/hr</span>
+          </div>
+          <button type="button" @click="subjectList.splice(idx, 1)"
+            class="text-red-500 hover:text-red-700 text-sm font-medium transition-colors">移除</button>
+        </div>
+        <button type="button" @click="subjectList.push({ subject_id: null, hourly_rate: null })"
+          class="text-primary-600 hover:text-primary-700 text-sm font-medium transition-colors">+ 新增科目</button>
+      </div>
+
       <!-- Settings -->
       <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
         <h2 class="text-lg font-semibold text-gray-900">偏好設定</h2>
@@ -91,12 +115,15 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { tutorsApi } from '@/api/tutors'
+import { subjectsApi } from '@/api/subjects'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const success = ref('')
+const allSubjects = ref([])
+const subjectList = ref([])
 
 const form = reactive({
   self_intro: '',
@@ -118,6 +145,11 @@ async function handleSave() {
   saving.value = true
   try {
     await tutorsApi.updateProfile(form)
+
+    // 儲存科目設定
+    const validSubjects = subjectList.value.filter(s => s.subject_id && s.hourly_rate)
+    await tutorsApi.updateSubjects({ subjects: validSubjects })
+
     success.value = '個人檔案已更新'
   } catch (e) {
     error.value = e.message
@@ -129,7 +161,11 @@ async function handleSave() {
 onMounted(async () => {
   loading.value = true
   try {
-    const detail = await tutorsApi.getMyProfile()
+    const [detail, subjects] = await Promise.all([
+      tutorsApi.getMyProfile(),
+      subjectsApi.list(),
+    ])
+
     form.self_intro = detail.self_intro || ''
     form.teaching_experience = detail.teaching_experience || ''
     form.university = detail.university || ''
@@ -141,6 +177,12 @@ onMounted(async () => {
     form.show_grade_year = detail.show_grade_year ?? true
     form.show_hourly_rate = detail.show_hourly_rate ?? true
     form.show_subjects = detail.show_subjects ?? true
+
+    allSubjects.value = subjects
+    subjectList.value = (detail.subjects || []).map(s => ({
+      subject_id: s.subject_id,
+      hourly_rate: s.hourly_rate,
+    }))
   } catch (e) {
     error.value = e.message
   } finally {

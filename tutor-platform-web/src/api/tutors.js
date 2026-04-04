@@ -13,6 +13,9 @@ export const tutorsApi = {
   updateProfile(data) {
     return api.put('/api/tutors/profile', data)
   },
+  updateSubjects(data) {
+    return api.put('/api/tutors/profile/subjects', data)
+  },
   updateAvailability(data) {
     return api.put('/api/tutors/profile/availability', data)
   },

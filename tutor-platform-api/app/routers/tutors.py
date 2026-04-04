@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from app.dependencies import get_current_user, get_db, require_role
 from app.exceptions import AppException, NotFoundException
 from app.models.common import ApiResponse
-from app.models.tutor import AvailabilityUpdate, TutorProfileUpdate, VisibilityUpdate
+from app.models.tutor import AvailabilityUpdate, SubjectUpdate, TutorProfileUpdate, VisibilityUpdate
 from app.repositories.review_repo import ReviewRepository
 from app.repositories.tutor_repo import TutorRepository
 
@@ -20,6 +20,8 @@ def _apply_visibility(tutor: dict) -> dict:
         tutor.pop("grade_year", None)
     return tutor
 
+
+# ── 靜態路徑（必須放在 /{tutor_id} 之前） ──────────────────────
 
 @router.get("/me", response_model=ApiResponse)
 def get_my_profile(
@@ -95,6 +97,91 @@ def search_tutors(
     return ApiResponse(success=True, data=results)
 
 
+@router.put("/profile", response_model=ApiResponse)
+def update_profile(
+    body: TutorProfileUpdate,
+    user=Depends(require_role("tutor")),
+    conn=Depends(get_db),
+):
+    repo = TutorRepository(conn)
+    tutor = repo.find_by_user_id(int(user["sub"]))
+    if not tutor:
+        raise NotFoundException("找不到老師資料")
+
+    fields = body.model_dump(exclude_unset=True)
+    if not fields:
+        raise AppException("沒有提供任何要更新的欄位")
+
+    repo.update_profile(tutor["tutor_id"], **fields)
+    return ApiResponse(success=True, message="個人檔案更新成功")
+
+
+@router.put("/profile/subjects", response_model=ApiResponse)
+def update_subjects(
+    body: SubjectUpdate,
+    user=Depends(require_role("tutor")),
+    conn=Depends(get_db),
+):
+    """整批替換老師的可教授科目與時薪。"""
+    repo = TutorRepository(conn)
+    tutor = repo.find_by_user_id(int(user["sub"]))
+    if not tutor:
+        raise NotFoundException("找不到老師資料")
+
+    # 驗證所有 subject_id 皆存在
+    if body.subjects:
+        from app.repositories.base import BaseRepository
+        base = BaseRepository(conn)
+        all_subjects = base.fetch_all("SELECT subject_id FROM Subjects")
+        valid_ids = {s["subject_id"] for s in all_subjects}
+        for s in body.subjects:
+            if s.subject_id not in valid_ids:
+                raise AppException(f"科目 ID {s.subject_id} 不存在")
+
+    items = [s.model_dump() for s in body.subjects]
+    repo.replace_subjects(tutor["tutor_id"], items)
+    return ApiResponse(success=True, message="科目設定已更新")
+
+
+@router.put("/profile/availability", response_model=ApiResponse)
+def update_availability(
+    body: AvailabilityUpdate,
+    user=Depends(require_role("tutor")),
+    conn=Depends(get_db),
+):
+    """整批替換老師的可用時段。"""
+    repo = TutorRepository(conn)
+    tutor = repo.find_by_user_id(int(user["sub"]))
+    if not tutor:
+        raise NotFoundException("找不到老師資料")
+
+    slots = [s.model_dump() for s in body.slots]
+    repo.replace_availability(tutor["tutor_id"], slots)
+    return ApiResponse(success=True, message="可用時段已更新")
+
+
+@router.put("/profile/visibility", response_model=ApiResponse)
+def update_visibility(
+    body: VisibilityUpdate,
+    user=Depends(require_role("tutor")),
+    conn=Depends(get_db),
+):
+    """更新老師的欄位公開設定。"""
+    repo = TutorRepository(conn)
+    tutor = repo.find_by_user_id(int(user["sub"]))
+    if not tutor:
+        raise NotFoundException("找不到老師資料")
+
+    flags = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    if not flags:
+        raise AppException("沒有提供任何要更新的欄位")
+
+    repo.update_visibility(tutor["tutor_id"], flags)
+    return ApiResponse(success=True, message="公開設定已更新")
+
+
+# ── 動態路徑（/{tutor_id} 放在最後） ──────────────────────────
+
 @router.get("/{tutor_id}", response_model=ApiResponse)
 def get_tutor_detail(
     tutor_id: int,
@@ -138,59 +225,3 @@ def get_tutor_reviews(
     review_repo = ReviewRepository(conn)
     reviews = review_repo.list_by_tutor(tutor_id)
     return ApiResponse(success=True, data=reviews)
-
-
-@router.put("/profile", response_model=ApiResponse)
-def update_profile(
-    body: TutorProfileUpdate,
-    user=Depends(require_role("tutor")),
-    conn=Depends(get_db),
-):
-    repo = TutorRepository(conn)
-    tutor = repo.find_by_user_id(int(user["sub"]))
-    if not tutor:
-        raise NotFoundException("找不到老師資料")
-
-    fields = body.model_dump(exclude_unset=True)
-    if not fields:
-        raise AppException("沒有提供任何要更新的欄位")
-
-    repo.update_profile(tutor["tutor_id"], **fields)
-    return ApiResponse(success=True, message="個人檔案更新成功")
-
-
-@router.put("/profile/availability", response_model=ApiResponse)
-def update_availability(
-    body: AvailabilityUpdate,
-    user=Depends(require_role("tutor")),
-    conn=Depends(get_db),
-):
-    """整批替換老師的可用時段。"""
-    repo = TutorRepository(conn)
-    tutor = repo.find_by_user_id(int(user["sub"]))
-    if not tutor:
-        raise NotFoundException("找不到老師資料")
-
-    slots = [s.model_dump() for s in body.slots]
-    repo.replace_availability(tutor["tutor_id"], slots)
-    return ApiResponse(success=True, message="可用時段已更新")
-
-
-@router.put("/profile/visibility", response_model=ApiResponse)
-def update_visibility(
-    body: VisibilityUpdate,
-    user=Depends(require_role("tutor")),
-    conn=Depends(get_db),
-):
-    """更新老師的欄位公開設定。"""
-    repo = TutorRepository(conn)
-    tutor = repo.find_by_user_id(int(user["sub"]))
-    if not tutor:
-        raise NotFoundException("找不到老師資料")
-
-    flags = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
-    if not flags:
-        raise AppException("沒有提供任何要更新的欄位")
-
-    repo.update_visibility(tutor["tutor_id"], flags)
-    return ApiResponse(success=True, message="公開設定已更新")

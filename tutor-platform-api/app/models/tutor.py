@@ -15,6 +15,15 @@ class TutorProfileUpdate(BaseModel):
     show_subjects: bool = True
 
 
+class SubjectItem(BaseModel):
+    subject_id: int
+    hourly_rate: float = Field(gt=0)
+
+
+class SubjectUpdate(BaseModel):
+    subjects: list[SubjectItem]
+
+
 class AvailabilitySlot(BaseModel):
     day_of_week: int = Field(ge=0, le=6)
     start_time: str

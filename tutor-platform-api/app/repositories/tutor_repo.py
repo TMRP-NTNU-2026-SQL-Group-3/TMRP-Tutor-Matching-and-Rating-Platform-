@@ -87,6 +87,19 @@ class TutorRepository(BaseRepository):
         row = self.fetch_one(sql, (tutor_id,))
         return row["cnt"] if row else 0
 
+    def replace_subjects(self, tutor_id: int, items: list[dict]) -> None:
+        """整批替換老師的可教授科目。"""
+        self.cursor.execute("DELETE FROM Tutor_Subjects WHERE tutor_id = ?", (tutor_id,))
+        for item in items:
+            self.cursor.execute(
+                """
+                INSERT INTO Tutor_Subjects (tutor_id, subject_id, hourly_rate)
+                VALUES (?, ?, ?)
+                """,
+                (tutor_id, item["subject_id"], item["hourly_rate"]),
+            )
+        self.conn.commit()
+
     def replace_availability(self, tutor_id: int, slots: list[dict]) -> None:
         self.cursor.execute("DELETE FROM Tutor_Availability WHERE tutor_id = ?", (tutor_id,))
         for slot in slots:

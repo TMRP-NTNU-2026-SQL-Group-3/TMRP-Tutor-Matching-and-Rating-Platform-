@@ -555,6 +555,15 @@ def initialize_database() -> None:
     try:
         logger.info("[1/6] 建立資料表...")
         create_tables(conn)
+
+        # 遷移：確保 Reviews 資料表包含 is_locked 欄位
+        cursor = conn.cursor()
+        existing_cols = [c.column_name for c in cursor.columns(table="Reviews")]
+        if "is_locked" not in existing_cols:
+            cursor.execute("ALTER TABLE Reviews ADD COLUMN is_locked BIT")
+            cursor.execute("UPDATE Reviews SET is_locked = False")
+            conn.commit()
+            logger.info("  已補建 Reviews.is_locked 欄位")
     finally:
         conn.close()
 
