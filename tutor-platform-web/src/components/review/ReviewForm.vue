@@ -19,7 +19,7 @@
       </div>
 
       <!-- 四維度評分 -->
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div v-for="(label, idx) in dimensionLabels" :key="idx">
           <label class="block text-sm font-medium text-gray-700 mb-1">{{ label }}（1-5）</label>
           <input v-model.number="form['rating_' + (idx + 1)]" type="number" min="1" max="5"

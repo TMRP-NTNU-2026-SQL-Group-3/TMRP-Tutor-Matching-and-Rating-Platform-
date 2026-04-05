@@ -21,6 +21,11 @@
 
 /* ── Base Layer ─────────────────────────────────── */
 @layer base {
+  :root {
+    --nav-height: 3.5rem;   /* AppNav h-14 = 56px */
+    --main-py: 1.5rem;      /* App.vue py-6 = 24px */
+  }
+
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
     @apply text-gray-800 bg-gray-50 antialiased;

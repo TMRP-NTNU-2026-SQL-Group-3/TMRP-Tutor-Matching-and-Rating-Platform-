@@ -8,7 +8,7 @@
     leave-to-class="opacity-0 -translate-y-2">
     <div v-if="visible" class="bg-gray-50 rounded-xl p-5 mb-4 space-y-4">
       <h3 class="font-semibold text-gray-900">新增上課紀錄</h3>
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">日期 *</label>
           <input v-model="form.session_date" type="date"

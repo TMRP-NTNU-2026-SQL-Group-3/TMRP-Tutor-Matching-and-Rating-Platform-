@@ -12,7 +12,7 @@
 
     <div v-else-if="data">
       <!-- Stat cards -->
-      <div class="grid grid-cols-3 gap-4 mb-6">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <StatCard title="總堂數" :value="data.session_count" />
         <StatCard title="總時數" :value="data.total_hours" />
         <StatCard title="總收入" highlight>
@@ -24,7 +24,7 @@
       <IncomeChart v-if="data.breakdown.length" :breakdown="data.breakdown" class="mb-6" />
 
       <!-- Breakdown table -->
-      <div v-if="data.breakdown.length" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div v-if="data.breakdown.length" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
         <table class="w-full">
           <thead>
             <tr class="bg-gray-50 border-b border-gray-200">

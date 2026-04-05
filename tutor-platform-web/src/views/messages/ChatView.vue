@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col" style="height: calc(100vh - 120px);">
+  <div class="flex flex-col h-[calc(100dvh_-_var(--nav-height)_-_var(--main-py)_*_2)]">
     <PageHeader title="聊天" />
 
     <div v-if="loading" class="flex-1 bg-gray-50 rounded-xl p-4 animate-pulse space-y-3">
@@ -18,7 +18,7 @@
         <div v-for="msg in messages" :key="msg.message_id"
              :class="msg.sender_user_id === userId ? 'flex justify-end' : 'flex justify-start'">
           <div :class="[
-            'max-w-[70%] px-4 py-2',
+            'max-w-[85%] sm:max-w-[70%] px-4 py-2',
             msg.sender_user_id === userId
               ? 'bg-primary-500 text-white rounded-2xl rounded-br-sm'
               : 'bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-bl-sm'

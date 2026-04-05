@@ -152,7 +152,7 @@
           leave-to-class="opacity-0 -translate-y-2">
           <div v-if="showExamForm" class="bg-gray-50 rounded-xl p-5 mb-4 space-y-4">
             <h3 class="font-semibold text-gray-900">新增考試紀錄</h3>
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">日期 *</label>
                 <input v-model="examForm.exam_date" type="date"
@@ -246,7 +246,7 @@
                   <option v-if="canReviewStudent" value="tutor_to_student">評價學生</option>
                 </select>
               </div>
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div v-for="(label, idx) in reviewLabels" :key="idx">
                   <label class="block text-sm font-medium text-gray-700 mb-1">{{ label }}（1-5）</label>
                   <input v-model.number="reviewForm['rating_' + (idx + 1)]" type="number" min="1" max="5"

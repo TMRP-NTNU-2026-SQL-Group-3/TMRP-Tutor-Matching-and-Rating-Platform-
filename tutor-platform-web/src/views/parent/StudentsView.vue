@@ -12,7 +12,7 @@
 
     <div v-else>
       <!-- Student table -->
-      <div v-if="students.length" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div v-if="students.length" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
         <table class="w-full">
           <thead>
             <tr class="bg-gray-50 border-b border-gray-200">
@@ -48,7 +48,7 @@
               <input v-model="form.name" type="text" required
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
             </div>
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">學校</label>
                 <input v-model="form.school" type="text"

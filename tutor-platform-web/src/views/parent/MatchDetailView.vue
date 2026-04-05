@@ -157,7 +157,7 @@
             leave-to-class="opacity-0 -translate-y-2">
             <div v-if="showReviewForm" class="bg-gray-50 rounded-xl p-6 mt-4 space-y-4">
               <h3 class="text-lg font-semibold text-gray-900">評價老師</h3>
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div v-for="(label, idx) in ['教學能力', '溝通態度', '準時出席', '整體滿意度']" :key="idx">
                   <label class="block text-sm font-medium text-gray-700 mb-1">{{ label }}（1-5）</label>
                   <input v-model.number="reviewForm['rating_' + (idx + 1)]" type="number" min="1" max="5"

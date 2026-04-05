@@ -2,7 +2,7 @@
   <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
     <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">{{ title }}</h3>
     <div class="flex justify-center">
-      <div style="max-width: 320px; width: 100%;">
+      <div class="max-w-xs w-full">
         <Radar :data="chartData" :options="chartOptions" />
       </div>
     </div>
