@@ -64,6 +64,15 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     logger.info("API Server 啟動")
+    if settings.jwt_secret_key == "change-me-in-production":
+        logger.warning(
+            "⚠️ JWT_SECRET_KEY 使用預設值！請在 .env 中設定安全的密鑰。"
+            "正式環境務必更換，否則任何人都能偽造 Token。"
+        )
+    if settings.admin_password == "admin123":
+        logger.warning(
+            "⚠️ ADMIN_PASSWORD 使用預設值！請在 .env 中設定強密碼。"
+        )
     try:
         from app.database import get_connection
         from app.init_db import ensure_admin_user

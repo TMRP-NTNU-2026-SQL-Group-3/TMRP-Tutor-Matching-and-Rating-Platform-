@@ -89,11 +89,10 @@ class ReviewRepository(BaseRepository):
             (review_id,),
         )
 
+    ALLOWED_COLUMNS = {"rating_1", "rating_2", "rating_3", "rating_4",
+                       "personality_comment", "comment"}
+
     def update(self, review_id: int, updates: dict) -> None:
         """更新評價的可修改欄位（updates 的 key 必須是合法欄位名稱）。"""
-        set_clause = ", ".join(f"{col} = ?" for col in updates)
-        values = list(updates.values()) + [review_id]
-        self.execute(
-            f"UPDATE Reviews SET {set_clause}, updated_at = Now() WHERE review_id = ?",
-            values,
-        )
+        self.safe_update("Reviews", "review_id", review_id, updates,
+                         self.ALLOWED_COLUMNS, extra_set="updated_at = Now()")

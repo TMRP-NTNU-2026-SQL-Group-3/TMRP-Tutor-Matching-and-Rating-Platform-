@@ -67,14 +67,13 @@ class SessionRepository(BaseRepository):
             (session_id,),
         )
 
+    ALLOWED_COLUMNS = {"session_date", "hours", "content_summary", "homework",
+                       "student_performance", "next_plan", "visible_to_parent"}
+
     def update(self, session_id: int, fields: dict) -> None:
         """更新指定欄位，fields 為 {column: value} dict。"""
-        set_clauses = ", ".join(f"{k} = ?" for k in fields)
-        values = tuple(fields.values()) + (session_id,)
-        self.execute(
-            f"UPDATE Sessions SET {set_clauses}, updated_at = Now() WHERE session_id = ?",
-            values,
-        )
+        self.safe_update("Sessions", "session_id", session_id, fields,
+                         self.ALLOWED_COLUMNS, extra_set="updated_at = Now()")
 
     def insert_edit_log(self, session_id: int, field_name: str, old_value: str | None, new_value: str | None) -> None:
         self.execute(

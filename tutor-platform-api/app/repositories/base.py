@@ -1,9 +1,36 @@
+import re
+
+_SAFE_COLUMN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+
 class BaseRepository:
     """所有 Repository 之基礎類別，提供通用之資料存取方法。"""
 
     def __init__(self, conn):
         self.conn = conn
         self.cursor = conn.cursor()
+
+    @staticmethod
+    def validate_columns(columns: list, allowed: set | None = None) -> None:
+        """驗證欄位名稱僅含合法識別字元，並可選擇限制於白名單。"""
+        for col in columns:
+            if not _SAFE_COLUMN.match(col):
+                raise ValueError(f"不合法的欄位名稱：{col!r}")
+            if allowed and col not in allowed:
+                raise ValueError(f"不允許更新的欄位：{col!r}")
+
+    def safe_update(self, table: str, id_col: str, id_val, updates: dict,
+                    allowed_columns: set, extra_set: str = "") -> None:
+        """安全的動態 UPDATE，強制驗證欄位白名單。"""
+        self.validate_columns(list(updates.keys()), allowed_columns)
+        set_clause = ", ".join(f"{col} = ?" for col in updates)
+        if extra_set:
+            set_clause += ", " + extra_set
+        values = list(updates.values()) + [id_val]
+        self.execute(
+            f"UPDATE {table} SET {set_clause} WHERE {id_col} = ?",
+            values,
+        )
 
     def fetch_one(self, sql: str, params: tuple = ()) -> dict | None:
         """執行查詢並回傳單筆結果（dict 格式），查無資料時回傳 None。"""

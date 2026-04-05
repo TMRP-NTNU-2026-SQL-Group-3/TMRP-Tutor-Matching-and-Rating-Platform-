@@ -46,13 +46,10 @@ class ExamRepository(BaseRepository):
             (exam_id,),
         )
 
+    ALLOWED_COLUMNS = {"exam_date", "exam_type", "score", "visible_to_parent"}
+
     def update(self, exam_id: int, updates: dict) -> None:
-        set_clause = ", ".join(f"{col} = ?" for col in updates)
-        values = list(updates.values()) + [exam_id]
-        self.execute(
-            f"UPDATE Exams SET {set_clause} WHERE exam_id = ?",
-            values,
-        )
+        self.safe_update("Exams", "exam_id", exam_id, updates, self.ALLOWED_COLUMNS)
 
     def list_by_student(self, student_id: int, parent_only: bool = False) -> list[dict]:
         if parent_only:

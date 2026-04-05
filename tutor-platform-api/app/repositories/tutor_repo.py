@@ -28,8 +28,9 @@ class TutorRepository(BaseRepository):
             params.append(subject_id)
 
         if school:
+            escaped = school.replace("%", "[%]").replace("_", "[_]")
             conditions.append("t.university LIKE ?")
-            params.append(f"%{school}%")
+            params.append(f"%{escaped}%")
 
         if conditions:
             sql += " WHERE " + " AND ".join(conditions)

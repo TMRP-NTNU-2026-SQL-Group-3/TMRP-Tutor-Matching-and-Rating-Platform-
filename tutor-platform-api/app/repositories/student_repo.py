@@ -24,10 +24,7 @@ class StudentRepository(BaseRepository):
         """
         return self.execute_returning_id(sql, (parent_user_id, name, school, grade))
 
+    ALLOWED_COLUMNS = {"name", "school", "grade"}
+
     def update(self, student_id: int, updates: dict) -> None:
-        set_clause = ", ".join(f"{col} = ?" for col in updates)
-        values = list(updates.values()) + [student_id]
-        self.execute(
-            f"UPDATE Students SET {set_clause} WHERE student_id = ?",
-            values,
-        )
+        self.safe_update("Students", "student_id", student_id, updates, self.ALLOWED_COLUMNS)

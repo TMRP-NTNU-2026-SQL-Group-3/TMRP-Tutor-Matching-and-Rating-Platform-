@@ -1,12 +1,15 @@
 import csv
 import io
 import logging
+import re
 from pathlib import Path
 
 from app.database import get_connection
 from app.repositories.base import BaseRepository
 from app.utils.csv_handler import write_csv
 from app.worker import huey
+
+_SAFE_COLUMN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
 logger = logging.getLogger("app.tasks.import_export")
 
@@ -32,6 +35,9 @@ def import_csv_task(table_name: str, csv_content: str) -> dict:
             return {"table": table_name, "count": 0}
 
         columns = list(rows[0].keys())
+        for col in columns:
+            if not _SAFE_COLUMN.match(col):
+                return {"table": table_name, "error": f"不合法的欄位名稱：{col!r}"}
         placeholders = ", ".join(["?"] * len(columns))
         col_names = ", ".join(columns)
         sql = f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})"
