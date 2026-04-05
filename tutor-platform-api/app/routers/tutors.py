@@ -45,6 +45,8 @@ def search_tutors(
     min_rating: float = Query(None),
     school: str = Query(None),
     sort_by: str = Query("rating"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
@@ -88,13 +90,19 @@ def search_tutors(
 
     # 排序
     if sort_by == "rate_asc":
-        results.sort(key=lambda x: sum(s["hourly_rate"] for s in x.get("subjects", []) if s.get("hourly_rate")) or 0)
+        results.sort(key=lambda x: (
+            0 if any(s.get("hourly_rate") for s in x.get("subjects", [])) else 1,
+            sum(s["hourly_rate"] for s in x.get("subjects", []) if s.get("hourly_rate")) or float('inf')
+        ))
     elif sort_by == "newest":
         results.sort(key=lambda x: x.get("tutor_id", 0), reverse=True)
     else:
         results.sort(key=lambda x: x.get("avg_rating", 0), reverse=True)
 
-    return ApiResponse(success=True, data=results)
+    total = len(results)
+    start = (page - 1) * page_size
+    paginated = results[start:start + page_size]
+    return ApiResponse(success=True, data={"items": paginated, "total": total})
 
 
 @router.put("/profile", summary="更新老師個人資料", description="更新老師的自我介紹、教學經驗、學歷、收生上限、欄位公開設定等。僅修改有傳入的欄位。", response_model=ApiResponse)

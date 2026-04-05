@@ -379,7 +379,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             "start_date": now - timedelta(days=90), "end_date": now - timedelta(days=14),
             "penalty_amount": 200, "trial_price": None, "trial_count": None,
             "contract_notes": "每週六下午上課",
-            "terminated_by": parent_user_ids[1], "termination_reason": "學生搬家，不方便繼續上課",
+            "terminated_by": parent_user_ids[1], "termination_reason": "active|學生搬家，不方便繼續上課",
         },
     ]
 

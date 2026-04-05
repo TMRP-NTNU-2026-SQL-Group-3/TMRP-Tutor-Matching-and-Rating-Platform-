@@ -36,4 +36,10 @@ defineProps({
 defineEmits(['submit', 'cancel'])
 
 const reason = ref('')
+
+function reset() {
+  reason.value = ''
+}
+
+defineExpose({ reset })
 </script>

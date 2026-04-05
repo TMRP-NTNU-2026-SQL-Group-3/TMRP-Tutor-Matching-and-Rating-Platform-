@@ -68,7 +68,11 @@
 import { ref, computed } from 'vue'
 
 const props = defineProps({
-  auth: { type: Object, required: true },
+  auth: {
+    type: Object,
+    required: true,
+    // 預期：{ role: string, user: { display_name: string } }
+  },
 })
 
 defineEmits(['logout'])

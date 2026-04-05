@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,6 +9,35 @@ from app.routers import admin, auth, exams, matches, messages, reviews, sessions
 from app.utils.logger import setup_logger
 
 logger = setup_logger()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("API Server 啟動")
+    if settings.jwt_secret_key == "change-me-in-production":
+        logger.warning(
+            "⚠️ JWT_SECRET_KEY 使用預設值！請在 .env 中設定安全的密鑰。"
+            "正式環境務必更換，否則任何人都能偽造 Token。"
+        )
+    if settings.admin_password == "admin123":
+        logger.warning(
+            "⚠️ ADMIN_PASSWORD 使用預設值！請在 .env 中設定強密碼。"
+        )
+    try:
+        from app.database import get_connection
+        from app.init_db import ensure_admin_user
+
+        conn = get_connection()
+        try:
+            ensure_admin_user(conn, settings)
+        finally:
+            conn.close()
+        logger.info("管理員帳號檢查完成")
+    except Exception as e:
+        logger.error("管理員帳號建立失敗: %s", e)
+    yield
+    logger.info("API Server 關閉")
+
 
 tags_metadata = [
     {"name": "auth", "description": "使用者認證：註冊、登入、取得個人資訊"},
@@ -28,6 +59,7 @@ app = FastAPI(
     "提供家長搜尋家教、配對媒合、上課管理、三向評價等完整功能的 RESTful API。",
     version="0.1.0",
     openapi_tags=tags_metadata,
+    lifespan=lifespan,
 )
 
 # CORS
@@ -61,27 +93,3 @@ async def root():
     return {"message": "家教媒合與評價平台 API 運行中"}
 
 
-@app.on_event("startup")
-async def startup_event():
-    logger.info("API Server 啟動")
-    if settings.jwt_secret_key == "change-me-in-production":
-        logger.warning(
-            "⚠️ JWT_SECRET_KEY 使用預設值！請在 .env 中設定安全的密鑰。"
-            "正式環境務必更換，否則任何人都能偽造 Token。"
-        )
-    if settings.admin_password == "admin123":
-        logger.warning(
-            "⚠️ ADMIN_PASSWORD 使用預設值！請在 .env 中設定強密碼。"
-        )
-    try:
-        from app.database import get_connection
-        from app.init_db import ensure_admin_user
-
-        conn = get_connection()
-        try:
-            ensure_admin_user(conn, settings)
-        finally:
-            conn.close()
-        logger.info("管理員帳號檢查完成")
-    except Exception as e:
-        logger.error("管理員帳號建立失敗: %s", e)

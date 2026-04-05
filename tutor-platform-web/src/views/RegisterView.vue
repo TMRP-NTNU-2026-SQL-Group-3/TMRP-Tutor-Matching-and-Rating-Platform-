@@ -43,9 +43,9 @@
 
         <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
 
-        <button type="submit"
-          class="w-full bg-primary-600 hover:bg-primary-700 text-white rounded-lg py-2.5 text-sm font-medium transition-colors">
-          註冊
+        <button type="submit" :disabled="submitting"
+          class="w-full bg-primary-600 hover:bg-primary-700 text-white rounded-lg py-2.5 text-sm font-medium transition-colors disabled:opacity-50">
+          {{ submitting ? '註冊中...' : '註冊' }}
         </button>
       </form>
 
@@ -64,6 +64,7 @@ import { authApi } from '@/api/auth'
 
 const router = useRouter()
 const error = ref('')
+const submitting = ref(false)
 
 const form = reactive({
   role: 'parent',
@@ -75,12 +76,16 @@ const form = reactive({
 })
 
 async function handleRegister() {
+  if (submitting.value) return
+  submitting.value = true
   try {
     error.value = ''
     await authApi.register(form)
     router.push('/login')
   } catch (e) {
     error.value = e.message
+  } finally {
+    submitting.value = false
   }
 }
 </script>

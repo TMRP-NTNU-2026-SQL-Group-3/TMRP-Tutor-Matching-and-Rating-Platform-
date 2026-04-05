@@ -16,7 +16,7 @@
         <StatCard title="總堂數" :value="data.session_count" />
         <StatCard title="總時數" :value="data.total_hours" />
         <StatCard title="總收入" highlight>
-          NT$ {{ data.total_income.toLocaleString() }}
+          NT$ {{ (data.total_income ?? 0).toLocaleString() }}
         </StatCard>
       </div>
 
@@ -39,7 +39,7 @@
               <td class="px-4 py-3 text-sm text-gray-900">{{ row.student_name }}</td>
               <td class="px-4 py-3 text-sm text-gray-700">{{ row.subject_name }}</td>
               <td class="px-4 py-3 text-sm text-gray-700 text-right">{{ row.hours }}</td>
-              <td class="px-4 py-3 text-sm text-gray-900 font-semibold text-right">NT$ {{ row.income.toLocaleString() }}</td>
+              <td class="px-4 py-3 text-sm text-gray-900 font-semibold text-right">NT$ {{ (row.income ?? 0).toLocaleString() }}</td>
             </tr>
           </tbody>
         </table>

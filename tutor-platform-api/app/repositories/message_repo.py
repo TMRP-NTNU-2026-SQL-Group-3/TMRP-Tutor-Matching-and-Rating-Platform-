@@ -59,11 +59,14 @@ class MessageRepository(BaseRepository):
             INSERT INTO Messages (conversation_id, sender_user_id, content, sent_at)
             VALUES (?, ?, ?, Now())
         """
-        msg_id = self.execute_returning_id(sql, (conversation_id, sender_user_id, content))
-        self.execute(
+        self.cursor.execute(sql, (conversation_id, sender_user_id, content))
+        self.cursor.execute("SELECT @@IDENTITY")
+        msg_id = self.cursor.fetchone()[0]
+        self.cursor.execute(
             "UPDATE Conversations SET last_message_at = Now() WHERE conversation_id = ?",
             (conversation_id,),
         )
+        self.conn.commit()
         return msg_id
 
     def user_is_participant(self, conversation_id: int, user_id: int) -> bool:

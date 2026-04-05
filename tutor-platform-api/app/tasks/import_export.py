@@ -4,6 +4,7 @@ import logging
 import re
 from pathlib import Path
 
+from app.config import settings
 from app.database import get_connection
 from app.repositories.base import BaseRepository
 from app.utils.csv_handler import write_csv
@@ -51,6 +52,7 @@ def import_csv_task(table_name: str, csv_content: str) -> dict:
         logger.info("已匯入 %d 筆資料至 %s", len(rows), table_name)
         return {"table": table_name, "count": len(rows)}
     except Exception as e:
+        conn.rollback()
         logger.error("匯入 %s 失敗: %s", table_name, str(e))
         return {"table": table_name, "error": str(e)}
     finally:
@@ -72,7 +74,7 @@ def export_csv_task(table_name: str) -> dict:
         if not rows:
             return {"table": table_name, "count": 0, "path": None}
 
-        export_dir = Path("data/export")
+        export_dir = Path(settings.access_db_path).parent / "export"
         export_dir.mkdir(parents=True, exist_ok=True)
         export_path = export_dir / f"{table_name}.csv"
         write_csv(str(export_path), rows)

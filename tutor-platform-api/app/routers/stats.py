@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 
 from app.dependencies import get_current_user, get_db, is_admin, require_role
-from app.exceptions import ForbiddenException, NotFoundException
+from app.exceptions import AppException, ForbiddenException, NotFoundException
 from app.models.common import ApiResponse
 from app.repositories.stats_repo import StatsRepository
 
@@ -13,6 +13,8 @@ router = APIRouter(prefix="/api/stats", tags=["stats"])
 def _parse_month(month: str | None) -> tuple[int, int]:
     if month:
         year, mon = map(int, month.split("-"))
+        if not (1 <= mon <= 12):
+            raise AppException("無效的月份值（1-12）")
     else:
         now = datetime.now()
         year, mon = now.year, now.month

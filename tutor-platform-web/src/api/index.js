@@ -18,9 +18,13 @@ api.interceptors.request.use(config => {
 // Response Interceptor：統一解包回應
 api.interceptors.response.use(
   response => {
-    const { success, data, message } = response.data
+    const body = response.data
+    if (body === undefined || body === null || typeof body !== 'object' || !('success' in body)) {
+      return body
+    }
+    const { success, data, message } = body
     if (!success) {
-      return Promise.reject(new Error(message))
+      return Promise.reject(new Error(message || '操作失敗'))
     }
     return data
   },

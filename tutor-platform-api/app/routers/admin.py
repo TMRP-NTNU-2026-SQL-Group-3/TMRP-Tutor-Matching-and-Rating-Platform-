@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import FileResponse
 
+from app.config import settings
 from app.dependencies import get_db, require_role
 from app.exceptions import AppException, NotFoundException
 from app.models.common import ApiResponse
@@ -65,6 +66,15 @@ def _validate_columns(columns: list) -> None:
             raise AppException(f"不合法的欄位名稱：{col!r}")
 
 
+def _coerce_value(val: str):
+    """將 CSV 字串值轉換為適合 MS Access 的型別。"""
+    if val in ('True', 'true', '1', '-1'):
+        return -1   # MS Access BIT True
+    if val in ('False', 'false', '0'):
+        return 0
+    return val
+
+
 # ---------- 1. 使用者列表 ----------
 
 @router.get("/users", summary="使用者列表", description="列出系統中所有使用者的基本資料。僅限管理員。", response_model=ApiResponse)
@@ -116,7 +126,7 @@ def import_csv(
 
     cursor = conn.cursor()
     for row in rows:
-        values = tuple(row[c] for c in columns)
+        values = tuple(_coerce_value(row[c]) for c in columns)
         cursor.execute(sql, values)
     conn.commit()
 
@@ -143,7 +153,8 @@ def export_csv(
     if not rows:
         raise NotFoundException(f"{table_name} 無資料可匯出")
 
-    export_dir = Path("data/export")
+    export_dir = Path(settings.access_db_path).parent / "export"
+    export_dir.mkdir(parents=True, exist_ok=True)
     export_path = export_dir / f"{table_name}.csv"
     write_csv(str(export_path), rows)
 
@@ -166,20 +177,26 @@ def reset_database(
         raise AppException("請傳入 confirm=true 以確認清空資料庫")
 
     repo = BaseRepository(conn)
+    cursor = conn.cursor()
     admin_user_id = int(user["sub"])
     deleted = {}
 
-    for table in _DELETE_ORDER:
-        if table == "Users":
-            # 保留目前操作的 Admin 帳號
-            rows_before = repo.fetch_one(f"SELECT COUNT(*) AS cnt FROM {table}")
-            repo.execute(f"DELETE FROM {table} WHERE user_id <> ?", (admin_user_id,))
-            rows_after = repo.fetch_one(f"SELECT COUNT(*) AS cnt FROM {table}")
-            deleted[table] = (rows_before["cnt"] or 0) - (rows_after["cnt"] or 0)
-        else:
-            rows = repo.fetch_one(f"SELECT COUNT(*) AS cnt FROM {table}")
-            repo.execute(f"DELETE FROM {table}")
-            deleted[table] = rows["cnt"] or 0
+    try:
+        for table in _DELETE_ORDER:
+            if table == "Users":
+                # 保留目前操作的 Admin 帳號
+                rows_before = repo.fetch_one(f"SELECT COUNT(*) AS cnt FROM {table}")
+                cursor.execute(f"DELETE FROM {table} WHERE user_id <> ?", (admin_user_id,))
+                rows_after = repo.fetch_one(f"SELECT COUNT(*) AS cnt FROM {table}")
+                deleted[table] = (rows_before["cnt"] or 0) - (rows_after["cnt"] or 0)
+            else:
+                rows = repo.fetch_one(f"SELECT COUNT(*) AS cnt FROM {table}")
+                cursor.execute(f"DELETE FROM {table}")
+                deleted[table] = rows["cnt"] or 0
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
     total = sum(deleted.values())
     return ApiResponse(
@@ -226,7 +243,7 @@ def system_status(user=Depends(require_role("admin")), conn=Depends(get_db)):
 @router.post("/export-all", summary="一鍵匯出全部", description="將所有資料表匯出為 CSV 並打包成 ZIP 下載。僅限管理員。")
 def export_all(user=Depends(require_role("admin")), conn=Depends(get_db)):
     repo = BaseRepository(conn)
-    export_dir = Path("data/export")
+    export_dir = Path(settings.access_db_path).parent / "export"
     export_dir.mkdir(parents=True, exist_ok=True)
 
     exported_tables = []
@@ -270,8 +287,8 @@ def get_task_status(
         return ApiResponse(success=True, data={"task_id": task_id, "status": "pending"})
 
     try:
-        import pickle
-        result = pickle.loads(raw)
+        import pickle  # nosec B301 — admin-only, data from local Huey SQLite storage
+        result = pickle.loads(raw)  # nosec B301
     except Exception:
         result = None
 

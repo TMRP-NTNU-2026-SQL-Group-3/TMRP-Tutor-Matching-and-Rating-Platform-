@@ -12,7 +12,7 @@ export const matchesApi = {
   },
   updateStatus(matchId, action, reason = null) {
     const body = { action }
-    if (reason) body.reason = reason
+    if (reason != null) body.reason = reason
     return api.patch(`/api/matches/${matchId}/status`, body)
   }
 }

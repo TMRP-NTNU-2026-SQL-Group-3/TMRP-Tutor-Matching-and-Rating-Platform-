@@ -5,6 +5,7 @@ from huey import crontab
 
 from app.config import settings
 from app.database import get_connection
+from app.utils.access_bits import to_access_bit
 from app.worker import huey
 
 logger = logging.getLogger("app.tasks.scheduled")
@@ -17,7 +18,7 @@ def _ensure_is_locked_column(conn) -> None:
         cursor.execute("SELECT TOP 1 is_locked FROM Reviews")
     except Exception:
         cursor.execute("ALTER TABLE Reviews ADD COLUMN is_locked BIT")
-        cursor.execute("UPDATE Reviews SET is_locked = False")
+        cursor.execute("UPDATE Reviews SET is_locked = ?", (to_access_bit(False),))
         conn.commit()
         logger.info("已新增 is_locked 欄位至 Reviews")
 
@@ -32,9 +33,9 @@ def check_expired_reviews():
         cutoff = datetime.now() - timedelta(days=settings.review_lock_days)
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE Reviews SET is_locked = True "
-            "WHERE created_at < ? AND (is_locked = False OR is_locked IS NULL)",
-            (cutoff,),
+            "UPDATE Reviews SET is_locked = ? "
+            "WHERE created_at < ? AND (is_locked = ? OR is_locked IS NULL)",
+            (to_access_bit(True), cutoff, to_access_bit(False)),
         )
         count = cursor.rowcount
         conn.commit()

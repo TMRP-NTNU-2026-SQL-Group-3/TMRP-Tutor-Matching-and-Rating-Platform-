@@ -4,13 +4,18 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.database import get_db  # noqa: F401 — re-exported for router imports
 from app.utils.security import decode_access_token
 
-security_scheme = HTTPBearer()
+security_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
 ):
     """從 JWT Token 解碼目前登入的使用者資訊。"""
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未提供認證 Token",
+        )
     payload = decode_access_token(credentials.credentials)
     if payload is None:
         raise HTTPException(

@@ -224,7 +224,7 @@ const canReview = computed(() => {
   const alreadyReviewed = reviews.value.some(
     r => r.reviewer_user_id === userId.value && r.review_type === 'parent_to_tutor'
   )
-  return !alreadyReviewed && ['active', 'ended'].includes(match.value.status)
+  return !alreadyReviewed && ['active', 'paused', 'terminating', 'ended'].includes(match.value?.status)
 })
 
 function handleSubmitReview() {

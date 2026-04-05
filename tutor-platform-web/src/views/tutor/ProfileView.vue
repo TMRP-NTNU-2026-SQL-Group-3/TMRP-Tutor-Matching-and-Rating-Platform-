@@ -146,9 +146,13 @@ async function handleSave() {
   try {
     await tutorsApi.updateProfile(form)
 
-    // 儲存科目設定
     const validSubjects = subjectList.value.filter(s => s.subject_id && s.hourly_rate)
-    await tutorsApi.updateSubjects({ subjects: validSubjects })
+    try {
+      await tutorsApi.updateSubjects({ subjects: validSubjects })
+    } catch (e) {
+      error.value = '基本資料已儲存，但科目設定失敗：' + e.message
+      return
+    }
 
     success.value = '個人檔案已更新'
   } catch (e) {

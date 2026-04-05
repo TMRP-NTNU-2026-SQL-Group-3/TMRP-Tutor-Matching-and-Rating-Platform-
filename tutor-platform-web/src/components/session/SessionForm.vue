@@ -83,7 +83,7 @@ const form = reactive({
 
 function handleSubmit() {
   emit('submit', {
-    session_date: form.session_date ? new Date(form.session_date).toISOString() : '',
+    session_date: form.session_date,
     hours: form.hours,
     content_summary: form.content_summary,
     homework: form.homework || null,
@@ -95,10 +95,12 @@ function handleSubmit() {
 
 function reset() {
   form.session_date = ''
+  form.hours = 2
   form.content_summary = ''
   form.homework = ''
   form.student_performance = ''
   form.next_plan = ''
+  form.visible_to_parent = false
 }
 
 defineExpose({ reset })

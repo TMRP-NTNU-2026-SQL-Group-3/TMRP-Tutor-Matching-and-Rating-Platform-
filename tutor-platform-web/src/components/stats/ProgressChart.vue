@@ -44,22 +44,26 @@ const chartData = computed(() => {
 
   const subjects = Object.keys(grouped)
 
-  // 取得所有不重複日期作為 x 軸
+  // 取得所有不重複日期作為 x 軸，並按時間排序
   const allDates = [...new Set(props.exams.map(e => {
     const d = new Date(e.exam_date)
     return d.toLocaleDateString('zh-TW')
-  }))]
+  }))].sort((a, b) => new Date(a) - new Date(b))
 
   const datasets = subjects.map((subj, i) => {
     const color = COLORS[i % COLORS.length]
     const dataMap = {}
     for (const e of grouped[subj]) {
       const label = new Date(e.exam_date).toLocaleDateString('zh-TW')
-      dataMap[label] = e.score
+      if (!dataMap[label]) dataMap[label] = []
+      dataMap[label].push(e.score)
     }
     return {
       label: subj,
-      data: allDates.map(d => dataMap[d] ?? null),
+      data: allDates.map(d => {
+        const arr = dataMap[d]
+        return arr ? arr.reduce((a, b) => a + b, 0) / arr.length : null
+      }),
       borderColor: color.border,
       backgroundColor: color.bg,
       tension: 0.3,
@@ -78,7 +82,7 @@ const chartOptions = {
     legend: { position: 'bottom' },
     tooltip: {
       callbacks: {
-        label: (ctx) => `${ctx.dataset.label}：${ctx.raw} 分`,
+        label: (ctx) => ctx.raw != null ? `${ctx.dataset.label}：${ctx.raw} 分` : null,
       },
     },
   },

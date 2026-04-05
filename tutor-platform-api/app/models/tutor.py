@@ -26,8 +26,8 @@ class SubjectUpdate(BaseModel):
 
 class AvailabilitySlot(BaseModel):
     day_of_week: int = Field(ge=0, le=6, description="星期幾（0=週日，6=週六）", examples=[1])
-    start_time: str = Field(..., description="開始時間（HH:MM）", examples=["14:00"])
-    end_time: str = Field(..., description="結束時間（HH:MM）", examples=["16:00"])
+    start_time: str = Field(..., description="開始時間（HH:MM）", examples=["14:00"], pattern=r'^\d{2}:\d{2}(:\d{2})?$')
+    end_time: str = Field(..., description="結束時間（HH:MM）", examples=["16:00"], pattern=r'^\d{2}:\d{2}(:\d{2})?$')
 
 
 class AvailabilityUpdate(BaseModel):

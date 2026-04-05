@@ -167,9 +167,9 @@ class TestGetMe:
         assert "password_hash" not in data
 
     def test_get_me_no_token(self, client):
-        """未帶 Token 回傳 403。"""
+        """未帶 Token 回傳 401。"""
         resp = client.get(self.ENDPOINT)
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
     def test_get_me_invalid_token(self, client):
         """無效 Token 回傳 401。"""

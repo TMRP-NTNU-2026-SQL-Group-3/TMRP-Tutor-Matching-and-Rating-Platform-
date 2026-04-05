@@ -10,6 +10,13 @@ class BaseRepository:
         self.conn = conn
         self.cursor = conn.cursor()
 
+    def close(self):
+        """關閉 cursor（connection 由外層管理）。"""
+        try:
+            self.cursor.close()
+        except Exception:
+            pass
+
     @staticmethod
     def validate_columns(columns: list, allowed: set | None = None) -> None:
         """驗證欄位名稱僅含合法識別字元，並可選擇限制於白名單。"""

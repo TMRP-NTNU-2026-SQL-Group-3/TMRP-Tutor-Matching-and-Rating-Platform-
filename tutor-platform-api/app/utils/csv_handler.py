@@ -4,7 +4,10 @@ from pathlib import Path
 
 def read_csv(file_path: str) -> list[dict]:
     """讀取 CSV 並回傳 list of dict。"""
-    path = Path(file_path)
+    path = Path(file_path).resolve()
+    allowed_base = Path("data").resolve()
+    if not str(path).startswith(str(allowed_base)):
+        raise ValueError(f"不允許的檔案路徑：{file_path}")
     with path.open("r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         return list(reader)

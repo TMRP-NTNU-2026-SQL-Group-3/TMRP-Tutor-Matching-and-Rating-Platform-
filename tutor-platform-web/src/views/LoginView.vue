@@ -20,7 +20,7 @@
 
         <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
 
-        <button type="submit" :disabled="!username || !password"
+        <button type="submit" :disabled="submitting || !username || !password"
           class="w-full bg-primary-600 hover:bg-primary-700 text-white rounded-lg py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
           登入
         </button>
@@ -46,8 +46,10 @@ const auth = useAuthStore()
 const username = ref('')
 const password = ref('')
 const error = ref('')
+const submitting = ref(false)
 
 async function handleLogin() {
+  submitting.value = true
   try {
     error.value = ''
     const data = await authApi.login(username.value, password.value)
@@ -61,6 +63,8 @@ async function handleLogin() {
     else router.push('/parent')
   } catch (e) {
     error.value = e.message
+  } finally {
+    submitting.value = false
   }
 }
 </script>

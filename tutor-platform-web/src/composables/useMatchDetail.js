@@ -58,6 +58,7 @@ export function useMatchDetail() {
 
   // ── 狀態操作 ──
   async function doAction(action) {
+    if (!match.value) return
     error.value = ''
     actionLoading.value = true
     try {
@@ -73,6 +74,7 @@ export function useMatchDetail() {
   }
 
   async function doTerminate(reason) {
+    if (!match.value) return
     error.value = ''
     actionLoading.value = true
     try {

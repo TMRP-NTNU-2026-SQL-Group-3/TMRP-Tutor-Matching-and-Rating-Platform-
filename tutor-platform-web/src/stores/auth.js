@@ -8,7 +8,7 @@ export const useAuthStore = defineStore('auth', () => {
   try { savedUser = JSON.parse(localStorage.getItem('user') || 'null') } catch { /* corrupted */ }
   const user = ref(savedUser)
 
-  const isLoggedIn = computed(() => !!token.value)
+  const isLoggedIn = computed(() => !!token.value && !!user.value)
   const role = computed(() => user.value?.role || '')
 
   function setAuth(tokenValue, userData) {

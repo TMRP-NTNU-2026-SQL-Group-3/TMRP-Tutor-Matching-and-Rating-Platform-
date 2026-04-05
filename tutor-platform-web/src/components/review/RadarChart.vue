@@ -63,7 +63,7 @@ const chartOptions = {
   plugins: {
     tooltip: {
       callbacks: {
-        label: (ctx) => `${ctx.label}：${ctx.raw.toFixed(1)}`,
+        label: (ctx) => `${ctx.label}：${(ctx.raw ?? 0).toFixed(1)}`,
       },
     },
   },

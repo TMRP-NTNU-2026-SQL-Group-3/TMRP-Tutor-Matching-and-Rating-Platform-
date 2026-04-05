@@ -23,6 +23,7 @@
       </div>
     </div>
 
+    <p v-else-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
     <EmptyState v-else message="尚無對話" />
   </div>
 </template>
@@ -35,6 +36,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 
 const conversations = ref([])
 const loading = ref(false)
+const error = ref('')
 
 function formatDate(dt) {
   if (!dt) return ''
@@ -47,7 +49,7 @@ onMounted(async () => {
   try {
     conversations.value = await messagesApi.listConversations()
   } catch (e) {
-    console.error(e.message)
+    error.value = e.message
   } finally {
     loading.value = false
   }

@@ -23,6 +23,8 @@ def setup_logger() -> logging.Logger:
     file_handler.setFormatter(formatter)
 
     root_logger = logging.getLogger("app")
+    if root_logger.handlers:
+        return root_logger
     root_logger.setLevel(getattr(logging, settings.log_level))
     root_logger.addHandler(console_handler)
     root_logger.addHandler(file_handler)

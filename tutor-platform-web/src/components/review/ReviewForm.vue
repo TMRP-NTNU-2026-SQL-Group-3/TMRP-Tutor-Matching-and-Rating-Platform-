@@ -56,7 +56,7 @@
 </template>
 
 <script setup>
-import { reactive, computed } from 'vue'
+import { reactive, computed, watch } from 'vue'
 
 const LABEL_MAP = {
   parent_to_tutor: ['教學能力', '溝通態度', '準時出席', '整體滿意度'],
@@ -86,6 +86,16 @@ const form = reactive({
   personality_comment: '',
   comment: '',
 })
+
+watch(
+  () => props.reviewTypes,
+  (types) => {
+    if (types.length && !form.review_type) {
+      form.review_type = types[0].value
+    }
+  },
+  { immediate: true }
+)
 
 const dimensionLabels = computed(() => LABEL_MAP[form.review_type] || LABEL_MAP.parent_to_tutor)
 

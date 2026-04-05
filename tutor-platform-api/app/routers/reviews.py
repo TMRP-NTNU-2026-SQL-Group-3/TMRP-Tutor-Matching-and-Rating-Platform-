@@ -27,6 +27,10 @@ def create_review(
     if not match:
         raise NotFoundException("找不到此配對")
 
+    REVIEWABLE_STATUSES = {'active', 'paused', 'terminating', 'ended'}
+    if match["status"] not in REVIEWABLE_STATUSES:
+        raise AppException("只能對進行中或已結束的配對提交評價")
+
     is_parent = match["parent_user_id"] == user_id
     is_tutor = match["tutor_user_id"] == user_id
 

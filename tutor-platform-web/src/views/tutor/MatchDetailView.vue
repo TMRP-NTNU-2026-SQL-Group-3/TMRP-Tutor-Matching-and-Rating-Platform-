@@ -395,6 +395,8 @@ async function submitExam() {
     showExamForm.value = false
     examForm.exam_date = ''
     examForm.score = 0
+    examForm.exam_type = '段考'
+    examForm.visible_to_parent = false
     toast.success('考試紀錄已新增')
     await fetchMatch()
   } catch (e) {

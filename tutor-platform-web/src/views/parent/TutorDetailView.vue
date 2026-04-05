@@ -91,7 +91,10 @@
       />
     </div>
 
-    <EmptyState v-else message="找不到此老師" />
+    <div v-else>
+      <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
+      <EmptyState v-else message="找不到此老師" />
+    </div>
   </div>
 </template>
 
@@ -106,13 +109,16 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import RadarChart from '@/components/review/RadarChart.vue'
 import AvailabilityCalendar from '@/components/tutor/AvailabilityCalendar.vue'
 import InviteForm from '@/components/match/InviteForm.vue'
+import { useToastStore } from '@/stores/toast'
 
 const route = useRoute()
 const router = useRouter()
+const toast = useToastStore()
 
 const tutor = ref(null)
 const students = ref([])
 const loading = ref(false)
+const error = ref('')
 const showInviteForm = ref(false)
 const inviting = ref(false)
 const inviteError = ref('')
@@ -131,7 +137,7 @@ async function goMessage() {
     const conv = await messagesApi.createConversation(tutor.value.user_id)
     router.push('/messages/' + conv.conversation_id)
   } catch (e) {
-    alert(e.message)
+    toast.error(e.message)
   }
 }
 
@@ -148,7 +154,7 @@ async function submitInvite(formData) {
       ...formData,
       invite_message: formData.invite_message || null,
     })
-    alert('邀請已送出！')
+    toast.success('邀請已送出！')
     showInviteForm.value = false
   } catch (e) {
     inviteError.value = e.message
@@ -164,7 +170,7 @@ onMounted(async () => {
     tutor.value = await tutorsApi.getDetail(id)
     students.value = await studentsApi.list()
   } catch (e) {
-    console.error(e.message)
+    error.value = e.message
   } finally {
     loading.value = false
   }

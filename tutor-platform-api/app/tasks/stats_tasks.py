@@ -20,7 +20,12 @@ def calculate_income_stats(user_id: int, month: str | None = None) -> dict:
             return {"error": "找不到老師資料"}
 
         if month:
-            year, mon = map(int, month.split("-"))
+            try:
+                year, mon = map(int, month.split("-"))
+                if not (1 <= mon <= 12):
+                    return {"error": "無效的月份值"}
+            except (ValueError, TypeError):
+                return {"error": "月份格式應為 YYYY-MM"}
         else:
             now = datetime.now()
             year, mon = now.year, now.month
@@ -57,7 +62,12 @@ def calculate_expense_stats(user_id: int, month: str | None = None) -> dict:
         repo = StatsRepository(conn)
 
         if month:
-            year, mon = map(int, month.split("-"))
+            try:
+                year, mon = map(int, month.split("-"))
+                if not (1 <= mon <= 12):
+                    return {"error": "無效的月份值"}
+            except (ValueError, TypeError):
+                return {"error": "月份格式應為 YYYY-MM"}
         else:
             now = datetime.now()
             year, mon = now.year, now.month

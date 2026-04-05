@@ -57,7 +57,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
@@ -122,13 +122,6 @@ function startPolling() {
   pollTimer = setInterval(fetchMessages, 5000)
 }
 
-onMounted(async () => {
-  loading.value = true
-  await fetchMessages()
-  loading.value = false
-  startPolling()
-})
-
 watch(() => route.params.id, async () => {
   loading.value = true
   error.value = ''
@@ -136,7 +129,7 @@ watch(() => route.params.id, async () => {
   await fetchMessages()
   loading.value = false
   startPolling()
-})
+}, { immediate: true })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)

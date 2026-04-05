@@ -60,7 +60,17 @@ const routes = [
   },
 
   // 預設導向
-  { path: '/', redirect: '/login' },
+  { path: '/:pathMatch(.*)*', redirect: '/login' },
+  {
+    path: '/',
+    redirect: () => {
+      const auth = useAuthStore()
+      if (!auth.isLoggedIn) return '/login'
+      if (auth.role === 'admin') return '/admin'
+      if (auth.role === 'tutor') return '/tutor'
+      return '/parent'
+    },
+  },
 ]
 
 const router = createRouter({

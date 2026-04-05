@@ -68,7 +68,11 @@ class MatchRepository(BaseRepository):
         """
         return self.fetch_all(sql, (parent_user_id,))
 
+    VALID_STATUSES = {'pending', 'trial', 'active', 'paused', 'cancelled',
+                      'rejected', 'terminating', 'ended'}
+
     def update_status(self, match_id: int, new_status: str) -> None:
+        assert new_status in self.VALID_STATUSES, f"Invalid status: {new_status}"
         sql = "UPDATE Matches SET status = ?, updated_at = Now() WHERE match_id = ?"
         self.execute(sql, (new_status, match_id))
 

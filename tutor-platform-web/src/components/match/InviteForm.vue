@@ -52,7 +52,7 @@
       </div>
       <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
       <div class="flex gap-3">
-        <button @click="$emit('submit', { ...form })" :disabled="submitting"
+        <button @click="handleSubmit" :disabled="submitting"
           class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           {{ submitting ? '送出中...' : '送出邀請' }}
         </button>
@@ -76,7 +76,7 @@ defineProps({
   error: { type: String, default: '' },
 })
 
-defineEmits(['submit', 'cancel'])
+const emit = defineEmits(['submit', 'cancel'])
 
 const form = reactive({
   student_id: null,
@@ -86,4 +86,20 @@ const form = reactive({
   want_trial: false,
   invite_message: '',
 })
+
+function handleSubmit() {
+  if (!form.student_id || !form.subject_id || !form.hourly_rate) return
+  emit('submit', { ...form })
+}
+
+function reset() {
+  form.student_id = null
+  form.subject_id = null
+  form.hourly_rate = 0
+  form.sessions_per_week = 1
+  form.want_trial = false
+  form.invite_message = ''
+}
+
+defineExpose({ reset })
 </script>

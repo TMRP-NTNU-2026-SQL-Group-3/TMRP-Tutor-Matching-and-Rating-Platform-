@@ -95,6 +95,13 @@ def list_matches(user=Depends(get_current_user), conn=Depends(get_db)):
 
     if role == "tutor":
         matches = repo.find_by_tutor_user_id(user_id)
+    elif role == "admin":
+        matches = repo.fetch_all(
+            "SELECT m.*, s.subject_name, st.name AS student_name "
+            "FROM ((Matches m INNER JOIN Subjects s ON m.subject_id = s.subject_id) "
+            "INNER JOIN Students st ON m.student_id = st.student_id) "
+            "ORDER BY m.updated_at DESC"
+        )
     else:
         matches = repo.find_by_parent_user_id(user_id)
 
@@ -125,6 +132,10 @@ def get_match_detail(
     match["status_label"] = STATUS_LABELS.get(match["status"], match["status"])
     match["is_parent"] = is_parent
     match["is_tutor"] = is_tutor
+
+    raw_reason = match.get("termination_reason") or ""
+    if "|" in raw_reason:
+        match["termination_reason"] = raw_reason.split("|", 1)[1]
 
     return ApiResponse(success=True, data=match)
 
