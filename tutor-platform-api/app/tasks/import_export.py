@@ -21,7 +21,7 @@ ALLOWED_TABLES = {
 }
 
 
-@huey.task()
+@huey.task(retries=3, retry_delay=10)
 def import_csv_task(table_name: str, csv_content: str) -> dict:
     """非同步匯入 CSV 至指定資料表。"""
     if table_name not in ALLOWED_TABLES:
@@ -53,13 +53,13 @@ def import_csv_task(table_name: str, csv_content: str) -> dict:
         return {"table": table_name, "count": len(rows)}
     except Exception as e:
         conn.rollback()
-        logger.error("匯入 %s 失敗: %s", table_name, str(e))
-        return {"table": table_name, "error": str(e)}
+        logger.exception("匯入 %s 失敗", table_name)
+        raise
     finally:
         conn.close()
 
 
-@huey.task()
+@huey.task(retries=3, retry_delay=10)
 def export_csv_task(table_name: str) -> dict:
     """非同步匯出指定資料表為 CSV。"""
     if table_name not in ALLOWED_TABLES:
@@ -81,8 +81,8 @@ def export_csv_task(table_name: str) -> dict:
 
         logger.info("已匯出 %d 筆資料從 %s", len(rows), table_name)
         return {"table": table_name, "count": len(rows), "path": str(export_path)}
-    except Exception as e:
-        logger.error("匯出 %s 失敗: %s", table_name, str(e))
-        return {"table": table_name, "error": str(e)}
+    except Exception:
+        logger.exception("匯出 %s 失敗", table_name)
+        raise
     finally:
         conn.close()

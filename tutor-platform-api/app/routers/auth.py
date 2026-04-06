@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends
 
 from app.dependencies import get_current_user, get_db
 from app.exceptions import AppException
-from app.models.auth import LoginRequest, RegisterRequest, TokenResponse
+from app.models.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
 from app.models.common import ApiResponse
 from app.repositories.auth_repo import AuthRepository
-from app.utils.security import create_access_token, hash_password, verify_password
+from app.utils.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -41,14 +41,42 @@ def login(body: LoginRequest, conn=Depends(get_db)):
     if not user or not verify_password(body.password, user["password_hash"]):
         raise AppException("帳號或密碼錯誤")
 
-    token = create_access_token(
-        {"sub": str(user["user_id"]), "role": user["role"]}
-    )
+    token_data = {"sub": str(user["user_id"]), "role": user["role"]}
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
 
     return ApiResponse(
         success=True,
         data=TokenResponse(
-            access_token=token,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user_id=user["user_id"],
+            role=user["role"],
+            display_name=user["display_name"],
+        ),
+    )
+
+
+@router.post("/refresh", summary="刷新 Token", description="使用 refresh token 取得新的 access token。", response_model=ApiResponse)
+def refresh(body: RefreshRequest, conn=Depends(get_db)):
+    payload = decode_refresh_token(body.refresh_token)
+    if payload is None:
+        raise AppException("刷新令牌無效或已過期", 401)
+
+    repo = AuthRepository(conn)
+    user = repo.find_by_id(int(payload["sub"]))
+    if not user:
+        raise AppException("使用者不存在", 401)
+
+    token_data = {"sub": str(user["user_id"]), "role": user["role"]}
+    new_access = create_access_token(token_data)
+    new_refresh = create_refresh_token(token_data)
+
+    return ApiResponse(
+        success=True,
+        data=TokenResponse(
+            access_token=new_access,
+            refresh_token=new_refresh,
             user_id=user["user_id"],
             role=user["role"],
             display_name=user["display_name"],

@@ -57,7 +57,7 @@ async function handleLogin() {
       user_id: data.user_id,
       role: data.role,
       display_name: data.display_name
-    })
+    }, data.refresh_token)
     if (data.role === 'admin') router.push('/admin')
     else if (data.role === 'tutor') router.push('/tutor')
     else router.push('/parent')

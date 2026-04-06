@@ -15,13 +15,28 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { authApi } from '@/api/auth'
 import AppNav from '@/components/common/AppNav.vue'
 import ToastNotification from '@/components/common/ToastNotification.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
+
+// F3: 每次頁面載入時驗證已儲存的 token 是否仍有效
+onMounted(async () => {
+  if (auth.token) {
+    try {
+      const user = await authApi.getMe()
+      auth.setAuth(auth.token, user)
+    } catch {
+      auth.logout()
+      router.push('/login')
+    }
+  }
+})
 
 function handleLogout() {
   auth.logout()

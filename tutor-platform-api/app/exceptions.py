@@ -1,5 +1,11 @@
+import logging
+
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+logger = logging.getLogger("app.exceptions")
 
 
 class AppException(Exception):
@@ -27,4 +33,32 @@ async def app_exception_handler(request: Request, exc: AppException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"success": False, "data": None, "message": exc.message},
+    )
+
+
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning("Validation error on %s %s: %s", request.method, request.url.path, exc.errors())
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "data": None,
+            "message": "輸入資料格式錯誤",
+            "errors": exc.errors(),
+        },
+    )
+
+
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"success": False, "data": None, "message": exc.detail or "HTTP 錯誤"},
+    )
+
+
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "data": None, "message": "伺服器內部錯誤"},
     )

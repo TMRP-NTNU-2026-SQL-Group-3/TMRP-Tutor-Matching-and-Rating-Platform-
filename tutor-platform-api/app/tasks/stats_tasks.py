@@ -8,7 +8,7 @@ from app.worker import huey
 logger = logging.getLogger("app.tasks.stats_tasks")
 
 
-@huey.task()
+@huey.task(retries=3, retry_delay=10)
 def calculate_income_stats(user_id: int, month: str | None = None) -> dict:
     """非同步計算老師收入統計。"""
     logger.info("計算收入統計: user_id=%d, month=%s", user_id, month)
@@ -46,14 +46,14 @@ def calculate_income_stats(user_id: int, month: str | None = None) -> dict:
             "session_count": int(summary["session_count"] or 0),
             "breakdown": breakdown,
         }
-    except Exception as e:
-        logger.error("計算收入統計失敗: %s", str(e))
-        return {"error": str(e)}
+    except Exception:
+        logger.exception("計算收入統計失敗")
+        raise
     finally:
         conn.close()
 
 
-@huey.task()
+@huey.task(retries=3, retry_delay=10)
 def calculate_expense_stats(user_id: int, month: str | None = None) -> dict:
     """非同步計算家長支出統計。"""
     logger.info("計算支出統計: user_id=%d, month=%s", user_id, month)
@@ -87,8 +87,8 @@ def calculate_expense_stats(user_id: int, month: str | None = None) -> dict:
             "session_count": int(summary["session_count"] or 0),
             "breakdown": breakdown,
         }
-    except Exception as e:
-        logger.error("計算支出統計失敗: %s", str(e))
-        return {"error": str(e)}
+    except Exception:
+        logger.exception("計算支出統計失敗")
+        raise
     finally:
         conn.close()

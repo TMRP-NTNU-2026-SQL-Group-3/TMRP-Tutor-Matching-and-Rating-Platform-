@@ -9,6 +9,7 @@ def get_connection(retries: int = 3, delay: float = 0.5) -> pyodbc.Connection:
     """
     建立並回傳一個新的 MS Access ODBC 連線。
     內建重試機制以應對多 process 併發存取時的暫時性鎖定錯誤。
+    包含連線逾時與查詢逾時設定。
 
     參數：
         retries: 最大重試次數（預設 3 次）
@@ -20,7 +21,9 @@ def get_connection(retries: int = 3, delay: float = 0.5) -> pyodbc.Connection:
     )
     for attempt in range(retries):
         try:
-            return pyodbc.connect(conn_str)
+            conn = pyodbc.connect(conn_str, timeout=5)
+            conn.timeout = 10  # 查詢逾時（秒）
+            return conn
         except pyodbc.Error:
             if attempt < retries - 1:
                 time.sleep(delay)
@@ -29,9 +32,11 @@ def get_connection(retries: int = 3, delay: float = 0.5) -> pyodbc.Connection:
 
 
 def get_db():
-    """FastAPI 依賴注入用之 generator。每次請求建立連線，請求結束時關閉。"""
+    """FastAPI 依賴注入用之 generator。每次請求建立連線，請求結束時關閉。含連線驗證。"""
     conn = get_connection()
     try:
+        # 驗證連線可用：建立 cursor 即可確認檔案連線正常
+        conn.cursor().close()
         yield conn
     finally:
         conn.close()

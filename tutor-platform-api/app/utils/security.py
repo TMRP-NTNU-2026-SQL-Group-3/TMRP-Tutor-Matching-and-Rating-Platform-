@@ -1,4 +1,5 @@
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -20,19 +21,54 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
-    """建立 JWT Token。"""
+    """建立 JWT access token（短效期）。"""
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=settings.jwt_expire_minutes)
-    )
-    to_encode.update({"exp": expire})
+    now = datetime.now(timezone.utc)
+    expire = now + (expires_delta or timedelta(minutes=settings.jwt_expire_minutes))
+    to_encode.update({
+        "exp": expire,
+        "iat": now,
+        "jti": str(uuid.uuid4()),
+        "type": "access",
+    })
+    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def create_refresh_token(data: dict) -> str:
+    """建立 JWT refresh token（長效期，7 天）。"""
+    to_encode = data.copy()
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(days=7)
+    to_encode.update({
+        "exp": expire,
+        "iat": now,
+        "jti": str(uuid.uuid4()),
+        "type": "refresh",
+    })
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
 def decode_access_token(token: str) -> dict | None:
-    """解碼 JWT Token，失敗時回傳 None。"""
+    """解碼 JWT access token，拒絕 refresh token，失敗時回傳 None。"""
     try:
-        return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        if payload.get("type") == "refresh":
+            logger.warning("Rejected refresh token used as access token")
+            return None
+        return payload
     except JWTError as e:
         logger.warning("JWT decode failed: %s", type(e).__name__)
+        return None
+
+
+def decode_refresh_token(token: str) -> dict | None:
+    """解碼 JWT refresh token，僅接受 type=refresh。"""
+    try:
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        if payload.get("type") != "refresh":
+            logger.warning("Non-refresh token used for refresh endpoint")
+            return None
+        return payload
+    except JWTError as e:
+        logger.warning("Refresh token decode failed: %s", type(e).__name__)
         return None

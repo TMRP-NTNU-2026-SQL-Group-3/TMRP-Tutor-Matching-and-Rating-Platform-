@@ -1,11 +1,25 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
-from app.exceptions import AppException, app_exception_handler
+from app.exceptions import (
+    AppException,
+    app_exception_handler,
+    http_exception_handler,
+    unhandled_exception_handler,
+    validation_exception_handler,
+)
+from app.middleware.access_log import AccessLogMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.request_id import RequestIDMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.routers import admin, auth, exams, matches, messages, reviews, sessions, stats, students, subjects, tutors
+from app.routers import health
 from app.utils.logger import setup_logger
 
 logger = setup_logger()
@@ -14,11 +28,7 @@ logger = setup_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("API Server 啟動")
-    if settings.jwt_secret_key == "change-me-in-production":
-        logger.warning(
-            "⚠️ JWT_SECRET_KEY 使用預設值！請在 .env 中設定安全的密鑰。"
-            "正式環境務必更換，否則任何人都能偽造 Token。"
-        )
+    # JWT_SECRET_KEY 預設值已由 config.py model_validator 硬性阻擋，不會走到這裡
     if settings.admin_password == "admin123":
         logger.warning(
             "⚠️ ADMIN_PASSWORD 使用預設值！請在 .env 中設定強密碼。"
@@ -36,7 +46,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("管理員帳號建立失敗: %s", e)
     yield
-    logger.info("API Server 關閉")
+    # Shutdown
+    logger.info("API Server 關閉 — flushing logs")
+    logging.shutdown()
 
 
 tags_metadata = [
@@ -51,6 +63,7 @@ tags_metadata = [
     {"name": "messages", "description": "即時通訊：建立對話、傳送與接收訊息"},
     {"name": "stats", "description": "統計分析：家教收入、家長支出、學生成績趨勢"},
     {"name": "admin", "description": "系統管理：使用者管理、資料匯入匯出、假資料生成、系統狀態"},
+    {"name": "health", "description": "健康檢查：API 與資料庫連線狀態"},
 ]
 
 app = FastAPI(
@@ -62,19 +75,32 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# ─── Middleware（Starlette 最後註冊 = 最外層，請求由外往內穿透）───
+# 5. CORS（最靠近路由 → 最先註冊 → 最內層）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins.split(","),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
+# 4. Rate limiting
+app.add_middleware(RateLimitMiddleware)
+# 3. Access logging（需要 request_id，故在 RequestID 之內）
+app.add_middleware(AccessLogMiddleware)
+# 2. Security headers
+app.add_middleware(SecurityHeadersMiddleware)
+# 1. Request ID（最外層 — 最後註冊 → 最先執行，先指派 ID 再做任何事）
+app.add_middleware(RequestIDMiddleware)
 
-# 統一錯誤處理
+# ─── 統一錯誤處理 ───
 app.add_exception_handler(AppException, app_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+app.add_exception_handler(Exception, unhandled_exception_handler)
 
-# 掛載路由
+# ─── 掛載路由 ───
+app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(tutors.router)
 app.include_router(students.router)

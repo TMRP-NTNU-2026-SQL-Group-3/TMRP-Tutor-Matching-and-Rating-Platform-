@@ -12,5 +12,16 @@ export default defineConfig({
   },
   server: {
     port: 5273
-  }
+  },
+  build: {
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['vue', 'vue-router', 'pinia', 'axios'],
+          charts: ['chart.js', 'vue-chartjs'],
+        },
+      },
+    },
+  },
 })

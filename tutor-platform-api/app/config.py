@@ -1,3 +1,6 @@
+import warnings
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -8,7 +11,7 @@ class Settings(BaseSettings):
     # JWT 認證
     jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60
+    jwt_expire_minutes: int = 15  # access token 短效期（搭配 refresh token）
 
     # Super Admin 帳號（系統啟動時自動建立）
     admin_username: str = "admin"
@@ -29,6 +32,17 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+
+    @model_validator(mode="after")
+    def validate_security_defaults(self):
+        if self.jwt_secret_key == "change-me-in-production":
+            raise ValueError(
+                "JWT_SECRET_KEY 必須在 .env 中設定安全的密鑰，不可使用預設值。"
+                "請執行: python -c \"import secrets; print(secrets.token_hex(32))\" 生成密鑰。"
+            )
+        if self.admin_password == "admin123":
+            warnings.warn("ADMIN_PASSWORD 使用預設值，建議在 .env 中設定強密碼", stacklevel=2)
+        return self
 
 
 settings = Settings()
