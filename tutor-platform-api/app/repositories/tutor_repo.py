@@ -121,7 +121,20 @@ class TutorRepository(BaseRepository):
             self.conn.rollback()
             raise
 
+    VISIBILITY_COLUMNS = {
+        "show_university", "show_department", "show_grade_year",
+        "show_hourly_rate", "show_subjects",
+    }
+
+    PROFILE_COLUMNS = {
+        "university", "department", "grade_year", "self_intro",
+        "teaching_experience", "max_students",
+        "show_university", "show_department", "show_grade_year",
+        "show_hourly_rate", "show_subjects",
+    }
+
     def update_visibility(self, tutor_id: int, flags: dict) -> None:
+        self.validate_columns(list(flags.keys()), self.VISIBILITY_COLUMNS)
         set_parts = []
         params = []
         for col, val in flags.items():
@@ -134,6 +147,7 @@ class TutorRepository(BaseRepository):
         self.execute(sql, tuple(params))
 
     def update_profile(self, tutor_id: int, **fields) -> None:
+        self.validate_columns(list(fields.keys()), self.PROFILE_COLUMNS)
         set_parts = []
         params = []
         for col, val in fields.items():

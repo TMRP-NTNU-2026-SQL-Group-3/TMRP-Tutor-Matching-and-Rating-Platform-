@@ -1,4 +1,5 @@
 import re
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -7,7 +8,7 @@ class RegisterRequest(BaseModel):
     username: str = Field(..., description="使用者帳號", examples=["parent01"])
     password: str = Field(..., description="使用者密碼", examples=["P@ssw0rd123"])
     display_name: str = Field(..., description="顯示名稱", examples=["王小明"])
-    role: str = Field(..., description="使用者角色（parent 或 tutor）", examples=["parent"])
+    role: Literal["parent", "tutor"] = Field(..., description="使用者角色（parent 或 tutor）", examples=["parent"])
     phone: str | None = Field(default=None, description="聯絡電話", examples=["0912345678"])
     email: str | None = Field(default=None, description="電子信箱", examples=["user@example.com"])
 

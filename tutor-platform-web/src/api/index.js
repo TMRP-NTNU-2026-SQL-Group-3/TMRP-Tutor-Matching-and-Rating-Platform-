@@ -46,8 +46,9 @@ api.interceptors.response.use(
       if (auth.refreshToken) {
         if (isRefreshing) {
           // 已在刷新中，排隊等待
-          return new Promise((resolve) => {
-            pendingRequests.push((newToken) => {
+          return new Promise((resolve, reject) => {
+            pendingRequests.push((newToken, error) => {
+              if (error) return reject(error)
               originalConfig._retry = true
               originalConfig.headers.Authorization = `Bearer ${newToken}`
               resolve(api.request(originalConfig))
@@ -68,7 +69,9 @@ api.interceptors.response.use(
           onRefreshed(access_token)
           originalConfig.headers.Authorization = `Bearer ${access_token}`
           return api.request(originalConfig)
-        } catch {
+        } catch (refreshError) {
+          pendingRequests.forEach((cb) => cb(null, refreshError))
+          pendingRequests = []
           auth.logout()
           window.location.href = '/login'
           return Promise.reject(error)

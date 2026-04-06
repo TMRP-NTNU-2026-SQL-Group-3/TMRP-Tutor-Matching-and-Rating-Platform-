@@ -39,14 +39,18 @@ class AuthRepository(BaseRepository):
         email: str | None = None,
     ) -> int:
         """原子性註冊：建立 User，若為老師則一併建立 Tutors 記錄，最後才 commit。"""
-        self.cursor.execute(
-            "INSERT INTO Users (username, password_hash, display_name, role, phone, email) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (username, password_hash, display_name, role, phone, email),
-        )
-        self.cursor.execute("SELECT @@IDENTITY")
-        user_id = self.cursor.fetchone()[0]
-        if role == "tutor":
-            self.cursor.execute("INSERT INTO Tutors (user_id) VALUES (?)", (user_id,))
-        self.conn.commit()
-        return user_id
+        try:
+            self.cursor.execute(
+                "INSERT INTO Users (username, password_hash, display_name, role, phone, email) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (username, password_hash, display_name, role, phone, email),
+            )
+            self.cursor.execute("SELECT @@IDENTITY")
+            user_id = self.cursor.fetchone()[0]
+            if role == "tutor":
+                self.cursor.execute("INSERT INTO Tutors (user_id) VALUES (?)", (user_id,))
+            self.conn.commit()
+            return user_id
+        except Exception:
+            self.conn.rollback()
+            raise

@@ -60,7 +60,6 @@ const routes = [
   },
 
   // 預設導向
-  { path: '/:pathMatch(.*)*', redirect: '/login' },
   {
     path: '/',
     redirect: () => {
@@ -71,6 +70,7 @@ const routes = [
       return '/parent'
     },
   },
+  { path: '/:pathMatch(.*)*', redirect: '/login' },
 ]
 
 const router = createRouter({
@@ -82,7 +82,10 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   const auth = useAuthStore()
 
-  if (to.meta.requiresAuth && !auth.isLoggedIn) {
+  const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
+  const requiredRole = to.matched.find(record => record.meta.role)?.meta.role
+
+  if (requiresAuth && !auth.isLoggedIn) {
     return next('/login')
   }
 
@@ -93,7 +96,7 @@ router.beforeEach((to, from, next) => {
     return next('/parent')
   }
 
-  if (to.meta.role && auth.role !== to.meta.role && auth.role !== 'admin') {
+  if (requiredRole && auth.role !== requiredRole && auth.role !== 'admin') {
     if (auth.role === 'tutor') return next('/tutor')
     return next('/parent')
   }
