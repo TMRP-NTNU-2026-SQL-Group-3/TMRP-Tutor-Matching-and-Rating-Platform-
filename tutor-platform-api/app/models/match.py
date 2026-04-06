@@ -5,7 +5,7 @@ class MatchCreate(BaseModel):
     tutor_id: int = Field(..., description="家教 ID", examples=[1])
     student_id: int = Field(..., description="學生 ID", examples=[2])
     subject_id: int = Field(..., description="科目 ID", examples=[3])
-    hourly_rate: float = Field(..., description="每小時費率（新台幣）", examples=[600.0])
+    hourly_rate: float = Field(..., gt=0, description="每小時費率（新台幣）", examples=[600.0])
     sessions_per_week: int = Field(..., description="每週上課次數", examples=[2])
     want_trial: bool = Field(default=False, description="是否希望試教", examples=[False])
     invite_message: str | None = Field(default=None, description="邀請訊息", examples=["希望能幫孩子加強數學"])

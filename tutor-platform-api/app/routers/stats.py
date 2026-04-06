@@ -15,6 +15,8 @@ def _parse_month(month: str | None) -> tuple[int, int]:
         year, mon = map(int, month.split("-"))
         if not (1 <= mon <= 12):
             raise AppException("無效的月份值（1-12）")
+        if not (2000 <= year <= 2100):
+            raise AppException("無效的年份值（2000-2100）")
     else:
         now = datetime.now()
         year, mon = now.year, now.month

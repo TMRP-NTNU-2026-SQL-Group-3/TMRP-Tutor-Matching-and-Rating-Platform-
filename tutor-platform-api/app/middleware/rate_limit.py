@@ -1,3 +1,4 @@
+import asyncio
 import time
 from collections import defaultdict
 
@@ -21,30 +22,34 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
         self.attempts: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+        self._locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def dispatch(self, request, call_next):
         ip = request.client.host
         path = request.url.path
         max_attempts, window = RATE_LIMITS.get(path, RATE_LIMITS["default"])
+        lock_key = f"{path}:{ip}"
 
-        now = time.time()
+        async with self._locks[lock_key]:
+            now = time.time()
 
-        # 當某路徑的 IP 數過多時，清除所有已過期的空桶
-        path_buckets = self.attempts.get(path)
-        if path_buckets and len(path_buckets) > 10000:
-            stale = [k for k, v in path_buckets.items()
-                     if not v or all(now - t >= window for t in v)]
-            for k in stale:
-                del path_buckets[k]
+            # 當某路徑的 IP 數過多時，清除所有已過期的空桶
+            path_buckets = self.attempts.get(path)
+            if path_buckets and len(path_buckets) > 10000:
+                stale = [k for k, v in path_buckets.items()
+                         if not v or all(now - t >= window for t in v)]
+                for k in stale:
+                    del path_buckets[k]
 
-        bucket = self.attempts[path][ip]
-        # 清除過期紀錄
-        bucket[:] = [t for t in bucket if now - t < window]
+            bucket = self.attempts[path][ip]
+            # 清除過期紀錄
+            bucket[:] = [t for t in bucket if now - t < window]
 
-        if len(bucket) >= max_attempts:
-            return JSONResponse(
-                status_code=429,
-                content={"success": False, "data": None, "message": "請求過於頻繁，請稍後再試"},
-            )
-        bucket.append(now)
+            if len(bucket) >= max_attempts:
+                return JSONResponse(
+                    status_code=429,
+                    content={"success": False, "data": None, "message": "請求過於頻繁，請稍後再試"},
+                )
+            bucket.append(now)
+
         return await call_next(request)

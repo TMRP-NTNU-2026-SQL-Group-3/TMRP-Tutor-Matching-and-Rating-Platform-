@@ -105,7 +105,7 @@ class StatsRepository(BaseRepository):
 
     def student_progress(self, student_id: int, subject_id: int | None = None) -> list[dict]:
         """取得學生歷次考試分數，可選按科目篩選。"""
-        if subject_id:
+        if subject_id is not None:
             return self.fetch_all(
                 """
                 SELECT e.exam_id, e.exam_date, e.exam_type, e.score,

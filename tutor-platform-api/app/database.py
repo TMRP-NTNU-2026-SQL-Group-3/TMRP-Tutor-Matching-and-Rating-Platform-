@@ -15,6 +15,8 @@ def get_connection(retries: int = 3, delay: float = 0.5) -> pyodbc.Connection:
         retries: 最大重試次數（預設 3 次）
         delay: 每次重試前的等待秒數（預設 0.5 秒）
     """
+    if retries <= 0:
+        raise ValueError("retries must be > 0")
     conn_str = (
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={settings.access_db_path};"

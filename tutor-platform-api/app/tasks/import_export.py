@@ -35,6 +35,8 @@ def import_csv_task(table_name: str, csv_content: str) -> dict:
         if not rows:
             return {"table": table_name, "count": 0}
 
+        # Strip whitespace from header names (csv.DictReader preserves it)
+        rows = [{h.strip(): v for h, v in row.items()} for row in rows]
         columns = list(rows[0].keys())
         for col in columns:
             if not _SAFE_COLUMN.match(col):

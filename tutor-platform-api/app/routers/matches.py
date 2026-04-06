@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends
 
 from app.dependencies import get_current_user, get_db, is_admin, require_role
@@ -7,6 +9,8 @@ from app.models.match import MatchCreate, MatchStatusUpdate
 from app.repositories.match_repo import MatchRepository
 from app.repositories.student_repo import StudentRepository
 from app.repositories.tutor_repo import TutorRepository
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/matches", tags=["matches"])
 
@@ -196,6 +200,10 @@ def update_match_status(
         reason_raw = match.get("termination_reason") or "active"
         previous_status = reason_raw.split("|")[0] if "|" in reason_raw else "active"
         if previous_status not in ("active", "paused"):
+            logger.warning(
+                "match %d: invalid previous_status %r in termination_reason, defaulting to 'active'",
+                match_id, previous_status,
+            )
             previous_status = "active"
         repo.clear_termination(match_id, previous_status)
         new_status = previous_status

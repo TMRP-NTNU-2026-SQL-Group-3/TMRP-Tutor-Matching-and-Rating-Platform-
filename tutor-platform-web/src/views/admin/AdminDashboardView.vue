@@ -250,7 +250,7 @@ async function handleImportAll() {
     formData.append('file', file)
     const result = await adminApi.importAll(formData, importAllClearFirst.value)
     const tableCount = Object.keys(result).length
-    const totalRows = Object.values(result).reduce((a, b) => a + b, 0)
+    const totalRows = Object.values(result).filter(v => typeof v === 'number').reduce((a, b) => a + b, 0)
     importAllResult.value = `已匯入 ${tableCount} 張資料表，共 ${totalRows} 筆資料`
     await fetchUsers()
   } catch (e) {

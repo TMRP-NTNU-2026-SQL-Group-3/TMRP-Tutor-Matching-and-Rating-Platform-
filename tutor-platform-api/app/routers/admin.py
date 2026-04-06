@@ -119,6 +119,8 @@ def import_csv(
     if not rows:
         return ApiResponse(success=True, data={"count": 0}, message="CSV 檔案無資料列")
 
+    # Strip whitespace from header names (csv.DictReader preserves it)
+    rows = [{h.strip(): v for h, v in row.items()} for row in rows]
     columns = list(rows[0].keys())
     _validate_columns(columns)
     placeholders = ", ".join(["?"] * len(columns))
@@ -126,10 +128,14 @@ def import_csv(
     sql = f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})"
 
     cursor = conn.cursor()
-    for row in rows:
-        values = tuple(_coerce_value(row[c]) for c in columns)
-        cursor.execute(sql, values)
-    conn.commit()
+    try:
+        for row in rows:
+            values = tuple(_coerce_value(row[c]) for c in columns)
+            cursor.execute(sql, values)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
     return ApiResponse(
         success=True,
@@ -288,10 +294,15 @@ def get_task_status(
         return ApiResponse(success=True, data={"task_id": task_id, "status": "pending"})
 
     try:
-        import pickle  # nosec B301 — admin-only, data from local Huey SQLite storage
-        result = pickle.loads(raw)  # nosec B301
-    except Exception:
-        result = None
+        import json
+        result = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # Fallback: try pickle for legacy data, but prefer JSON going forward
+        try:
+            import pickle  # nosec B301 — admin-only, legacy Huey SQLite storage
+            result = pickle.loads(raw)  # nosec B301
+        except Exception:
+            result = None
 
     if isinstance(result, Exception):
         return ApiResponse(success=True, data={
@@ -361,6 +372,8 @@ def import_all(
                 result[table] = 0
                 continue
 
+            # Strip whitespace from header names (csv.DictReader preserves it)
+            rows = [{h.strip(): v for h, v in row.items()} for row in rows]
             columns = list(rows[0].keys())
             _validate_columns(columns)
             placeholders = ", ".join(["?"] * len(columns))
