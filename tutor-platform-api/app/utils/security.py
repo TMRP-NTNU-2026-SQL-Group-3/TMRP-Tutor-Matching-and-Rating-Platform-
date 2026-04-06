@@ -9,6 +9,9 @@ from app.config import settings
 
 logger = logging.getLogger("app.security")
 
+# 已使用的 refresh token JTI 黑名單（token rotation）
+_used_refresh_jti: set[str] = set()
+
 
 def hash_password(password: str) -> str:
     """將明碼密碼以 bcrypt 雜湊後回傳。"""
@@ -52,8 +55,8 @@ def decode_access_token(token: str) -> dict | None:
     """解碼 JWT access token，拒絕 refresh token，失敗時回傳 None。"""
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-        if payload.get("type") == "refresh":
-            logger.warning("Rejected refresh token used as access token")
+        if payload.get("type") != "access":
+            logger.warning("Rejected non-access token (type=%s)", payload.get("type"))
             return None
         return payload
     except JWTError as e:
@@ -61,12 +64,21 @@ def decode_access_token(token: str) -> dict | None:
         return None
 
 
+def invalidate_refresh_token(jti: str) -> None:
+    """將 refresh token 的 JTI 加入黑名單，使其無法再次使用。"""
+    _used_refresh_jti.add(jti)
+
+
 def decode_refresh_token(token: str) -> dict | None:
-    """解碼 JWT refresh token，僅接受 type=refresh。"""
+    """解碼 JWT refresh token，僅接受 type=refresh，並拒絕已使用過的 token。"""
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
         if payload.get("type") != "refresh":
             logger.warning("Non-refresh token used for refresh endpoint")
+            return None
+        jti = payload.get("jti")
+        if jti and jti in _used_refresh_jti:
+            logger.warning("Reuse of invalidated refresh token jti=%s", jti)
             return None
         return payload
     except JWTError as e:

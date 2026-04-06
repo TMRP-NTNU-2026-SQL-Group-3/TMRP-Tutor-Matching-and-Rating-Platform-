@@ -90,10 +90,10 @@ def search_tutors(
 
     # 排序
     if sort_by == "rate_asc":
-        results.sort(key=lambda x: (
-            0 if any(s.get("hourly_rate") for s in x.get("subjects", [])) else 1,
-            sum(s["hourly_rate"] for s in x.get("subjects", []) if s.get("hourly_rate")) or float('inf')
-        ))
+        def _avg_rate(x):
+            rates = [s["hourly_rate"] for s in x.get("subjects", []) if s.get("hourly_rate")]
+            return (0 if rates else 1, sum(rates) / len(rates) if rates else float('inf'))
+        results.sort(key=_avg_rate)
     elif sort_by == "newest":
         results.sort(key=lambda x: x.get("tutor_id", 0), reverse=True)
     else:

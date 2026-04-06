@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from app.config import settings
+from app.database_tx import transaction
 from app.dependencies import get_db, require_role
 from app.exceptions import AppException, NotFoundException
 from app.models.common import ApiResponse
@@ -338,41 +339,39 @@ def import_all(
     if not csv_files:
         raise AppException("ZIP 檔案中沒有找到任何可匯入的 CSV 檔案")
 
-    if clear_first:
-        admin_user_id = int(user["sub"])
-        repo = BaseRepository(conn)
-        for table in _DELETE_ORDER:
-            if table == "Users":
-                repo.execute(f"DELETE FROM {table} WHERE user_id <> ?", (admin_user_id,))
-            else:
-                repo.execute(f"DELETE FROM {table}")
-
     cursor = conn.cursor()
     result = {}
 
-    for table in _IMPORT_ORDER:
-        if table not in csv_files:
-            continue
-        csv_content = zf.read(csv_files[table]).decode("utf-8-sig")
-        reader = csv.DictReader(io.StringIO(csv_content))
-        rows = list(reader)
-        if not rows:
-            result[table] = 0
-            continue
+    with transaction(conn):
+        if clear_first:
+            admin_user_id = int(user["sub"])
+            for table in _DELETE_ORDER:
+                if table == "Users":
+                    cursor.execute(f"DELETE FROM {table} WHERE user_id <> ?", (admin_user_id,))
+                else:
+                    cursor.execute(f"DELETE FROM {table}")
 
-        columns = list(rows[0].keys())
-        _validate_columns(columns)
-        placeholders = ", ".join(["?"] * len(columns))
-        col_names = ", ".join(columns)
-        sql = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
+        for table in _IMPORT_ORDER:
+            if table not in csv_files:
+                continue
+            csv_content = zf.read(csv_files[table]).decode("utf-8-sig")
+            reader = csv.DictReader(io.StringIO(csv_content))
+            rows = list(reader)
+            if not rows:
+                result[table] = 0
+                continue
 
-        for row in rows:
-            values = tuple(row[c] for c in columns)
-            cursor.execute(sql, values)
+            columns = list(rows[0].keys())
+            _validate_columns(columns)
+            placeholders = ", ".join(["?"] * len(columns))
+            col_names = ", ".join(columns)
+            sql = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
 
-        result[table] = len(rows)
+            for row in rows:
+                values = tuple(_coerce_value(row[c]) for c in columns)
+                cursor.execute(sql, values)
 
-    conn.commit()
+            result[table] = len(rows)
     total = sum(result.values())
     return ApiResponse(
         success=True,

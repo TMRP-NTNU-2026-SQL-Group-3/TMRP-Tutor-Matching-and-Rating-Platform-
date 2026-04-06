@@ -88,7 +88,7 @@ const form = reactive({
 })
 
 function handleSubmit() {
-  if (!form.student_id || !form.subject_id || !form.hourly_rate) return
+  if (!form.student_id || !form.subject_id || form.hourly_rate == null || form.hourly_rate < 0) return
   emit('submit', { ...form })
 }
 

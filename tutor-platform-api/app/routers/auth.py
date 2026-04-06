@@ -5,7 +5,7 @@ from app.exceptions import AppException
 from app.models.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
 from app.models.common import ApiResponse
 from app.repositories.auth_repo import AuthRepository
-from app.utils.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
+from app.utils.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, invalidate_refresh_token, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -62,6 +62,10 @@ def refresh(body: RefreshRequest, conn=Depends(get_db)):
     payload = decode_refresh_token(body.refresh_token)
     if payload is None:
         raise AppException("刷新令牌無效或已過期", 401)
+
+    # 使舊 refresh token 失效（token rotation）
+    if jti := payload.get("jti"):
+        invalidate_refresh_token(jti)
 
     repo = AuthRepository(conn)
     user = repo.find_by_id(int(payload["sub"]))

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TutorProfileUpdate(BaseModel):
@@ -8,11 +8,11 @@ class TutorProfileUpdate(BaseModel):
     department: str | None = Field(default=None, description="就讀科系", examples=["數學系"])
     grade_year: int | None = Field(default=None, description="年級", examples=[3])
     max_students: int | None = Field(default=None, description="最大收學生數", examples=[5])
-    show_university: bool = Field(default=True, description="是否公開大學資訊", examples=[True])
-    show_department: bool = Field(default=True, description="是否公開科系資訊", examples=[True])
-    show_grade_year: bool = Field(default=True, description="是否公開年級資訊", examples=[True])
-    show_hourly_rate: bool = Field(default=True, description="是否公開時薪資訊", examples=[True])
-    show_subjects: bool = Field(default=True, description="是否公開教學科目", examples=[True])
+    show_university: bool | None = Field(default=None, description="是否公開大學資訊", examples=[True])
+    show_department: bool | None = Field(default=None, description="是否公開科系資訊", examples=[True])
+    show_grade_year: bool | None = Field(default=None, description="是否公開年級資訊", examples=[True])
+    show_hourly_rate: bool | None = Field(default=None, description="是否公開時薪資訊", examples=[True])
+    show_subjects: bool | None = Field(default=None, description="是否公開教學科目", examples=[True])
 
 
 class SubjectItem(BaseModel):
@@ -28,6 +28,21 @@ class AvailabilitySlot(BaseModel):
     day_of_week: int = Field(ge=0, le=6, description="星期幾（0=週日，6=週六）", examples=[1])
     start_time: str = Field(..., description="開始時間（HH:MM）", examples=["14:00"], pattern=r'^\d{2}:\d{2}(:\d{2})?$')
     end_time: str = Field(..., description="結束時間（HH:MM）", examples=["16:00"], pattern=r'^\d{2}:\d{2}(:\d{2})?$')
+
+    @model_validator(mode="after")
+    def validate_times(self):
+        from datetime import time as dt_time
+        def _parse(s: str) -> dt_time:
+            parts = s.split(":")
+            return dt_time(int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) == 3 else 0)
+        try:
+            st = _parse(self.start_time)
+            et = _parse(self.end_time)
+        except (ValueError, IndexError):
+            raise ValueError("時間格式不合法，請使用 HH:MM 或 HH:MM:SS")
+        if st >= et:
+            raise ValueError("開始時間必須早於結束時間")
+        return self
 
 
 class AvailabilityUpdate(BaseModel):

@@ -11,7 +11,7 @@
       </div>
       <div class="sm:text-right">
         <div v-if="tutor.subjects && tutor.subjects.length" class="text-lg font-bold text-primary-600">
-          ${{ tutor.subjects[0].hourly_rate }}/hr
+          {{ tutor.subjects[0].hourly_rate != null ? '$' + tutor.subjects[0].hourly_rate + '/hr' : '費率隱藏' }}
         </div>
         <div class="flex items-center gap-1 text-sm text-amber-500">
           <span>★</span>

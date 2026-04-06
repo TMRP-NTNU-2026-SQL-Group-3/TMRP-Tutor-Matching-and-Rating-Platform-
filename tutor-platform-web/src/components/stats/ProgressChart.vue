@@ -44,11 +44,9 @@ const chartData = computed(() => {
 
   const subjects = Object.keys(grouped)
 
-  // 取得所有不重複日期作為 x 軸，並按時間排序
-  const allDates = [...new Set(props.exams.map(e => {
-    const d = new Date(e.exam_date)
-    return d.toLocaleDateString('zh-TW')
-  }))].sort((a, b) => new Date(a) - new Date(b))
+  // 取得所有不重複日期作為 x 軸，先用 ISO 字串排序再轉顯示格式
+  const allIsoDates = [...new Set(props.exams.map(e => e.exam_date.slice(0, 10)))].sort()
+  const allDates = allIsoDates.map(d => new Date(d).toLocaleDateString('zh-TW'))
 
   const datasets = subjects.map((subj, i) => {
     const color = COLORS[i % COLORS.length]

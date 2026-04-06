@@ -28,6 +28,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         max_attempts, window = RATE_LIMITS.get(path, RATE_LIMITS["default"])
 
         now = time.time()
+
+        # 當某路徑的 IP 數過多時，清除所有已過期的空桶
+        path_buckets = self.attempts.get(path)
+        if path_buckets and len(path_buckets) > 10000:
+            stale = [k for k, v in path_buckets.items()
+                     if not v or all(now - t >= window for t in v)]
+            for k in stale:
+                del path_buckets[k]
+
         bucket = self.attempts[path][ip]
         # 清除過期紀錄
         bucket[:] = [t for t in bucket if now - t < window]

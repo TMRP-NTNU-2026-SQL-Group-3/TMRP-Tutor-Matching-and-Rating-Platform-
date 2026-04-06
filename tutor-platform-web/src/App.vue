@@ -3,11 +3,13 @@
     <AppNav v-if="auth.isLoggedIn" :auth="auth" @logout="handleLogout" />
 
     <main class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      <router-view v-slot="{ Component }">
-        <Transition name="fade" mode="out-in">
-          <component :is="Component" />
-        </Transition>
-      </router-view>
+      <template v-if="!validating">
+        <router-view v-slot="{ Component }">
+          <Transition name="fade" mode="out-in">
+            <component :is="Component" />
+          </Transition>
+        </router-view>
+      </template>
     </main>
 
     <ToastNotification />
@@ -15,7 +17,7 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/api/auth'
@@ -26,6 +28,8 @@ const router = useRouter()
 const auth = useAuthStore()
 
 // F3: 每次頁面載入時驗證已儲存的 token 是否仍有效
+// 先標記為驗證中，驗證完成後再放行，避免 protected views 提前渲染
+const validating = ref(true)
 onMounted(async () => {
   if (auth.token) {
     try {
@@ -36,6 +40,7 @@ onMounted(async () => {
       router.push('/login')
     }
   }
+  validating.value = false
 })
 
 function handleLogout() {

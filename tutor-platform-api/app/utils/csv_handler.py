@@ -6,7 +6,7 @@ def read_csv(file_path: str) -> list[dict]:
     """讀取 CSV 並回傳 list of dict。"""
     path = Path(file_path).resolve()
     allowed_base = Path("data").resolve()
-    if not str(path).startswith(str(allowed_base)):
+    if not path.is_relative_to(allowed_base):
         raise ValueError(f"不允許的檔案路徑：{file_path}")
     with path.open("r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
@@ -17,7 +17,10 @@ def write_csv(file_path: str, rows: list[dict], fieldnames: list[str] | None = N
     """將 list of dict 寫入 CSV 檔案。"""
     if not rows:
         return
-    path = Path(file_path)
+    path = Path(file_path).resolve()
+    allowed_base = Path("data").resolve()
+    if not path.is_relative_to(allowed_base):
+        raise ValueError(f"不允許的檔案路徑：{file_path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     if fieldnames is None:
         fieldnames = list(rows[0].keys())

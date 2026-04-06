@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from huey import crontab
 
@@ -30,7 +30,7 @@ def check_expired_reviews():
     conn = get_connection()
     try:
         _ensure_is_locked_column(conn)
-        cutoff = datetime.now() - timedelta(days=settings.review_lock_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=settings.review_lock_days)
         cursor = conn.cursor()
         cursor.execute(
             "UPDATE Reviews SET is_locked = ? "

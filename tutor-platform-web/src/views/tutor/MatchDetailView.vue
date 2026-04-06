@@ -98,9 +98,10 @@
 
       <!-- Terminate form -->
       <ContractForm
+        ref="contractFormRef"
         :visible="showTerminate"
-        @submit="doTerminate"
-        @cancel="showTerminate = false"
+        @submit="handleTerminateSubmit"
+        @cancel="handleTerminateCancel"
       />
 
       <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3 mb-6">{{ error }}</p>
@@ -309,6 +310,17 @@ const {
   formatDate,
 } = useMatchDetail()
 
+// Contract form
+const contractFormRef = ref(null)
+function handleTerminateCancel() {
+  showTerminate.value = false
+  contractFormRef.value?.reset()
+}
+async function handleTerminateSubmit(reason) {
+  await doTerminate(reason)
+  contractFormRef.value?.reset()
+}
+
 // Session form
 const sessionFormRef = ref(null)
 const showSessionForm = ref(false)
@@ -396,7 +408,7 @@ async function submitExam() {
     examForm.exam_date = ''
     examForm.score = 0
     examForm.exam_type = '段考'
-    examForm.visible_to_parent = false
+    examForm.visible_to_parent = true
     toast.success('考試紀錄已新增')
     await fetchMatch()
   } catch (e) {

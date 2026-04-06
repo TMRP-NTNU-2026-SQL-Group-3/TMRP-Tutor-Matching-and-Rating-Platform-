@@ -72,7 +72,8 @@ class MatchRepository(BaseRepository):
                       'rejected', 'terminating', 'ended'}
 
     def update_status(self, match_id: int, new_status: str) -> None:
-        assert new_status in self.VALID_STATUSES, f"Invalid status: {new_status}"
+        if new_status not in self.VALID_STATUSES:
+            raise ValueError(f"Invalid status: {new_status}")
         sql = "UPDATE Matches SET status = ?, updated_at = Now() WHERE match_id = ?"
         self.execute(sql, (new_status, match_id))
 

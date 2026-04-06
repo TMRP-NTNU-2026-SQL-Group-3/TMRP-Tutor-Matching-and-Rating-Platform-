@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 
+from app.database_tx import transaction
 from app.dependencies import get_current_user, get_db, is_admin, require_role
 from app.exceptions import AppException, ForbiddenException, NotFoundException
 from app.models.common import ApiResponse
@@ -108,12 +109,22 @@ def update_session(
     if not diffs:
         return ApiResponse(success=True, data={"session_id": session_id}, message="無實際變動")
 
-    # 先執行更新
-    repo.update(session_id, updates)
-
-    # 更新成功後寫入修改紀錄
-    for field, old_val, new_val in diffs:
-        repo.insert_edit_log(session_id, field, old_val, new_val)
+    # 先執行更新，再寫入修改紀錄（原子操作）
+    repo.validate_columns(list(updates.keys()), SessionRepository.ALLOWED_COLUMNS)
+    with transaction(conn):
+        set_clause = ", ".join(f"{col} = ?" for col in updates)
+        repo.cursor.execute(
+            f"UPDATE Sessions SET {set_clause}, updated_at = Now() WHERE session_id = ?",
+            list(updates.values()) + [session_id],
+        )
+        for field, old_val, new_val in diffs:
+            repo.cursor.execute(
+                "INSERT INTO Session_Edit_Logs (session_id, field_name, old_value, new_value, edited_at) "
+                "VALUES (?, ?, ?, ?, Now())",
+                (session_id, field,
+                 str(old_val) if old_val is not None else None,
+                 str(new_val) if new_val is not None else None),
+            )
 
     return ApiResponse(success=True, data={"session_id": session_id}, message="上課日誌已更新")
 

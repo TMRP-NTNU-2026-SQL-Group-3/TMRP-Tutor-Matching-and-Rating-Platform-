@@ -95,9 +95,10 @@
 
       <!-- Terminate form -->
       <ContractForm
+        ref="contractFormRef"
         :visible="showTerminate"
-        @submit="doTerminate"
-        @cancel="showTerminate = false"
+        @submit="handleTerminateSubmit"
+        @cancel="handleTerminateCancel"
       />
 
       <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3 mb-6">{{ error }}</p>
@@ -196,7 +197,7 @@
 </template>
 
 <script setup>
-import { reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useMatchDetail } from '@/composables/useMatchDetail'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -213,6 +214,17 @@ const {
   showReviewForm, reviewSubmitting, reviewError, submitReview,
   formatDate,
 } = useMatchDetail()
+
+// Contract form
+const contractFormRef = ref(null)
+function handleTerminateCancel() {
+  showTerminate.value = false
+  contractFormRef.value?.reset()
+}
+async function handleTerminateSubmit(reason) {
+  await doTerminate(reason)
+  contractFormRef.value?.reset()
+}
 
 const reviewForm = reactive({
   rating_1: 5, rating_2: 5, rating_3: 5, rating_4: 5,

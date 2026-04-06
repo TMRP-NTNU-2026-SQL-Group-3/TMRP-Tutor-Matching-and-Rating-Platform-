@@ -156,7 +156,7 @@ def update_match_status(
     is_parent = match["parent_user_id"] == user_id
     is_tutor = match["tutor_user_id"] == user_id
 
-    if not is_parent and not is_tutor:
+    if not is_parent and not is_tutor and not is_admin(user):
         raise ForbiddenException("無權操作此配對")
 
     current_status = match["status"]
@@ -169,16 +169,17 @@ def update_match_status(
 
     new_status, who = transition
 
-    # 權限檢查
-    if who == "parent" and not is_parent:
-        raise ForbiddenException("只有家長可以執行此操作")
-    elif who == "tutor" and not is_tutor:
-        raise ForbiddenException("只有老師可以執行此操作")
-    elif who == "other_party":
-        # 必須是發起終止的對方
-        terminated_by = match.get("terminated_by")
-        if terminated_by == user_id:
-            raise ForbiddenException("需要由對方確認此操作")
+    # 權限檢查（管理員可執行所有操作）
+    if not is_admin(user):
+        if who == "parent" and not is_parent:
+            raise ForbiddenException("只有家長可以執行此操作")
+        elif who == "tutor" and not is_tutor:
+            raise ForbiddenException("只有老師可以執行此操作")
+        elif who == "other_party":
+            # 必須是發起終止的對方
+            terminated_by = match.get("terminated_by")
+            if terminated_by == user_id:
+                raise ForbiddenException("需要由對方確認此操作")
 
     # 處理特殊轉換
     if action == "accept":
