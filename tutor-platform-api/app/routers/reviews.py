@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 
+from app.database_tx import transaction
 from app.dependencies import get_current_user, get_db, is_admin
 from app.exceptions import AppException, ConflictException, ForbiddenException, NotFoundException
 from app.models.common import ApiResponse
@@ -27,7 +28,8 @@ def create_review(
     if not match:
         raise NotFoundException("找不到此配對")
 
-    REVIEWABLE_STATUSES = {'active', 'paused', 'terminating', 'ended'}
+    # T-API-05: 移除 terminating，只允許確定狀態下提交評價
+    REVIEWABLE_STATUSES = {'active', 'paused', 'ended'}
     if match["status"] not in REVIEWABLE_STATUSES:
         raise AppException("只能對進行中或已結束的配對提交評價")
 
@@ -39,20 +41,22 @@ def create_review(
     if body.review_type in ("tutor_to_parent", "tutor_to_student") and not is_tutor:
         raise ForbiddenException("只有老師可以評價家長或學生")
 
-    if repo.find_existing(body.match_id, user_id, body.review_type):
-        raise ConflictException("您已對此配對提交過同類型的評價")
+    # T-API-02: 將重複檢查與 INSERT 包入同一交易，防止 TOCTOU 競態條件
+    with transaction(conn):
+        if repo.find_existing(body.match_id, user_id, body.review_type):
+            raise ConflictException("您已對此配對提交過同類型的評價")
 
-    review_id = repo.create(
-        match_id=body.match_id,
-        reviewer_user_id=user_id,
-        review_type=body.review_type,
-        rating_1=body.rating_1,
-        rating_2=body.rating_2,
-        rating_3=body.rating_3,
-        rating_4=body.rating_4,
-        personality_comment=body.personality_comment,
-        comment=body.comment,
-    )
+        review_id = repo.create(
+            match_id=body.match_id,
+            reviewer_user_id=user_id,
+            review_type=body.review_type,
+            rating_1=body.rating_1,
+            rating_2=body.rating_2,
+            rating_3=body.rating_3,
+            rating_4=body.rating_4,
+            personality_comment=body.personality_comment,
+            comment=body.comment,
+        )
     return ApiResponse(success=True, data={"review_id": review_id}, message="評價已提交")
 
 

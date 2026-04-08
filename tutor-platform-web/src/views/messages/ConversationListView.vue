@@ -9,7 +9,7 @@
            class="bg-white rounded-lg shadow-sm border border-gray-100 p-4
                   hover:bg-gray-50 transition-colors cursor-pointer
                   flex items-center gap-4"
-           @click="$router.push('/messages/' + c.conversation_id)">
+           @click="c.conversation_id != null && $router.push('/messages/' + c.conversation_id)">
         <!-- Avatar circle -->
         <div class="w-10 h-10 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center font-semibold text-sm shrink-0">
           {{ (c.other_name || '?').charAt(0) }}

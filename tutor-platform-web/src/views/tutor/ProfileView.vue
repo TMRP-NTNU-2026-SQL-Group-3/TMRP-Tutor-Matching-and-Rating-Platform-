@@ -158,6 +158,8 @@ async function handleSave() {
     }
 
     success.value = '個人檔案已更新'
+    // T-WEB-05: 成功訊息 3 秒後自動清除
+    setTimeout(() => { success.value = '' }, 3000)
   } catch (e) {
     error.value = e.message
   } finally {

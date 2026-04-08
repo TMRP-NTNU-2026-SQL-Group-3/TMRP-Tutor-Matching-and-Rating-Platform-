@@ -80,17 +80,10 @@ def update_exam(
     exam = repo.get_by_id(exam_id)
     if not exam:
         raise NotFoundException("找不到此考試紀錄")
+    # T-BIZ-01/T-BIZ-06: 只需驗證是否為原建立者即可，
+    # 配對結束後創建者仍可修正錯誤的考試紀錄
     if exam["added_by_user_id"] != user_id:
         raise ForbiddenException("只有原新增者可以修改考試紀錄")
-
-    # 驗證學生所有權：確認 exam 所屬的 student 確實是當前使用者的孩子或有配對關係
-    student = repo.get_student(exam["student_id"])
-    if not student:
-        raise NotFoundException("找不到此考試紀錄對應的學生")
-    is_parent = student["parent_user_id"] == user_id
-    is_tutor = bool(repo.get_active_match_for_tutor(exam["student_id"], user_id))
-    if not is_parent and not is_tutor:
-        raise ForbiddenException("無權修改此學生的考試紀錄")
 
     updates = {}
     for k, v in body.model_dump(exclude_unset=True).items():

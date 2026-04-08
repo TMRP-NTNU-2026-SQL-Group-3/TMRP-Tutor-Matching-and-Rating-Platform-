@@ -44,14 +44,14 @@ const chartOptions = {
     legend: { display: false },
     tooltip: {
       callbacks: {
-        label: (ctx) => `NT$ ${ctx.raw.toLocaleString()}`,
+        label: (ctx) => `NT$ ${(ctx.raw ?? 0).toLocaleString()}`,
       },
     },
   },
   scales: {
     y: {
       beginAtZero: true,
-      ticks: { callback: (v) => `$${v.toLocaleString()}` },
+      ticks: { callback: (v) => `$${(v ?? 0).toLocaleString()}` },
     },
   },
 }

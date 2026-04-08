@@ -1,7 +1,7 @@
 import logging
-import re
 
-_SAFE_COLUMN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+from app.database_tx import _in_transaction as _tx_set
+from app.utils.columns import validate_column_name
 
 logger = logging.getLogger("app")
 
@@ -24,7 +24,7 @@ class BaseRepository:
     def validate_columns(columns: list, allowed: set | None = None) -> None:
         """驗證欄位名稱僅含合法識別字元，並可選擇限制於白名單。"""
         for col in columns:
-            if not _SAFE_COLUMN.match(col):
+            if not validate_column_name(col):
                 raise ValueError(f"不合法的欄位名稱：{col!r}")
             if allowed and col not in allowed:
                 raise ValueError(f"不允許更新的欄位：{col!r}")
@@ -33,7 +33,7 @@ class BaseRepository:
                     allowed_columns: set, extra_set: str = "") -> None:
         """安全的動態 UPDATE，強制驗證欄位白名單。"""
         self.validate_columns(list(updates.keys()), allowed_columns)
-        set_clause = ", ".join(f"{col} = ?" for col in updates)
+        set_clause = ", ".join(f"[{col}] = ?" for col in updates)
         if extra_set:
             set_clause += ", " + extra_set
         values = list(updates.values()) + [id_val]
@@ -58,10 +58,17 @@ class BaseRepository:
         columns = [desc[0] for desc in self.cursor.description]
         return [dict(zip(columns, row)) for row in rows]
 
+    def _in_transaction(self) -> bool:
+        """檢查當前連線是否在 transaction() 上下文中。"""
+        return id(self.conn) in _tx_set
+
     def execute(self, sql: str, params: tuple = ()) -> None:
-        """執行寫入操作（INSERT / UPDATE / DELETE）並提交交易。"""
+        """執行寫入操作（INSERT / UPDATE / DELETE）。
+        T-BIZ-03: 若在交易中則不自動 commit，由交易管理器負責。
+        """
         self.cursor.execute(sql, params)
-        self.conn.commit()
+        if not self._in_transaction():
+            self.conn.commit()
 
     def execute_returning_id(self, sql: str, params: tuple = ()) -> int:
         """
@@ -74,7 +81,8 @@ class BaseRepository:
         self.cursor.execute(sql, params)
         self.cursor.execute("SELECT @@IDENTITY")
         new_id = self.cursor.fetchone()[0]
-        self.conn.commit()
+        if not self._in_transaction():
+            self.conn.commit()
         return new_id
 
     def fetch_paginated(

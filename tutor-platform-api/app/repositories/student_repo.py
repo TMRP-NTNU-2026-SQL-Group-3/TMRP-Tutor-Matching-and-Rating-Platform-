@@ -24,7 +24,8 @@ class StudentRepository(BaseRepository):
         """
         return self.execute_returning_id(sql, (parent_user_id, name, school, grade))
 
-    ALLOWED_COLUMNS = {"name", "school", "grade"}
+    # P-API-01: 加入 target_school, parent_phone, notes 等欄位
+    ALLOWED_COLUMNS = {"name", "school", "grade", "target_school", "parent_phone", "notes"}
 
     def update(self, student_id: int, updates: dict) -> None:
         self.safe_update("Students", "student_id", student_id, updates, self.ALLOWED_COLUMNS)

@@ -9,8 +9,9 @@ const api = axios.create({
 let isRefreshing = false
 let pendingRequests = []
 
+// P-BIZ-02: 傳入第二個參數 null 表示無錯誤，與排隊 callback 簽名一致
 function onRefreshed(newToken) {
-  pendingRequests.forEach((cb) => cb(newToken))
+  pendingRequests.forEach((cb) => cb(newToken, null))
   pendingRequests = []
 }
 
@@ -94,7 +95,16 @@ api.interceptors.response.use(
       return api.request(originalConfig)
     }
 
-    const message = error.response?.data?.message || '網路連線異常'
+    let message = '網路連線異常'
+    if (error.response?.data instanceof Blob) {
+      try {
+        const text = await error.response.data.text()
+        const json = JSON.parse(text)
+        message = json.message || message
+      } catch { /* ignore parse errors */ }
+    } else {
+      message = error.response?.data?.message || message
+    }
     return Promise.reject(new Error(message))
   }
 )

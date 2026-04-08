@@ -100,6 +100,7 @@
       <ContractForm
         ref="contractFormRef"
         :visible="showTerminate"
+        :submitting="actionLoading"
         @submit="handleTerminateSubmit"
         @cancel="handleTerminateCancel"
       />
@@ -361,10 +362,20 @@ const canReviewStudent = computed(() => {
 })
 
 async function handleSubmitReview() {
+  // T-WEB-02: 驗證評分範圍
+  for (let i = 1; i <= 4; i++) {
+    const val = reviewForm['rating_' + i]
+    if (val == null || val < 1 || val > 5) {
+      reviewError.value = `評分項目 ${i} 必須在 1-5 之間`
+      return
+    }
+  }
   await submitReview({ ...reviewForm })
   if (!reviewError.value) {
+    // T-WEB-06: 保留當前選擇的 review_type，而非強制覆蓋
+    const currentType = reviewForm.review_type
     Object.assign(reviewForm, {
-      review_type: 'tutor_to_parent',
+      review_type: currentType,
       rating_1: 5, rating_2: 5, rating_3: 5, rating_4: 5,
       personality_comment: '', comment: ''
     })

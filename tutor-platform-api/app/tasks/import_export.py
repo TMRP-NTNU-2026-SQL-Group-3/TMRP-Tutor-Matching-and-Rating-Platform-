@@ -1,16 +1,14 @@
 import csv
 import io
 import logging
-import re
 from pathlib import Path
 
 from app.config import settings
 from app.database import get_connection
 from app.repositories.base import BaseRepository
+from app.utils.columns import bracket_columns, coerce_csv_value, validate_column_name
 from app.utils.csv_handler import write_csv
 from app.worker import huey
-
-_SAFE_COLUMN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
 logger = logging.getLogger("app.tasks.import_export")
 
@@ -39,22 +37,25 @@ def import_csv_task(table_name: str, csv_content: str) -> dict:
         rows = [{h.strip(): v for h, v in row.items()} for row in rows]
         columns = list(rows[0].keys())
         for col in columns:
-            if not _SAFE_COLUMN.match(col):
+            if not validate_column_name(col):
                 return {"table": table_name, "error": f"不合法的欄位名稱：{col!r}"}
         placeholders = ", ".join(["?"] * len(columns))
-        col_names = ", ".join(columns)
+        col_names = bracket_columns(columns)
         sql = f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})"
 
         cursor = conn.cursor()
-        for row in rows:
-            values = tuple(row[c] for c in columns)
-            cursor.execute(sql, values)
-        conn.commit()
+        try:
+            for row in rows:
+                values = tuple(coerce_csv_value(row[c]) for c in columns)
+                cursor.execute(sql, values)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
         logger.info("已匯入 %d 筆資料至 %s", len(rows), table_name)
         return {"table": table_name, "count": len(rows)}
-    except Exception as e:
-        conn.rollback()
+    except Exception:
         logger.exception("匯入 %s 失敗", table_name)
         raise
     finally:

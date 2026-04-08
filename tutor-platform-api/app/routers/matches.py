@@ -2,6 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends
 
+from app.database_tx import transaction
 from app.dependencies import get_current_user, get_db, is_admin, require_role
 from app.exceptions import AppException, ConflictException, ForbiddenException, NotFoundException
 from app.models.common import ApiResponse
@@ -9,6 +10,7 @@ from app.models.match import MatchCreate, MatchStatusUpdate
 from app.repositories.match_repo import MatchRepository
 from app.repositories.student_repo import StudentRepository
 from app.repositories.tutor_repo import TutorRepository
+from app.utils.access_bits import from_access_bit
 
 logger = logging.getLogger(__name__)
 
@@ -69,25 +71,25 @@ def create_match(
     if body.subject_id not in subject_ids:
         raise AppException("此老師未提供此科目的教學")
 
-    # 檢查重複
-    if match_repo.check_duplicate_active(body.tutor_id, body.student_id, body.subject_id):
-        raise ConflictException("已存在進行中的配對")
+    # T-API-01: 將重複檢查、容量檢查與 INSERT 包入同一交易，防止競態條件
+    with transaction(conn):
+        if match_repo.check_duplicate_active(body.tutor_id, body.student_id, body.subject_id):
+            raise ConflictException("已存在進行中的配對")
 
-    # 檢查老師容量
-    active_count = tutor_repo.get_active_student_count(body.tutor_id)
-    max_students = tutor.get("max_students") or 5
-    if active_count >= max_students:
-        raise AppException("此老師已達收生上限")
+        active_count = tutor_repo.get_active_student_count(body.tutor_id)
+        max_students = tutor.get("max_students") or 5
+        if active_count >= max_students:
+            raise AppException("此老師已達收生上限")
 
-    match_id = match_repo.create(
-        tutor_id=body.tutor_id,
-        student_id=body.student_id,
-        subject_id=body.subject_id,
-        hourly_rate=body.hourly_rate,
-        sessions_per_week=body.sessions_per_week,
-        want_trial=body.want_trial,
-        invite_message=body.invite_message,
-    )
+        match_id = match_repo.create(
+            tutor_id=body.tutor_id,
+            student_id=body.student_id,
+            subject_id=body.subject_id,
+            hourly_rate=body.hourly_rate,
+            sessions_per_week=body.sessions_per_week,
+            want_trial=body.want_trial,
+            invite_message=body.invite_message,
+        )
     return ApiResponse(success=True, data={"match_id": match_id}, message="媒合邀請已送出")
 
 
@@ -173,23 +175,29 @@ def update_match_status(
 
     new_status, who = transition
 
-    # 權限檢查（管理員可執行所有操作）
+    # 權限檢查（管理員可跳過角色限制，但仍遵守狀態轉換規則）
     if not is_admin(user):
         if who == "parent" and not is_parent:
             raise ForbiddenException("只有家長可以執行此操作")
         elif who == "tutor" and not is_tutor:
             raise ForbiddenException("只有老師可以執行此操作")
         elif who == "other_party":
-            # 必須是發起終止的對方
             terminated_by = match.get("terminated_by")
             if terminated_by == user_id:
+                raise ForbiddenException("需要由對方確認此操作")
+    else:
+        # 管理員也須遵守 other_party 的邏輯語義（不可自己同意自己的終止）
+        if who == "other_party":
+            terminated_by = match.get("terminated_by")
+            if terminated_by is not None and terminated_by == user_id:
                 raise ForbiddenException("需要由對方確認此操作")
 
     # 處理特殊轉換
     if action == "accept":
         if current_status != "pending":
             raise AppException("只有「等待中」狀態的配對可以接受")
-        new_status = "trial" if match.get("want_trial") else "active"
+        # T-API-04: 使用 from_access_bit 安全轉換 BIT 欄位
+        new_status = "trial" if from_access_bit(match.get("want_trial")) else "active"
         repo.update_status(match_id, new_status)
 
     elif action == "terminate":
@@ -200,16 +208,20 @@ def update_match_status(
     elif action == "disagree_terminate":
         if current_status != "terminating":
             raise AppException("只有「等待終止確認」狀態的配對可以拒絕終止")
-        # 從 termination_reason 解析出 previous_status
-        reason_raw = match.get("termination_reason") or ""
-        previous_status = reason_raw.split("|")[0] if "|" in reason_raw else ""
-        if previous_status not in ("active", "paused"):
-            logger.warning(
-                "match %d: invalid previous_status %r in termination_reason, defaulting to 'active'",
-                match_id, previous_status,
-            )
-            previous_status = "active"
-        repo.clear_termination(match_id, previous_status)
+        # T-API-06: 在交易中讀取並回復狀態，防止競態條件
+        with transaction(conn):
+            fresh_match = repo.find_by_id(match_id)
+            if not fresh_match or fresh_match["status"] != "terminating":
+                raise AppException("配對狀態已變更，請重新整理頁面")
+            reason_raw = fresh_match.get("termination_reason") or ""
+            previous_status = reason_raw.split("|")[0] if "|" in reason_raw else ""
+            if previous_status not in ("active", "paused"):
+                logger.warning(
+                    "match %d: invalid previous_status %r in termination_reason, defaulting to 'active'",
+                    match_id, previous_status,
+                )
+                previous_status = "active"
+            repo.clear_termination(match_id, previous_status)
         new_status = previous_status
 
     else:

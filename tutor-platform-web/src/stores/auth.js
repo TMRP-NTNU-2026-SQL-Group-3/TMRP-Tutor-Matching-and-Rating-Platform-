@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useMatchStore } from './match'
@@ -27,6 +28,10 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
+    // P-BIZ-01: 先保存 token 與 refresh token，清除本地狀態，再非同步撤銷
+    const savedToken = token.value
+    const savedRefreshToken = refreshToken.value
+
     token.value = ''
     refreshToken.value = ''
     user.value = null
@@ -40,6 +45,15 @@ export const useAuthStore = defineStore('auth', () => {
     const tutorStore = useTutorStore()
     tutorStore.setResults([])
     tutorStore.setFilters({})
+
+    // P-BIZ-01: 非同步撤銷 refresh token（fire-and-forget，不阻塞登出流程）
+    // 使用原始 axios 而非 api instance，因為 store 的 token 已清除
+    if (savedRefreshToken && savedToken) {
+      const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      axios.post(`${baseURL}/api/auth/logout`, { refresh_token: savedRefreshToken }, {
+        headers: { Authorization: `Bearer ${savedToken}` }
+      }).catch(() => {})
+    }
   }
 
   return { token, refreshToken, user, isLoggedIn, role, setAuth, logout }

@@ -11,7 +11,7 @@
       <textarea v-model="reason" rows="3"
         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"></textarea>
       <div class="flex gap-3">
-        <button @click="$emit('submit', reason)" :disabled="!reason.trim()"
+        <button @click="$emit('submit', reason)" :disabled="!reason.trim() || submitting"
           class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           {{ submitText }}
         </button>
@@ -31,6 +31,7 @@ defineProps({
   visible: { type: Boolean, default: false },
   label: { type: String, default: '終止原因' },
   submitText: { type: String, default: '確認終止' },
+  submitting: { type: Boolean, default: false },
 })
 
 defineEmits(['submit', 'cancel'])

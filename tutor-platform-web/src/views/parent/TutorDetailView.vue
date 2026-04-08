@@ -145,8 +145,17 @@ async function goMessage() {
 
 async function submitInvite(formData) {
   inviteError.value = ''
+  // P-WEB-02: 完整驗證所有必填欄位
   if (!formData.student_id || !formData.subject_id) {
     inviteError.value = '請選擇子女和科目'
+    return
+  }
+  if (!formData.hourly_rate || formData.hourly_rate <= 0) {
+    inviteError.value = '每小時費用必須大於 0'
+    return
+  }
+  if (!formData.sessions_per_week || formData.sessions_per_week < 1) {
+    inviteError.value = '每週堂數必須至少為 1'
     return
   }
   inviting.value = true

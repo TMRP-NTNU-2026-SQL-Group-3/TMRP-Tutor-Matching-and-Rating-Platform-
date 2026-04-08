@@ -91,7 +91,10 @@ const form = reactive({
 })
 
 function handleSubmit() {
-  if (!form.student_id || !form.subject_id || form.hourly_rate == null || form.hourly_rate < 0) return
+  // P-WEB-01: 加入 sessions_per_week 和 hourly_rate 完整驗證
+  if (!form.student_id || !form.subject_id) return
+  if (form.hourly_rate == null || form.hourly_rate <= 0) return
+  if (form.sessions_per_week == null || form.sessions_per_week < 1) return
   emit('submit', { ...form })
 }
 

@@ -124,7 +124,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { adminApi } from '@/api/admin'
-import { useAuthStore } from '@/stores/auth'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const tables = [
@@ -151,7 +150,22 @@ const zipFileInput = ref(null)
 
 const exporting = ref(false)
 const exportingAll = ref(false)
-const auth = useAuthStore()
+
+function clearResults() {
+  seedResult.value = ''
+  importResult.value = ''
+  importAllResult.value = ''
+  error.value = ''
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 async function fetchUsers() {
   loadingUsers.value = true
@@ -167,8 +181,7 @@ async function fetchUsers() {
 
 async function handleSeed() {
   seeding.value = true
-  seedResult.value = ''
-  error.value = ''
+  clearResults()
   try {
     const result = await adminApi.seedData()
     if (result.skipped) {
@@ -186,23 +199,10 @@ async function handleSeed() {
 
 async function handleExport() {
   exporting.value = true
-  error.value = ''
+  clearResults()
   try {
-    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-    const res = await fetch(`${apiBase}/api/admin/export/${exportTable.value}`, {
-      headers: { Authorization: `Bearer ${auth.token}` }
-    })
-    if (!res.ok) {
-      const body = await res.json().catch(() => null)
-      throw new Error(body?.message || '匯出失敗')
-    }
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${exportTable.value}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    const blob = await adminApi.exportCsv(exportTable.value)
+    downloadBlob(blob, `${exportTable.value}.csv`)
   } catch (e) {
     error.value = e.message
   } finally {
@@ -212,24 +212,10 @@ async function handleExport() {
 
 async function handleExportAll() {
   exportingAll.value = true
-  error.value = ''
+  clearResults()
   try {
-    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-    const res = await fetch(`${apiBase}/api/admin/export-all`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${auth.token}` }
-    })
-    if (!res.ok) {
-      const body = await res.json().catch(() => null)
-      throw new Error(body?.message || '匯出失敗')
-    }
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'all_tables.zip'
-    a.click()
-    URL.revokeObjectURL(url)
+    const blob = await adminApi.exportAll()
+    downloadBlob(blob, 'all_tables.zip')
   } catch (e) {
     error.value = e.message
   } finally {
@@ -244,8 +230,7 @@ async function handleImportAll() {
     return
   }
   importingAll.value = true
-  importAllResult.value = ''
-  error.value = ''
+  clearResults()
   try {
     const formData = new FormData()
     formData.append('file', file)
@@ -253,6 +238,7 @@ async function handleImportAll() {
     const tableCount = Object.keys(result).length
     const totalRows = Object.values(result).filter(v => typeof v === 'number').reduce((a, b) => a + b, 0)
     importAllResult.value = `已匯入 ${tableCount} 張資料表，共 ${totalRows} 筆資料`
+    if (zipFileInput.value) zipFileInput.value.value = ''
     await fetchUsers()
   } catch (e) {
     error.value = e.message
@@ -268,13 +254,14 @@ async function handleImport() {
     return
   }
   importing.value = true
-  importResult.value = ''
-  error.value = ''
+  clearResults()
   try {
     const formData = new FormData()
     formData.append('file', file)
     const result = await adminApi.importCsv(formData, importTable.value)
     importResult.value = `已匯入 ${result.count} 筆資料`
+    if (fileInput.value) fileInput.value.value = ''
+    await fetchUsers()
   } catch (e) {
     error.value = e.message
   } finally {

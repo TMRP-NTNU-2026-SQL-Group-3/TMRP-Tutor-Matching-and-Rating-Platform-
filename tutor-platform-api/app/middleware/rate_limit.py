@@ -9,6 +9,9 @@ from starlette.responses import JSONResponse
 RATE_LIMITS: dict[str, tuple[int, int]] = {
     "/api/auth/login": (10, 60),
     "/api/auth/register": (5, 60),
+    "/api/admin/reset": (3, 3600),        # 3 次/小時
+    "/api/admin/import-all": (5, 86400),  # 5 次/天
+    "/api/admin/seed": (5, 3600),         # 5 次/小時
     "default": (60, 60),
 }
 

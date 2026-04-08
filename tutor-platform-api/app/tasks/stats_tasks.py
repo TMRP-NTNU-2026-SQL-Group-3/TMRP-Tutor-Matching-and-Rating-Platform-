@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime
 
 from app.database import get_connection
@@ -6,6 +7,27 @@ from app.repositories.stats_repo import StatsRepository
 from app.worker import huey
 
 logger = logging.getLogger("app.tasks.stats_tasks")
+
+_MONTH_RE = re.compile(r'^\d{4}-\d{2}$')
+
+
+def _parse_month(month: str | None) -> tuple[int, int] | str:
+    """解析月份字串，回傳 (year, mon) 或錯誤訊息字串。"""
+    if month:
+        if not _MONTH_RE.match(month):
+            return "月份格式應為 YYYY-MM"
+        try:
+            year, mon = map(int, month.split("-"))
+        except (ValueError, TypeError):
+            return "月份格式應為 YYYY-MM"
+        if not (1 <= mon <= 12):
+            return "無效的月份值（1-12）"
+        if not (2000 <= year <= 2100):
+            return "無效的年份值（2000-2100）"
+    else:
+        now = datetime.now()
+        year, mon = now.year, now.month
+    return year, mon
 
 
 @huey.task(retries=3, retry_delay=10)
@@ -19,19 +41,15 @@ def calculate_income_stats(user_id: int, month: str | None = None) -> dict:
         if not tutor:
             return {"error": "找不到老師資料"}
 
-        if month:
-            try:
-                year, mon = map(int, month.split("-"))
-                if not (1 <= mon <= 12):
-                    return {"error": "無效的月份值"}
-            except (ValueError, TypeError):
-                return {"error": "月份格式應為 YYYY-MM"}
-        else:
-            now = datetime.now()
-            year, mon = now.year, now.month
+        parsed = _parse_month(month)
+        if isinstance(parsed, str):
+            return {"error": parsed}
+        year, mon = parsed
 
         tutor_id = tutor["tutor_id"]
         summary = repo.income_summary(tutor_id, year, mon)
+        if summary is None:
+            summary = {"total_hours": 0, "total_income": 0, "session_count": 0}
         breakdown = repo.income_breakdown(tutor_id, year, mon)
 
         for row in breakdown:
@@ -61,18 +79,14 @@ def calculate_expense_stats(user_id: int, month: str | None = None) -> dict:
     try:
         repo = StatsRepository(conn)
 
-        if month:
-            try:
-                year, mon = map(int, month.split("-"))
-                if not (1 <= mon <= 12):
-                    return {"error": "無效的月份值"}
-            except (ValueError, TypeError):
-                return {"error": "月份格式應為 YYYY-MM"}
-        else:
-            now = datetime.now()
-            year, mon = now.year, now.month
+        parsed = _parse_month(month)
+        if isinstance(parsed, str):
+            return {"error": parsed}
+        year, mon = parsed
 
         summary = repo.expense_summary(user_id, year, mon)
+        if summary is None:
+            summary = {"total_hours": 0, "total_expense": 0, "session_count": 0}
         breakdown = repo.expense_breakdown(user_id, year, mon)
 
         for row in breakdown:

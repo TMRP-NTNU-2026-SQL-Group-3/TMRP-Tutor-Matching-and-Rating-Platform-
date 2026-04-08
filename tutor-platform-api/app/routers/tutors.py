@@ -79,10 +79,11 @@ def search_tutors(
         if min_rating is not None and avg_rating_val < min_rating:
             continue
 
-        t["subjects"] = subjects if t.get("show_subjects", True) else []
+        # T-API-09: 先處理 hourly_rate 再處理 subjects，避免 subjects=[] 時 hourly_rate 邏輯無從執行
         if not t.get("show_hourly_rate", True):
-            for s in t.get("subjects", []):
+            for s in subjects:
                 s.pop("hourly_rate", None)
+        t["subjects"] = subjects if t.get("show_subjects", True) else []
         t["avg_rating"] = round(avg_rating_val, 2)
         t["review_count"] = review_count
         _apply_visibility(t)

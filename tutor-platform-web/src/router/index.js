@@ -41,10 +41,10 @@ const routes = [
     ]
   },
 
-  // 訊息
+  // 訊息（僅限家長/老師，管理員無訊息功能）
   {
     path: '/messages',
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, roles: ['parent', 'tutor'] },
     children: [
       { path: '', name: 'Conversations', component: () => import('@/views/messages/ConversationListView.vue') },
       { path: ':id', name: 'Chat', component: () => import('@/views/messages/ChatView.vue') },
@@ -84,6 +84,7 @@ router.beforeEach((to, from, next) => {
 
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
   const requiredRole = to.matched.find(record => record.meta.role)?.meta.role
+  const allowedRoles = to.matched.find(record => record.meta.roles)?.meta.roles
 
   if (requiresAuth && !auth.isLoggedIn) {
     return next('/login')
@@ -97,6 +98,12 @@ router.beforeEach((to, from, next) => {
   }
 
   if (requiredRole && auth.role !== requiredRole) {
+    if (auth.role === 'admin') return next('/admin')
+    if (auth.role === 'tutor') return next('/tutor')
+    return next('/parent')
+  }
+
+  if (allowedRoles && !allowedRoles.includes(auth.role)) {
     if (auth.role === 'admin') return next('/admin')
     if (auth.role === 'tutor') return next('/tutor')
     return next('/parent')

@@ -14,11 +14,21 @@ from app.dependencies import get_db, require_role
 from app.exceptions import AppException, NotFoundException
 from app.models.common import ApiResponse
 from app.repositories.base import BaseRepository
+from app.utils.columns import bracket_columns, coerce_csv_value, validate_columns
 from app.utils.csv_handler import write_csv
 
 logger = logging.getLogger("app.admin")
 
-_SAFE_COLUMN_NAME = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+MAX_IMPORT_ROWS_PER_TABLE = 50_000
+
+
+def _safe_validate_columns(columns: list[str]) -> None:
+    """包裝 validate_columns，將 ValueError 轉為 AppException（回傳 400 而非 500）。"""
+    try:
+        validate_columns(columns)
+    except ValueError as e:
+        raise AppException(str(e)) from e
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -61,24 +71,6 @@ def _validate_table(table_name: str) -> str:
     if table_name not in ALLOWED_TABLES:
         raise AppException(f"不允許的資料表名稱：{table_name}")
     return table_name
-
-
-def _validate_columns(columns: list) -> None:
-    """驗證 CSV 欄位名稱僅含合法識別字元，防止 SQL Injection。"""
-    for col in columns:
-        if not _SAFE_COLUMN_NAME.match(col):
-            raise AppException(f"不合法的欄位名稱：{col!r}")
-
-
-def _coerce_value(val: str):
-    """將 CSV 字串值轉換為適合 MS Access 的型別。"""
-    if not val or val.strip() == "":
-        return None
-    if val in ('True', 'true', '1', '-1'):
-        return -1   # MS Access BIT True
-    if val in ('False', 'false', '0'):
-        return 0
-    return val
 
 
 # ---------- 1. 使用者列表 ----------
@@ -129,15 +121,15 @@ def import_csv(
     # Strip whitespace from header names (csv.DictReader preserves it)
     rows = [{h.strip(): v for h, v in row.items()} for row in rows]
     columns = list(rows[0].keys())
-    _validate_columns(columns)
+    _safe_validate_columns(columns)
     placeholders = ", ".join(["?"] * len(columns))
-    col_names = ", ".join(columns)
+    col_names = bracket_columns(columns)
     sql = f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})"
 
     cursor = conn.cursor()
     try:
         for row in rows:
-            values = tuple(_coerce_value(row[c]) for c in columns)
+            values = tuple(coerce_csv_value(row[c]) for c in columns)
             cursor.execute(sql, values)
         conn.commit()
     except Exception:
@@ -343,6 +335,8 @@ def import_all(
     conn=Depends(get_db),
 ):
     content = file.file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise AppException(f"上傳檔案過大（上限 {MAX_UPLOAD_SIZE // 1024 // 1024} MB）")
     buf = io.BytesIO(content)
 
     try:
@@ -385,19 +379,22 @@ def import_all(
             if not rows:
                 result[table] = 0
                 continue
+            if len(rows) > MAX_IMPORT_ROWS_PER_TABLE:
+                errors[table] = [f"超過單表匯入上限 {MAX_IMPORT_ROWS_PER_TABLE} 筆"]
+                continue
 
             # Strip whitespace from header names (csv.DictReader preserves it)
             rows = [{h.strip(): v for h, v in row.items()} for row in rows]
             columns = list(rows[0].keys())
-            _validate_columns(columns)
+            _safe_validate_columns(columns)
             placeholders = ", ".join(["?"] * len(columns))
-            col_names = ", ".join(columns)
+            col_names = bracket_columns(columns)
             sql = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
 
             table_errors = []
             inserted = 0
             for i, row in enumerate(rows, 1):
-                values = tuple(_coerce_value(row[c]) for c in columns)
+                values = tuple(coerce_csv_value(row[c]) for c in columns)
                 try:
                     cursor.execute(sql, values)
                     inserted += 1

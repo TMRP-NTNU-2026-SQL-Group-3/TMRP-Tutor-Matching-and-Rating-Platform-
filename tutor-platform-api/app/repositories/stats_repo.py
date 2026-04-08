@@ -103,6 +103,36 @@ class StatsRepository(BaseRepository):
             (student_id, tutor_user_id),
         )
 
+    def get_tutor_subject_ids_for_student(self, student_id: int, tutor_user_id: int) -> set[int]:
+        """取得教師與此學生的進行中配對所涉及的科目 ID 集合。"""
+        rows = self.fetch_all(
+            """
+            SELECT m.subject_id FROM Matches m
+            INNER JOIN Tutors t ON m.tutor_id = t.tutor_id
+            WHERE m.student_id = ? AND t.user_id = ?
+              AND m.status IN ('active', 'trial')
+            """,
+            (student_id, tutor_user_id),
+        )
+        return {r["subject_id"] for r in rows}
+
+    def student_progress_by_subjects(self, student_id: int, subject_ids: set[int]) -> list[dict]:
+        """取得學生在指定科目集合中的歷次考試分數。"""
+        if not subject_ids:
+            return []
+        placeholders = ", ".join("?" for _ in subject_ids)
+        return self.fetch_all(
+            f"""
+            SELECT e.exam_id, e.exam_date, e.exam_type, e.score,
+                   sub.subject_name
+            FROM Exams e
+            INNER JOIN Subjects sub ON e.subject_id = sub.subject_id
+            WHERE e.student_id = ? AND e.subject_id IN ({placeholders})
+            ORDER BY e.exam_date
+            """,
+            (student_id, *subject_ids),
+        )
+
     def student_progress(self, student_id: int, subject_id: int | None = None) -> list[dict]:
         """取得學生歷次考試分數，可選按科目篩選。"""
         if subject_id is not None:

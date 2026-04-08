@@ -44,6 +44,9 @@ def get_income_stats(
     summary = repo.income_summary(tutor_id, year, mon)
     breakdown = repo.income_breakdown(tutor_id, year, mon)
 
+    if summary is None:
+        summary = {"total_hours": 0, "total_income": 0, "session_count": 0}
+
     for row in breakdown:
         row["hours"] = float(row["hours"] or 0)
         row["income"] = float(row["income"] or 0)
@@ -70,6 +73,9 @@ def get_expense_stats(
 
     summary = repo.expense_summary(user_id, year, mon)
     breakdown = repo.expense_breakdown(user_id, year, mon)
+
+    if summary is None:
+        summary = {"total_hours": 0, "total_expense": 0, "session_count": 0}
 
     for row in breakdown:
         row["hours"] = float(row["hours"] or 0)
@@ -104,6 +110,19 @@ def get_student_progress(
 
     if not is_parent and not is_tutor and not is_admin(user):
         raise ForbiddenException("無權查看此學生的成績資料")
+
+    # T-API-03: 若為教師，限制只能查詢與其配對科目相符的成績
+    if is_tutor and not is_parent and not is_admin(user):
+        tutor_subject_ids = repo.get_tutor_subject_ids_for_student(student_id, user_id)
+        if subject_id is not None:
+            if subject_id not in tutor_subject_ids:
+                raise ForbiddenException("無權查看此科目的成績")
+        else:
+            # 未指定科目時，只返回教師有配對的科目成績
+            exams = repo.student_progress_by_subjects(student_id, tutor_subject_ids)
+            for row in exams:
+                row["score"] = float(row["score"] or 0)
+            return ApiResponse(success=True, data=exams)
 
     exams = repo.student_progress(student_id, subject_id)
 

@@ -97,6 +97,7 @@
       <ContractForm
         ref="contractFormRef"
         :visible="showTerminate"
+        :submitting="actionLoading"
         @submit="handleTerminateSubmit"
         @cancel="handleTerminateCancel"
       />
@@ -236,10 +237,19 @@ const canReview = computed(() => {
   const alreadyReviewed = reviews.value.some(
     r => r.reviewer_user_id === userId.value && r.review_type === 'parent_to_tutor'
   )
-  return !alreadyReviewed && ['active', 'paused', 'terminating', 'ended'].includes(match.value?.status)
+  // T-API-05: 配合後端修改，移除 terminating 狀態
+  return !alreadyReviewed && ['active', 'paused', 'ended'].includes(match.value?.status)
 })
 
 async function handleSubmitReview() {
+  // T-WEB-02: 驗證評分範圍
+  for (let i = 1; i <= 4; i++) {
+    const val = reviewForm['rating_' + i]
+    if (val == null || val < 1 || val > 5) {
+      reviewError.value = `評分項目 ${i} 必須在 1-5 之間`
+      return
+    }
+  }
   await submitReview({ review_type: 'parent_to_tutor', ...reviewForm })
   if (!reviewError.value) {
     Object.assign(reviewForm, {

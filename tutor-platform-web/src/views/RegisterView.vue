@@ -77,6 +77,11 @@ const form = reactive({
 
 async function handleRegister() {
   if (submitting.value) return
+  // P-BIZ-04: 前端驗證角色合法性
+  if (!['parent', 'tutor'].includes(form.role)) {
+    error.value = '不合法的角色'
+    return
+  }
   submitting.value = true
   try {
     error.value = ''

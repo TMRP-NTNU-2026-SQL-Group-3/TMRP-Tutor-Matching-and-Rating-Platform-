@@ -29,7 +29,9 @@ class TutorRepository(BaseRepository):
             params.append(subject_id)
 
         if school:
-            escaped = school.replace("%", "[%]").replace("_", "[_]")
+            # P-API-03: 完整轉義 MS Access LIKE 通配符（含方括號）
+            # 必須先處理 [ 的轉義（用臨時佔位符避免後續替換干擾）
+            escaped = school.replace("[", "\x00").replace("]", "[]]").replace("\x00", "[[]").replace("%", "[%]").replace("_", "[_]")
             conditions.append("t.university LIKE ?")
             params.append(f"%{escaped}%")
 

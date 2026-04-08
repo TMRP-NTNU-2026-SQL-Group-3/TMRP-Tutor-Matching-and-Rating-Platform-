@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.dependencies import get_current_user, get_db
+from app.dependencies import get_db, require_role
 from app.exceptions import AppException, ForbiddenException, NotFoundException
 from app.models.common import ApiResponse
 from app.models.message import ConversationCreate, MessageSend
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/messages", tags=["messages"])
 @router.post("/conversations", summary="建立對話", description="與指定使用者建立新對話，若已存在則回傳既有的 conversation_id。不可與自己建立對話。", response_model=ApiResponse)
 def create_conversation(
     body: ConversationCreate,
-    user=Depends(get_current_user),
+    user=Depends(require_role("parent", "tutor")),
     conn=Depends(get_db),
 ):
     user_id = int(user["sub"])
@@ -32,7 +32,7 @@ def create_conversation(
 
 
 @router.get("/conversations", summary="列出對話", description="列出目前登入使用者的所有對話，依最後訊息時間排序。", response_model=ApiResponse)
-def list_conversations(user=Depends(get_current_user), conn=Depends(get_db)):
+def list_conversations(user=Depends(require_role("parent", "tutor")), conn=Depends(get_db)):
     repo = MessageRepository(conn)
     conversations = repo.find_conversations_for_user(int(user["sub"]))
     return ApiResponse(success=True, data=conversations)
@@ -41,7 +41,7 @@ def list_conversations(user=Depends(get_current_user), conn=Depends(get_db)):
 @router.get("/conversations/{conversation_id}", summary="取得對話訊息", description="取得指定對話的所有訊息，依送出時間排序。僅限對話參與者。", response_model=ApiResponse)
 def get_messages(
     conversation_id: int,
-    user=Depends(get_current_user),
+    user=Depends(require_role("parent", "tutor")),
     conn=Depends(get_db),
 ):
     user_id = int(user["sub"])
@@ -58,7 +58,7 @@ def get_messages(
 def send_message(
     conversation_id: int,
     body: MessageSend,
-    user=Depends(get_current_user),
+    user=Depends(require_role("parent", "tutor")),
     conn=Depends(get_db),
 ):
     user_id = int(user["sub"])

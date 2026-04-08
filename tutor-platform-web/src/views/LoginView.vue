@@ -58,9 +58,15 @@ async function handleLogin() {
       role: data.role,
       display_name: data.display_name
     }, data.refresh_token)
-    if (data.role === 'admin') router.push('/admin')
-    else if (data.role === 'tutor') router.push('/tutor')
-    else router.push('/parent')
+    // P-BIZ-03: 使用對照表處理角色路由，未知角色顯示錯誤
+    const roleRoutes = { admin: '/admin', tutor: '/tutor', parent: '/parent' }
+    const target = roleRoutes[data.role]
+    if (target) {
+      router.push(target)
+    } else {
+      error.value = `不支援的帳號角色：${data.role}`
+      auth.logout()
+    }
   } catch (e) {
     error.value = e.message
   } finally {

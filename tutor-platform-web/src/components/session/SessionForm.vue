@@ -78,7 +78,7 @@ const form = reactive({
   homework: '',
   student_performance: '',
   next_plan: '',
-  visible_to_parent: false,
+  visible_to_parent: true,
 })
 
 function handleSubmit() {
@@ -100,7 +100,7 @@ function reset() {
   form.homework = ''
   form.student_performance = ''
   form.next_plan = ''
-  form.visible_to_parent = false
+  form.visible_to_parent = true
 }
 
 defineExpose({ reset })
