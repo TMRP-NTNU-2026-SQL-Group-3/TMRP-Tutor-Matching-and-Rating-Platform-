@@ -24,8 +24,7 @@ def get_connection(retries: int = 5, base_delay: float = 0.5) -> pyodbc.Connecti
     )
     for attempt in range(retries):
         try:
-            conn = pyodbc.connect(conn_str, timeout=5)
-            conn.timeout = 10  # 查詢逾時（秒）
+            conn = pyodbc.connect(conn_str)
             return conn
         except pyodbc.Error:
             if attempt < retries - 1:

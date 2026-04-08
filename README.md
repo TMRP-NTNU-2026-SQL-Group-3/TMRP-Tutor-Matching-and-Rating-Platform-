@@ -8,17 +8,29 @@ Built as the final group project for a university SQL (MS Access) course.
 
 ## Table of Contents
 
-- [Project Background](#project-background)
-- [Core Features](#core-features)
-- [System Architecture](#system-architecture)
-- [Technology Stack](#technology-stack)
-- [Getting Started](#getting-started)
-- [Project Structure](#project-structure)
-- [Database Design](#database-design)
-- [API Overview](#api-overview)
-- [Match Status Machine](#match-status-machine)
-- [Background Tasks](#background-tasks)
-- [Team and Roles](#team-and-roles)
+- [TMRP - Tutor Matching and Rating Platform](#tmrp---tutor-matching-and-rating-platform)
+  - [Table of Contents](#table-of-contents)
+  - [Project Background](#project-background)
+  - [Core Features](#core-features)
+    - [For Parents](#for-parents)
+    - [For Tutors](#for-tutors)
+    - [For Admins](#for-admins)
+    - [Shared](#shared)
+  - [System Architecture](#system-architecture)
+  - [Technology Stack](#technology-stack)
+  - [Getting Started](#getting-started)
+  - [Project Structure](#project-structure)
+  - [Database Design](#database-design)
+    - [Tables by functional group](#tables-by-functional-group)
+    - [Key constraints](#key-constraints)
+  - [API Overview](#api-overview)
+    - [Endpoint groups](#endpoint-groups)
+    - [Authentication](#authentication)
+    - [Notable design decisions](#notable-design-decisions)
+  - [Match Status Machine](#match-status-machine)
+  - [Background Tasks](#background-tasks)
+  - [Team and Roles](#team-and-roles)
+  - [Known Limitations](#known-limitations)
 
 ---
 
@@ -157,7 +169,7 @@ A separate background worker process (huey) handles long-running operations such
 
 | Service | URL |
 |---------|-----|
-| Frontend | http://localhost:5173 |
+| Frontend | http://localhost:5273 |
 | API | http://localhost:8000 |
 | Swagger UI | http://localhost:8000/docs |
 

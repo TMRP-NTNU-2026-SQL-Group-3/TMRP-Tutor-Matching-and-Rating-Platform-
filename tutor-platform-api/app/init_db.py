@@ -515,11 +515,17 @@ def ensure_admin_user(conn: pyodbc.Connection, settings: Settings | None = None)
         "SELECT COUNT(*) FROM Users WHERE username = ?",
         (settings.admin_username,),
     )
+    hashed = hash_password(settings.admin_password)
+
     if cursor.fetchone()[0] > 0:
-        logger.info("  管理員帳號已存在，跳過")
+        cursor.execute(
+            "UPDATE Users SET password_hash = ? WHERE username = ? AND role = 'admin'",
+            (hashed, settings.admin_username),
+        )
+        conn.commit()
+        logger.info("  管理員帳號已存在，已同步密碼")
         return
 
-    hashed = hash_password(settings.admin_password)
     cursor.execute(
         "INSERT INTO Users (username, password_hash, role, display_name, created_at) "
         "VALUES (?, ?, 'admin', ?, Now())",

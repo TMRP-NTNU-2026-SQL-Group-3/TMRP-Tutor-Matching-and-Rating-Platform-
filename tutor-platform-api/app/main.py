@@ -72,7 +72,15 @@ app = FastAPI(
 )
 
 # ─── Middleware（Starlette 最後註冊 = 最外層，請求由外往內穿透）───
-# 5. CORS（最靠近路由 → 最先註冊 → 最內層）
+# 5. Rate limiting（最靠近路由 → 最先註冊 → 最內層）
+app.add_middleware(RateLimitMiddleware)
+# 4. Access logging（需要 request_id，故在 RequestID 之內）
+app.add_middleware(AccessLogMiddleware)
+# 3. Security headers
+app.add_middleware(SecurityHeadersMiddleware)
+# 2. Request ID
+app.add_middleware(RequestIDMiddleware)
+# 1. CORS（最外層 — 最後註冊 → 最先執行，確保所有回應都帶 CORS 標頭）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
@@ -80,14 +88,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
-# 4. Rate limiting
-app.add_middleware(RateLimitMiddleware)
-# 3. Access logging（需要 request_id，故在 RequestID 之內）
-app.add_middleware(AccessLogMiddleware)
-# 2. Security headers
-app.add_middleware(SecurityHeadersMiddleware)
-# 1. Request ID（最外層 — 最後註冊 → 最先執行，先指派 ID 再做任何事）
-app.add_middleware(RequestIDMiddleware)
 
 # ─── 統一錯誤處理 ───
 app.add_exception_handler(AppException, app_exception_handler)
