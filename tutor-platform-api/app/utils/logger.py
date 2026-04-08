@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 from logging.handlers import RotatingFileHandler
 
 from app.config import settings
@@ -36,8 +35,8 @@ def setup_logger() -> logging.Logger:
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(console_formatter)
 
-    # 檔案日誌：依據 LOG_FORMAT 環境變數決定格式（json 或 text）
-    log_format = os.environ.get("LOG_FORMAT", "json").lower()
+    # 檔案日誌：依據 settings.log_format 決定格式（json 或 text）
+    log_format = settings.log_format.lower()
     if log_format == "json":
         file_formatter = JSONFormatter()
     else:

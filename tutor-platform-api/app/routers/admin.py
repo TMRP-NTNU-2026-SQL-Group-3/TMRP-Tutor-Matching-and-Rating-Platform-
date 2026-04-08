@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 import re
 import zipfile
 from pathlib import Path
@@ -14,6 +15,8 @@ from app.exceptions import AppException, NotFoundException
 from app.models.common import ApiResponse
 from app.repositories.base import BaseRepository
 from app.utils.csv_handler import write_csv
+
+logger = logging.getLogger("app.admin")
 
 _SAFE_COLUMN_NAME = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
@@ -69,6 +72,8 @@ def _validate_columns(columns: list) -> None:
 
 def _coerce_value(val: str):
     """將 CSV 字串值轉換為適合 MS Access 的型別。"""
+    if not val or val.strip() == "":
+        return None
     if val in ('True', 'true', '1', '-1'):
         return -1   # MS Access BIT True
     if val in ('False', 'false', '0'):
@@ -92,6 +97,7 @@ def list_users(user=Depends(require_role("admin")), conn=Depends(get_db)):
 
 @router.post("/seed", summary="生成假資料", description="呼叫假資料產生器，為系統填入測試用資料。若已有資料則可能跳過。僅限管理員。", response_model=ApiResponse)
 def seed_data(user=Depends(require_role("admin")), conn=Depends(get_db)):
+    logger.warning("Admin user_id=%s 執行假資料生成", user.get("sub"))
     from seed.generator import run_seed
 
     result = run_seed(conn)
@@ -111,6 +117,7 @@ def import_csv(
     conn=Depends(get_db),
 ):
     _validate_table(table_name)
+    logger.warning("Admin user_id=%s 匯入 CSV 至 %s", user.get("sub"), table_name)
 
     content = file.file.read().decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(content))
@@ -153,6 +160,7 @@ def export_csv(
     conn=Depends(get_db),
 ):
     _validate_table(table_name)
+    logger.warning("Admin user_id=%s 匯出 CSV: %s", user.get("sub"), table_name)
 
     repo = BaseRepository(conn)
     rows = repo.fetch_all(f"SELECT * FROM {table_name}")
@@ -165,9 +173,10 @@ def export_csv(
     export_path = export_dir / f"{table_name}.csv"
     write_csv(str(export_path), rows)
 
+    safe_filename = re.sub(r'[^A-Za-z0-9_\-]', '', table_name) + ".csv"
     return FileResponse(
         path=str(export_path),
-        filename=f"{table_name}.csv",
+        filename=safe_filename,
         media_type="text/csv",
     )
 
@@ -183,6 +192,7 @@ def reset_database(
     if not confirm:
         raise AppException("請傳入 confirm=true 以確認清空資料庫")
 
+    logger.warning("Admin user_id=%s 執行清空資料庫", user.get("sub"))
     repo = BaseRepository(conn)
     cursor = conn.cursor()
     admin_user_id = int(user["sub"])
@@ -249,6 +259,7 @@ def system_status(user=Depends(require_role("admin")), conn=Depends(get_db)):
 
 @router.post("/export-all", summary="一鍵匯出全部", description="將所有資料表匯出為 CSV 並打包成 ZIP 下載。僅限管理員。")
 def export_all(user=Depends(require_role("admin")), conn=Depends(get_db)):
+    logger.warning("Admin user_id=%s 執行一鍵匯出全部資料表", user.get("sub"))
     repo = BaseRepository(conn)
     export_dir = Path(settings.access_db_path).parent / "export"
     export_dir.mkdir(parents=True, exist_ok=True)
@@ -352,6 +363,9 @@ def import_all(
 
     cursor = conn.cursor()
     result = {}
+    errors = {}
+
+    logger.warning("Admin user_id=%s 執行一鍵匯入 (clear_first=%s)", user.get("sub"), clear_first)
 
     with transaction(conn):
         if clear_first:
@@ -380,14 +394,26 @@ def import_all(
             col_names = ", ".join(columns)
             sql = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
 
-            for row in rows:
+            table_errors = []
+            inserted = 0
+            for i, row in enumerate(rows, 1):
                 values = tuple(_coerce_value(row[c]) for c in columns)
-                cursor.execute(sql, values)
+                try:
+                    cursor.execute(sql, values)
+                    inserted += 1
+                except Exception as e:
+                    table_errors.append(f"第 {i} 列: {e}")
 
-            result[table] = len(rows)
+            result[table] = inserted
+            if table_errors:
+                errors[table] = table_errors
+
     total = sum(result.values())
+    data = {"imported": result}
+    if errors:
+        data["errors"] = errors
     return ApiResponse(
         success=True,
-        data=result,
-        message=f"已匯入 {total} 筆資料（{len(result)} 張表）",
+        data=data,
+        message=f"已匯入 {total} 筆資料（{len(result)} 張表）" + (f"，{sum(len(v) for v in errors.values())} 筆失敗" if errors else ""),
     )

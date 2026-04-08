@@ -187,6 +187,8 @@ def update_match_status(
 
     # 處理特殊轉換
     if action == "accept":
+        if current_status != "pending":
+            raise AppException("只有「等待中」狀態的配對可以接受")
         new_status = "trial" if match.get("want_trial") else "active"
         repo.update_status(match_id, new_status)
 
@@ -196,9 +198,11 @@ def update_match_status(
         repo.set_terminating(match_id, user_id, body.reason, current_status)
 
     elif action == "disagree_terminate":
+        if current_status != "terminating":
+            raise AppException("只有「等待終止確認」狀態的配對可以拒絕終止")
         # 從 termination_reason 解析出 previous_status
-        reason_raw = match.get("termination_reason") or "active"
-        previous_status = reason_raw.split("|")[0] if "|" in reason_raw else "active"
+        reason_raw = match.get("termination_reason") or ""
+        previous_status = reason_raw.split("|")[0] if "|" in reason_raw else ""
         if previous_status not in ("active", "paused"):
             logger.warning(
                 "match %d: invalid previous_status %r in termination_reason, defaulting to 'active'",

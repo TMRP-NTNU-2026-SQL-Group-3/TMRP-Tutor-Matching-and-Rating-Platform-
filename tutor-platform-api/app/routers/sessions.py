@@ -94,24 +94,33 @@ def update_session(
         else:
             updates["visible_to_parent"] = to_access_bit(updates["visible_to_parent"])
 
-    # 比對差異（先收集，更新成功後才寫 edit log）
-    diffs = []
-    for field, new_val in updates.items():
-        old_val = session.get(field)
-        # visible_to_parent：DB 可能回傳 bool (True/False)，需轉為 Access BIT 再比較
-        if field == "visible_to_parent" and isinstance(old_val, bool):
-            old_val = to_access_bit(old_val)
-        old_str = str(old_val) if old_val is not None else ""
-        new_str = str(new_val) if new_val is not None else ""
-        if old_str != new_str:
-            diffs.append((field, old_val, new_val))
+    if not updates:
+        return ApiResponse(success=True, data={"session_id": session_id}, message="無需更新的欄位")
 
-    if not diffs:
-        return ApiResponse(success=True, data={"session_id": session_id}, message="無實際變動")
-
-    # 先執行更新，再寫入修改紀錄（原子操作）
+    # 在交易中重新讀取最新資料，確保讀取-比對-更新的原子性
     repo.validate_columns(list(updates.keys()), SessionRepository.ALLOWED_COLUMNS)
     with transaction(conn):
+        # 在交易內重新取得 session，避免並發更新時讀到過時的舊值
+        session_fresh = repo.fetch_one(
+            "SELECT * FROM Sessions WHERE session_id = ?", (session_id,)
+        )
+        if not session_fresh:
+            raise NotFoundException("找不到此上課日誌")
+
+        # 以交易內的最新值重新計算差異
+        diffs = []
+        for field, new_val in updates.items():
+            old_val = session_fresh.get(field)
+            if field == "visible_to_parent" and isinstance(old_val, bool):
+                old_val = to_access_bit(old_val)
+            old_str = str(old_val) if old_val is not None else ""
+            new_str = str(new_val) if new_val is not None else ""
+            if old_str != new_str:
+                diffs.append((field, old_val, new_val))
+
+        if not diffs:
+            return ApiResponse(success=True, data={"session_id": session_id}, message="無實際變動")
+
         set_clause = ", ".join(f"{col} = ?" for col in updates)
         repo.cursor.execute(
             f"UPDATE Sessions SET {set_clause}, updated_at = Now() WHERE session_id = ?",

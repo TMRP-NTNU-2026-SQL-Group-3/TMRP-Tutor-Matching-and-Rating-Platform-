@@ -1,5 +1,3 @@
-import warnings
-
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
@@ -26,6 +24,7 @@ class Settings(BaseSettings):
     # 日誌
     log_file: str = "logs/app.log"
     log_level: str = "INFO"
+    log_format: str = "json"
 
     # CORS
     cors_origins: str = "http://localhost:5173"
@@ -41,7 +40,9 @@ class Settings(BaseSettings):
                 "請執行: python -c \"import secrets; print(secrets.token_hex(32))\" 生成密鑰。"
             )
         if self.admin_password == "admin123":
-            warnings.warn("ADMIN_PASSWORD 使用預設值，建議在 .env 中設定強密碼", stacklevel=2)
+            raise ValueError(
+                "ADMIN_PASSWORD 必須在 .env 中設定強密碼，不可使用預設值 'admin123'。"
+            )
         return self
 
 

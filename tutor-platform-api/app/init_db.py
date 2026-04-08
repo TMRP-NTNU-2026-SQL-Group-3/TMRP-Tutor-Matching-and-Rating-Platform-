@@ -108,6 +108,7 @@ TABLE_DDL: list[tuple[str, str]] = [
             availability_id AUTOINCREMENT PRIMARY KEY,
             tutor_id LONG NOT NULL,
             day_of_week SHORT NOT NULL,
+            CONSTRAINT ck_avail_dow CHECK (day_of_week >= 0 AND day_of_week <= 6),
             start_time DATETIME NOT NULL,
             end_time DATETIME NOT NULL
         )
@@ -298,6 +299,9 @@ PERFORMANCE_INDEXES: list[str] = [
     "CREATE INDEX idx_exams_student ON Exams (student_id)",
     "CREATE INDEX idx_reviews_match ON Reviews (match_id)",
     "CREATE INDEX idx_conv_last_msg ON Conversations (last_message_at)",
+    "CREATE INDEX idx_tutor_subjects_subject ON Tutor_Subjects (subject_id)",
+    "CREATE INDEX idx_sessions_created ON Sessions (created_at)",
+    "CREATE INDEX idx_matches_status_updated ON Matches (status, updated_at)",
 ]
 
 # ──────────────────────────────────────────────

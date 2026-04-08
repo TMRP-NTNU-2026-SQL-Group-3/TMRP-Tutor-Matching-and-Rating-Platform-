@@ -28,11 +28,7 @@ logger = setup_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("API Server 啟動")
-    # JWT_SECRET_KEY 預設值已由 config.py model_validator 硬性阻擋，不會走到這裡
-    if settings.admin_password == "admin123":
-        logger.warning(
-            "⚠️ ADMIN_PASSWORD 使用預設值！請在 .env 中設定強密碼。"
-        )
+    # JWT_SECRET_KEY 與 ADMIN_PASSWORD 預設值已由 config.py model_validator 硬性阻擋
     try:
         from app.database import get_connection
         from app.init_db import ensure_admin_user
@@ -79,7 +75,7 @@ app = FastAPI(
 # 5. CORS（最靠近路由 → 最先註冊 → 最內層）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins.split(","),
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],

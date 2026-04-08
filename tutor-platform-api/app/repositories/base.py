@@ -1,6 +1,9 @@
+import logging
 import re
 
 _SAFE_COLUMN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+logger = logging.getLogger("app")
 
 
 class BaseRepository:
@@ -15,7 +18,7 @@ class BaseRepository:
         try:
             self.cursor.close()
         except Exception:
-            pass
+            logger.exception("Failed to close cursor")
 
     @staticmethod
     def validate_columns(columns: list, allowed: set | None = None) -> None:
@@ -61,7 +64,13 @@ class BaseRepository:
         self.conn.commit()
 
     def execute_returning_id(self, sql: str, params: tuple = ()) -> int:
-        """執行 INSERT 並回傳自動產生之主鍵值（AutoNumber）。"""
+        """
+        執行 INSERT 並回傳自動產生之主鍵值（AutoNumber）。
+
+        注意：@@IDENTITY 為連線層級，安全性仰賴每個請求使用獨立連線
+        （由 get_db() 保證）。INSERT 與 SELECT @@IDENTITY 之間不可
+        穿插其他 INSERT，否則會取得錯誤的 ID。
+        """
         self.cursor.execute(sql, params)
         self.cursor.execute("SELECT @@IDENTITY")
         new_id = self.cursor.fetchone()[0]
@@ -73,12 +82,24 @@ class BaseRepository:
     ) -> tuple[list[dict], int]:
         """
         執行分頁查詢。
-        由於 MS Access 不支援 LIMIT/OFFSET 語法，故先取回全部結果，
-        再於 Python 端進行分頁切割。
+        由於 MS Access 不支援 LIMIT/OFFSET 語法，先以 COUNT 查詢取得總數，
+        再用 TOP N 限制回傳筆數，最後在 Python 端做 offset 切割。
+        當資料量大時僅載入 page*page_size 筆，而非全部。
         回傳值：(items, total_count)
         """
-        all_rows = self.fetch_all(sql, params)
-        total = len(all_rows)
+        # 取得總筆數（避免載入全部資料）
+        # MS Access 子查詢需加別名
+        count_sql = f"SELECT COUNT(*) AS cnt FROM ({sql}) AS _sub"
+        self.cursor.execute(count_sql, params)
+        total = self.cursor.fetchone()[0]
+
+        if total == 0:
+            return [], 0
+
+        # 用 TOP 限制載入量：最多取 page * page_size 筆，再切出當頁
+        top_n = page * page_size
+        top_sql = sql.replace("SELECT ", f"SELECT TOP {top_n} ", 1)
+        rows = self.fetch_all(top_sql, params)
         start = (page - 1) * page_size
-        items = all_rows[start : start + page_size]
+        items = rows[start : start + page_size]
         return items, total

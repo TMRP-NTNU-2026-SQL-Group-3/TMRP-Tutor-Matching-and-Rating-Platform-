@@ -66,15 +66,18 @@
 </template>
 
 <script setup>
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 
-defineProps({
+const props = defineProps({
   visible: { type: Boolean, default: false },
   students: { type: Array, default: () => [] },
   subjects: { type: Array, default: () => [] },
   submitting: { type: Boolean, default: false },
   error: { type: String, default: '' },
 })
+
+// 每次開啟時自動重置表單
+watch(() => props.visible, (v) => { if (v) reset() })
 
 const emit = defineEmits(['submit', 'cancel'])
 

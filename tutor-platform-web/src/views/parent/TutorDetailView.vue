@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { tutorsApi } from '@/api/tutors'
 import { studentsApi } from '@/api/students'
@@ -123,6 +123,8 @@ const showInviteForm = ref(false)
 const inviting = ref(false)
 const inviteError = ref('')
 
+// 開啟邀請表單時清除舊錯誤
+watch(showInviteForm, (v) => { if (v) inviteError.value = '' })
 
 const avgRating = computed(() => {
   if (!tutor.value?.rating) return 0

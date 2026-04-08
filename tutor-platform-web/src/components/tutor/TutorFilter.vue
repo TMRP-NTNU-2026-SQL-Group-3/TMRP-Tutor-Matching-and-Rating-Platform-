@@ -44,7 +44,7 @@
 </template>
 
 <script setup>
-import { reactive, onUnmounted } from 'vue'
+import { reactive, watch, onUnmounted } from 'vue'
 
 const props = defineProps({
   subjects: { type: Array, default: () => [] },
@@ -60,6 +60,16 @@ const local = reactive({
   school: props.initial.school ?? '',
   sort_by: props.initial.sort_by ?? 'rating',
 })
+
+watch(() => props.initial, (val) => {
+  Object.assign(local, {
+    subject_id: val.subject_id ?? null,
+    min_rate: val.min_rate ?? null,
+    max_rate: val.max_rate ?? null,
+    school: val.school ?? '',
+    sort_by: val.sort_by ?? 'rating',
+  })
+}, { deep: true })
 
 let debounceTimer = null
 

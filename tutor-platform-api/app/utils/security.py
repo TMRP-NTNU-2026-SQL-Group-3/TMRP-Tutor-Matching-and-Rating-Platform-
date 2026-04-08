@@ -1,4 +1,5 @@
 import logging
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -10,7 +11,12 @@ from app.config import settings
 logger = logging.getLogger("app.security")
 
 # 已使用的 refresh token JTI 黑名單（token rotation）
-_used_refresh_jti: set[str] = set()
+# 儲存格式：{jti: expiry_timestamp}，帶 TTL 自動清理避免記憶體洩漏。
+# ⚠️ 限制：in-memory 儲存，伺服器重啟後黑名單會遺失，多 process 下各 Worker 獨立。
+#    生產環境應改用 Redis 或資料庫持久化。
+_used_refresh_jti: dict[str, float] = {}
+_jti_lock = threading.Lock()
+_REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 3600  # 7 天，與 refresh token 效期一致
 
 
 def hash_password(password: str) -> str:
@@ -64,9 +70,32 @@ def decode_access_token(token: str) -> dict | None:
         return None
 
 
+def _cleanup_expired_jti() -> None:
+    """清除已過期的 JTI 條目（需在持有 _jti_lock 時呼叫）。"""
+    now = datetime.now(timezone.utc).timestamp()
+    expired = [jti for jti, exp in _used_refresh_jti.items() if now >= exp]
+    for jti in expired:
+        del _used_refresh_jti[jti]
+
+
 def invalidate_refresh_token(jti: str) -> None:
     """將 refresh token 的 JTI 加入黑名單，使其無法再次使用。"""
-    _used_refresh_jti.add(jti)
+    with _jti_lock:
+        _used_refresh_jti[jti] = datetime.now(timezone.utc).timestamp() + _REFRESH_TOKEN_TTL_SECONDS
+        if len(_used_refresh_jti) > 1000:
+            _cleanup_expired_jti()
+
+
+def is_refresh_token_blacklisted(jti: str) -> bool:
+    """檢查 JTI 是否在黑名單中且尚未過期。"""
+    with _jti_lock:
+        expiry = _used_refresh_jti.get(jti)
+        if expiry is None:
+            return False
+        if datetime.now(timezone.utc).timestamp() >= expiry:
+            del _used_refresh_jti[jti]
+            return False
+        return True
 
 
 def decode_refresh_token(token: str) -> dict | None:
@@ -77,7 +106,7 @@ def decode_refresh_token(token: str) -> dict | None:
             logger.warning("Non-refresh token used for refresh endpoint")
             return None
         jti = payload.get("jti")
-        if jti and jti in _used_refresh_jti:
+        if jti and is_refresh_token_blacklisted(jti):
             logger.warning("Reuse of invalidated refresh token jti=%s", jti)
             return None
         return payload

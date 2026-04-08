@@ -25,13 +25,22 @@ def mock_conn():
     return conn
 
 
+@pytest.fixture(autouse=True)
+def _reset_overrides():
+    """確保每個測試前後清除依賴覆蓋，避免跨測試污染。"""
+    app.dependency_overrides.clear()
+    yield
+    app.dependency_overrides.clear()
+
+
 @pytest.fixture()
 def client(mock_conn):
     """使用 mock_conn 覆蓋 get_db 依賴的 TestClient。"""
-    app.dependency_overrides[get_db] = lambda: mock_conn
+    def _get_mock_db():
+        return mock_conn
+    app.dependency_overrides[get_db] = _get_mock_db
     with TestClient(app) as c:
         yield c
-    app.dependency_overrides.clear()
 
 
 # ── Token 工廠 ────────────────────────────────────────────────

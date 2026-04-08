@@ -113,7 +113,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { tutorsApi } from '@/api/tutors'
 import { subjectsApi } from '@/api/subjects'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -124,6 +124,9 @@ const error = ref('')
 const success = ref('')
 const allSubjects = ref([])
 const subjectList = ref([])
+
+let isMounted = true
+onUnmounted(() => { isMounted = false })
 
 const form = reactive({
   self_intro: '',
@@ -169,6 +172,7 @@ onMounted(async () => {
       tutorsApi.getMyProfile(),
       subjectsApi.list(),
     ])
+    if (!isMounted) return
 
     form.self_intro = detail.self_intro || ''
     form.teaching_experience = detail.teaching_experience || ''
@@ -188,9 +192,9 @@ onMounted(async () => {
       hourly_rate: s.hourly_rate,
     }))
   } catch (e) {
-    error.value = e.message
+    if (isMounted) error.value = e.message
   } finally {
-    loading.value = false
+    if (isMounted) loading.value = false
   }
 })
 </script>

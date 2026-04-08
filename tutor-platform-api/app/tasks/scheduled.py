@@ -24,6 +24,7 @@ def _ensure_is_locked_column(conn) -> None:
 
 
 @huey.periodic_task(crontab(hour="3", minute="0"))
+@huey.lock_task("check-expired-reviews")
 def check_expired_reviews():
     """每日凌晨 3 點將超過 review_lock_days 天編輯期限的評價設為鎖定。"""
     logger.info("開始檢查過期評價")

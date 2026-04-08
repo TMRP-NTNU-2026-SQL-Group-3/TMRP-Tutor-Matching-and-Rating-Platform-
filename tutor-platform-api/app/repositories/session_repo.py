@@ -53,7 +53,7 @@ class SessionRepository(BaseRepository):
     def list_by_match(self, match_id: int, parent_only: bool = False) -> list[dict]:
         if parent_only:
             return self.fetch_all(
-                "SELECT * FROM Sessions WHERE match_id = ? AND visible_to_parent = -1 ORDER BY session_date DESC",
+                "SELECT * FROM Sessions WHERE match_id = ? AND visible_to_parent <> 0 ORDER BY session_date DESC",
                 (match_id,),
             )
         return self.fetch_all(

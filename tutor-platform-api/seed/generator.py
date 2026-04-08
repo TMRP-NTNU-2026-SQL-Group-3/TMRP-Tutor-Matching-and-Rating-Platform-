@@ -239,7 +239,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
 
     avail_count = 0
     # 使用固定日期作為基準，只取時間部分
-    base_date = datetime(1899, 12, 30)  # Access 的日期基準
+    base_date = datetime(1899, 12, 30)  # Access 日期基準（Access 以此日期儲存時間部分）
     for tid, dow, sh, sm, eh, em in availability_data:
         start_time = base_date.replace(hour=sh, minute=sm)
         end_time = base_date.replace(hour=eh, minute=em)

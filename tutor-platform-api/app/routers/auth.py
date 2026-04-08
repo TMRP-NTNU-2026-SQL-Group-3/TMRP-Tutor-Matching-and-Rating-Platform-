@@ -88,6 +88,14 @@ def refresh(body: RefreshRequest, conn=Depends(get_db)):
     )
 
 
+@router.post("/logout", summary="登出", description="使目前的 refresh token 失效。", response_model=ApiResponse)
+def logout(body: RefreshRequest, user=Depends(get_current_user)):
+    payload = decode_refresh_token(body.refresh_token)
+    if payload and (jti := payload.get("jti")):
+        invalidate_refresh_token(jti)
+    return ApiResponse(success=True, message="已登出")
+
+
 @router.get("/me", summary="取得個人資訊", description="依據 JWT Token 取得目前登入使用者的資料（不含密碼雜湊）。", response_model=ApiResponse)
 def get_me(user=Depends(get_current_user), conn=Depends(get_db)):
     repo = AuthRepository(conn)

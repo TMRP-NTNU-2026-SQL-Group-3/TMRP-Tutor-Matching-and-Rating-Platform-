@@ -360,8 +360,15 @@ const canReviewStudent = computed(() => {
     && ['active', 'ended'].includes(match.value.status)
 })
 
-function handleSubmitReview() {
-  submitReview({ ...reviewForm })
+async function handleSubmitReview() {
+  await submitReview({ ...reviewForm })
+  if (!reviewError.value) {
+    Object.assign(reviewForm, {
+      review_type: 'tutor_to_parent',
+      rating_1: 5, rating_2: 5, rating_3: 5, rating_4: 5,
+      personality_comment: '', comment: ''
+    })
+  }
 }
 
 async function submitSession(formData) {

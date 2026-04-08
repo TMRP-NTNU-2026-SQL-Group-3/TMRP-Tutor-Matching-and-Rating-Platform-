@@ -239,8 +239,14 @@ const canReview = computed(() => {
   return !alreadyReviewed && ['active', 'paused', 'terminating', 'ended'].includes(match.value?.status)
 })
 
-function handleSubmitReview() {
-  submitReview({ review_type: 'parent_to_tutor', ...reviewForm })
+async function handleSubmitReview() {
+  await submitReview({ review_type: 'parent_to_tutor', ...reviewForm })
+  if (!reviewError.value) {
+    Object.assign(reviewForm, {
+      rating_1: 5, rating_2: 5, rating_3: 5, rating_4: 5,
+      personality_comment: '', comment: ''
+    })
+  }
 }
 
 onMounted(fetchMatch)

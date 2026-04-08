@@ -96,7 +96,8 @@ router.beforeEach((to, from, next) => {
     return next('/parent')
   }
 
-  if (requiredRole && auth.role !== requiredRole && auth.role !== 'admin') {
+  if (requiredRole && auth.role !== requiredRole) {
+    if (auth.role === 'admin') return next('/admin')
     if (auth.role === 'tutor') return next('/tutor')
     return next('/parent')
   }

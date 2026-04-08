@@ -13,8 +13,8 @@ class StatsRepository(BaseRepository):
         return self.fetch_one(
             """
             SELECT
-                SUM(se.hours) AS total_hours,
-                SUM(se.hours * m.hourly_rate) AS total_income,
+                IIF(SUM(se.hours) IS NULL, 0, SUM(se.hours)) AS total_hours,
+                IIF(SUM(se.hours * m.hourly_rate) IS NULL, 0, SUM(se.hours * m.hourly_rate)) AS total_income,
                 COUNT(*) AS session_count
             FROM Sessions se
             INNER JOIN Matches m ON se.match_id = m.match_id
@@ -49,8 +49,8 @@ class StatsRepository(BaseRepository):
         return self.fetch_one(
             """
             SELECT
-                SUM(se.hours) AS total_hours,
-                SUM(se.hours * m.hourly_rate) AS total_expense,
+                IIF(SUM(se.hours) IS NULL, 0, SUM(se.hours)) AS total_hours,
+                IIF(SUM(se.hours * m.hourly_rate) IS NULL, 0, SUM(se.hours * m.hourly_rate)) AS total_expense,
                 COUNT(*) AS session_count
             FROM (Sessions se
             INNER JOIN Matches m ON se.match_id = m.match_id)

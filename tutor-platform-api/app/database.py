@@ -1,3 +1,4 @@
+import random
 import time
 
 import pyodbc
@@ -5,15 +6,15 @@ import pyodbc
 from app.config import settings
 
 
-def get_connection(retries: int = 3, delay: float = 0.5) -> pyodbc.Connection:
+def get_connection(retries: int = 5, base_delay: float = 0.5) -> pyodbc.Connection:
     """
     建立並回傳一個新的 MS Access ODBC 連線。
-    內建重試機制以應對多 process 併發存取時的暫時性鎖定錯誤。
+    內建指數退避 + jitter 重試機制以應對多 process 併發存取時的暫時性鎖定錯誤。
     包含連線逾時與查詢逾時設定。
 
     參數：
-        retries: 最大重試次數（預設 3 次）
-        delay: 每次重試前的等待秒數（預設 0.5 秒）
+        retries: 最大重試次數（預設 5 次）
+        base_delay: 初始等待秒數（預設 0.5 秒），每次重試加倍並加入隨機 jitter
     """
     if retries <= 0:
         raise ValueError("retries must be > 0")
@@ -28,6 +29,7 @@ def get_connection(retries: int = 3, delay: float = 0.5) -> pyodbc.Connection:
             return conn
         except pyodbc.Error:
             if attempt < retries - 1:
+                delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
                 time.sleep(delay)
             else:
                 raise

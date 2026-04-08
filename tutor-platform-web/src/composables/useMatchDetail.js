@@ -33,32 +33,42 @@ export function useMatchDetail() {
   })
 
   // ── 資料載入 ──
+  let _fetchId = 0
+
   async function fetchMatch() {
+    const currentFetchId = ++_fetchId
+
     // 首次載入才顯示 skeleton，後續重新整理不閃爍
     if (!match.value) loading.value = true
     error.value = ''
     try {
-      match.value = await matchesApi.getDetail(route.params.id)
+      const detail = await matchesApi.getDetail(route.params.id)
+      if (currentFetchId !== _fetchId) return  // 已有更新的請求，丟棄此結果
+      match.value = detail
       const [sessData, reviewData] = await Promise.all([
         sessionsApi.list({ match_id: route.params.id }),
         reviewsApi.list({ match_id: route.params.id }),
       ])
+      if (currentFetchId !== _fetchId) return
       sessions.value = sessData
       reviews.value = reviewData
       if (match.value.student_id) {
-        exams.value = await examsApi.list({ student_id: match.value.student_id })
+        const examData = await examsApi.list({ student_id: match.value.student_id })
+        if (currentFetchId !== _fetchId) return
+        exams.value = examData
       }
     } catch (e) {
+      if (currentFetchId !== _fetchId) return
       error.value = e.message
       toast.error('載入配對資料失敗')
     } finally {
-      loading.value = false
+      if (currentFetchId === _fetchId) loading.value = false
     }
   }
 
   // ── 狀態操作 ──
   async function doAction(action) {
-    if (!match.value) return
+    if (!match.value || actionLoading.value) return
     error.value = ''
     actionLoading.value = true
     try {
@@ -74,7 +84,7 @@ export function useMatchDetail() {
   }
 
   async function doTerminate(reason) {
-    if (!match.value) return
+    if (!match.value || actionLoading.value) return
     error.value = ''
     actionLoading.value = true
     try {
@@ -96,6 +106,7 @@ export function useMatchDetail() {
   const reviewError = ref('')
 
   async function submitReview(payload) {
+    if (reviewSubmitting.value) return
     reviewError.value = ''
     reviewSubmitting.value = true
     try {

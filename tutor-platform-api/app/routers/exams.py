@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 
-from app.dependencies import get_current_user, get_db, is_admin
-from app.exceptions import ForbiddenException, NotFoundException
+from app.dependencies import get_current_user, get_db, is_admin, require_role
+from app.exceptions import AppException, ForbiddenException, NotFoundException
 from app.models.common import ApiResponse
 from app.models.exam import ExamCreate, ExamUpdate
 from app.repositories.exam_repo import ExamRepository
@@ -15,6 +15,10 @@ def create_exam(
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):
+    role = user["role"]
+    if role not in ("parent", "tutor"):
+        raise AppException("僅家長或老師可新增考試紀錄")
+
     repo = ExamRepository(conn)
     user_id = int(user["sub"])
 
@@ -22,8 +26,8 @@ def create_exam(
     if not student:
         raise NotFoundException("找不到此學生")
 
-    is_parent = student["parent_user_id"] == user_id
-    is_tutor = bool(repo.get_active_match_for_tutor(body.student_id, user_id))
+    is_parent = role == "parent" and student["parent_user_id"] == user_id
+    is_tutor = role == "tutor" and bool(repo.get_active_match_for_tutor(body.student_id, user_id))
 
     if not is_parent and not is_tutor:
         raise ForbiddenException("無權為此學生新增考試紀錄")
@@ -78,6 +82,15 @@ def update_exam(
         raise NotFoundException("找不到此考試紀錄")
     if exam["added_by_user_id"] != user_id:
         raise ForbiddenException("只有原新增者可以修改考試紀錄")
+
+    # 驗證學生所有權：確認 exam 所屬的 student 確實是當前使用者的孩子或有配對關係
+    student = repo.get_student(exam["student_id"])
+    if not student:
+        raise NotFoundException("找不到此考試紀錄對應的學生")
+    is_parent = student["parent_user_id"] == user_id
+    is_tutor = bool(repo.get_active_match_for_tutor(exam["student_id"], user_id))
+    if not is_parent and not is_tutor:
+        raise ForbiddenException("無權修改此學生的考試紀錄")
 
     updates = {}
     for k, v in body.model_dump(exclude_unset=True).items():

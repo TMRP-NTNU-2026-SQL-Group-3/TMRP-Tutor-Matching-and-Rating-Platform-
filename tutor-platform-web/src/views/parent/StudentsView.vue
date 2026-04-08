@@ -79,7 +79,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted } from 'vue'
 import { studentsApi } from '@/api/students'
 import EmptyState from '@/components/common/EmptyState.vue'
 
@@ -89,6 +89,9 @@ const showForm = ref(false)
 const adding = ref(false)
 const error = ref('')
 const form = reactive({ name: '', school: '', grade: '' })
+
+// 表單開啟時清除之前的錯誤訊息
+watch(showForm, (v) => { if (v) error.value = '' })
 
 async function fetchStudents() {
   loading.value = true

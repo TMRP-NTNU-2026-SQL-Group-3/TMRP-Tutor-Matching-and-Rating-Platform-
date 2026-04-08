@@ -1,3 +1,4 @@
+from app.database_tx import transaction
 from app.repositories.base import BaseRepository
 from app.utils.access_bits import to_access_bit
 
@@ -89,8 +90,8 @@ class TutorRepository(BaseRepository):
         return row["cnt"] if row else 0
 
     def replace_subjects(self, tutor_id: int, items: list[dict]) -> None:
-        """整批替換老師的可教授科目。"""
-        try:
+        """整批替換老師的可教授科目（交易隔離）。"""
+        with transaction(self.conn):
             self.cursor.execute("DELETE FROM Tutor_Subjects WHERE tutor_id = ?", (tutor_id,))
             for item in items:
                 self.cursor.execute(
@@ -100,13 +101,10 @@ class TutorRepository(BaseRepository):
                     """,
                     (tutor_id, item["subject_id"], item["hourly_rate"]),
                 )
-            self.conn.commit()
-        except Exception:
-            self.conn.rollback()
-            raise
 
     def replace_availability(self, tutor_id: int, slots: list[dict]) -> None:
-        try:
+        """整批替換老師的可用時段（交易隔離）。"""
+        with transaction(self.conn):
             self.cursor.execute("DELETE FROM Tutor_Availability WHERE tutor_id = ?", (tutor_id,))
             for slot in slots:
                 self.cursor.execute(
@@ -116,10 +114,6 @@ class TutorRepository(BaseRepository):
                     """,
                     (tutor_id, slot["day_of_week"], slot["start_time"], slot["end_time"]),
                 )
-            self.conn.commit()
-        except Exception:
-            self.conn.rollback()
-            raise
 
     VISIBILITY_COLUMNS = {
         "show_university", "show_department", "show_grade_year",

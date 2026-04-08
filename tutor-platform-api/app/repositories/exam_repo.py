@@ -58,7 +58,7 @@ class ExamRepository(BaseRepository):
                 SELECT e.*, s.subject_name
                 FROM Exams e
                 INNER JOIN Subjects s ON e.subject_id = s.subject_id
-                WHERE e.student_id = ? AND e.visible_to_parent = -1
+                WHERE e.student_id = ? AND e.visible_to_parent <> 0
                 ORDER BY e.exam_date DESC
                 """,
                 (student_id,),

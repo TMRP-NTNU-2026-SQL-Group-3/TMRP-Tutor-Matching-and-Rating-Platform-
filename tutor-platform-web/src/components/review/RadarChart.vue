@@ -1,17 +1,22 @@
 <template>
   <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
     <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">{{ title }}</h3>
-    <div class="flex justify-center">
-      <div class="max-w-xs w-full">
-        <Radar :data="chartData" :options="chartOptions" />
-      </div>
+    <div v-if="renderError" class="flex justify-center items-center py-8 text-sm text-gray-400">
+      圖表載入失敗
     </div>
-    <p v-if="reviewCount" class="text-center text-xs text-gray-400 mt-2">共 {{ reviewCount }} 則評價</p>
+    <template v-else>
+      <div class="flex justify-center">
+        <div class="max-w-xs w-full">
+          <Radar :data="chartData" :options="chartOptions" />
+        </div>
+      </div>
+      <p v-if="reviewCount" class="text-center text-xs text-gray-400 mt-2">共 {{ reviewCount }} 則評價</p>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onErrorCaptured } from 'vue'
 import { Radar } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -23,6 +28,12 @@ import {
 } from 'chart.js'
 
 ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, Tooltip)
+
+const renderError = ref(false)
+onErrorCaptured(() => {
+  renderError.value = true
+  return false
+})
 
 const props = defineProps({
   title: { type: String, default: '評分雷達圖' },

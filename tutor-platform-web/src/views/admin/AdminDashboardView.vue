@@ -21,7 +21,8 @@
           {{ loadingUsers ? '載入中...' : '重新載入' }}
         </button>
       </div>
-      <div v-if="users.length" class="overflow-x-auto">
+      <div v-if="loadingUsers && !users.length" class="py-8 text-center text-sm text-gray-400">載入中...</div>
+      <div v-else-if="users.length" class="overflow-x-auto">
         <table class="w-full">
           <thead>
             <tr class="border-b border-gray-200">

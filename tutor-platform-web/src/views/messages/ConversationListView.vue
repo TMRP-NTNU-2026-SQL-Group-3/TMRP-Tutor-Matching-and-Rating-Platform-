@@ -29,7 +29,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { messagesApi } from '@/api/messages'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -44,14 +44,25 @@ function formatDate(dt) {
   return d.toLocaleDateString('zh-TW') + ' ' + d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
 }
 
-onMounted(async () => {
-  loading.value = true
+let pollTimer = null
+
+async function fetchConversations() {
   try {
     conversations.value = await messagesApi.listConversations()
   } catch (e) {
     error.value = e.message
-  } finally {
-    loading.value = false
   }
+}
+
+onMounted(async () => {
+  loading.value = true
+  await fetchConversations()
+  loading.value = false
+  // 每 30 秒自動刷新對話列表
+  pollTimer = setInterval(fetchConversations, 30000)
+})
+
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
 })
 </script>
