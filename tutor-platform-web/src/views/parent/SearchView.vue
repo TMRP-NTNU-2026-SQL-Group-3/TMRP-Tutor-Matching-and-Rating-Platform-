@@ -46,7 +46,8 @@ async function doSearch(filters = {}) {
     if (filters.max_rate) params.max_rate = filters.max_rate
     if (filters.school) params.school = filters.school
     params.sort_by = filters.sort_by || 'rating'
-    tutors.value = await tutorsApi.search(params)
+    const res = await tutorsApi.search(params)
+    tutors.value = res.items || []
   } catch (e) {
     toast.error('搜尋失敗：' + e.message)
   } finally {
