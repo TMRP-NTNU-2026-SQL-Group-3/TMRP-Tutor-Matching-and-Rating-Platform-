@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from app.database_tx import transaction
 from app.dependencies import get_current_user, get_db, is_admin
 from app.exceptions import AppException, ConflictException, ForbiddenException, NotFoundException
+from app.utils.access_bits import from_access_bit
 from app.models.common import ApiResponse
 from app.models.review import ReviewCreate, ReviewUpdate
 from app.repositories.review_repo import ReviewRepository
@@ -96,7 +97,7 @@ def update_review(
         raise NotFoundException("找不到此評價")
     if review["reviewer_user_id"] != user_id:
         raise ForbiddenException("只有評價者本人可以修改評價")
-    if review["is_locked"]:
+    if from_access_bit(review["is_locked"]):
         raise AppException("評價已超過 7 天編輯期限，無法修改")
 
     updates = body.model_dump(exclude_unset=True)

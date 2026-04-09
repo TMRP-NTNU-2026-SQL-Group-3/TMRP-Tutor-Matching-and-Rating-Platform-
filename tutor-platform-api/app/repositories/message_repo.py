@@ -39,12 +39,22 @@ class MessageRepository(BaseRepository):
         return self.execute_returning_id(sql, (a, b))
 
     def get_or_create_conversation(self, user_a_id: int, user_b_id: int) -> int:
-        # T-BIZ-02: 在交易中檢查並建立，防止並發重複建立
-        with transaction(self.conn):
+        # T-BIZ-02: 在交易中檢查並建立，防止並發重複建立。
+        # 若因 UNIQUE 約束衝突（MS Access 弱隔離級別下的競態條件），
+        # 交易 rollback 後 fallback 查詢已存在的對話。
+        try:
+            with transaction(self.conn):
+                existing = self.find_conversation_between(user_a_id, user_b_id)
+                if existing:
+                    return existing["conversation_id"]
+                return self.create_conversation(user_a_id, user_b_id)
+        except Exception:
+            # 並發插入導致 UNIQUE 約束衝突，transaction 已 rollback，
+            # 連線已恢復可用狀態，安全地查詢已由另一方建立的對話
             existing = self.find_conversation_between(user_a_id, user_b_id)
             if existing:
                 return existing["conversation_id"]
-            return self.create_conversation(user_a_id, user_b_id)
+            raise
 
     def get_messages(self, conversation_id: int) -> list[dict]:
         sql = """

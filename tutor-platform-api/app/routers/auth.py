@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 
+from app.database_tx import transaction
 from app.dependencies import get_current_user, get_db
 from app.exceptions import AppException
 from app.models.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
@@ -14,21 +15,35 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 def register(body: RegisterRequest, conn=Depends(get_db)):
     repo = AuthRepository(conn)
 
-    if repo.find_by_username(body.username):
-        raise AppException("帳號已存在")
-
     if body.role not in ("parent", "tutor"):
         raise AppException("角色必須為 parent 或 tutor")
 
     hashed = hash_password(body.password)
-    user_id = repo.register_user(
-        username=body.username,
-        password_hash=hashed,
-        display_name=body.display_name,
-        role=body.role,
-        phone=body.phone,
-        email=body.email,
-    )
+
+    # BUG-FIX: 將帳號重複檢查與 INSERT 包入同一交易，防止並發註冊時
+    # 兩個請求同時通過檢查，其中一個因 UNIQUE 約束產生 500 錯誤。
+    # 外層 try/except 作為最終安全網：即使在 MS Access 弱隔離下
+    # 兩個交易同時通過檢查，UNIQUE 約束仍會攔截，轉為友善的 400 回應。
+    try:
+        with transaction(conn):
+            if repo.find_by_username(body.username):
+                raise AppException("帳號已存在")
+
+            user_id = repo.register_user(
+                username=body.username,
+                password_hash=hashed,
+                display_name=body.display_name,
+                role=body.role,
+                phone=body.phone,
+                email=body.email,
+            )
+    except AppException:
+        raise
+    except Exception:
+        # UNIQUE 約束衝突（並發註冊相同帳號），轉為友善錯誤訊息
+        if repo.find_by_username(body.username):
+            raise AppException("帳號已存在")
+        raise
 
     return ApiResponse(success=True, data={"user_id": user_id}, message="註冊成功")
 

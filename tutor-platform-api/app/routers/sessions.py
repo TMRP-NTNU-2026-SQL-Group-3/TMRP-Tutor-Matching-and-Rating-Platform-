@@ -6,7 +6,7 @@ from app.exceptions import AppException, ForbiddenException, NotFoundException
 from app.models.common import ApiResponse
 from app.models.session import SessionCreate, SessionUpdate
 from app.repositories.session_repo import SessionRepository
-from app.utils.access_bits import to_access_bit
+from app.utils.access_bits import from_access_bit, to_access_bit
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -111,8 +111,8 @@ def update_session(
         diffs = []
         for field, new_val in updates.items():
             old_val = session_fresh.get(field)
-            if field == "visible_to_parent" and isinstance(old_val, bool):
-                old_val = to_access_bit(old_val)
+            if field == "visible_to_parent":
+                old_val = to_access_bit(from_access_bit(old_val))
             old_str = str(old_val) if old_val is not None else ""
             new_str = str(new_val) if new_val is not None else ""
             if old_str != new_str:
@@ -121,7 +121,7 @@ def update_session(
         if not diffs:
             return ApiResponse(success=True, data={"session_id": session_id}, message="無實際變動")
 
-        set_clause = ", ".join(f"{col} = ?" for col in updates)
+        set_clause = ", ".join(f"[{col}] = ?" for col in updates)
         repo.cursor.execute(
             f"UPDATE Sessions SET {set_clause}, updated_at = Now() WHERE session_id = ?",
             list(updates.values()) + [session_id],

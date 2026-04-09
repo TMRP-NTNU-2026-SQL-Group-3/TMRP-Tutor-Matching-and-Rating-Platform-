@@ -352,13 +352,13 @@ const reviewLabels = computed(() => {
 const canReviewParent = computed(() => {
   if (!match.value) return false
   return !reviews.value.some(r => r.reviewer_user_id === userId.value && r.review_type === 'tutor_to_parent')
-    && ['active', 'ended'].includes(match.value.status)
+    && ['active', 'paused', 'ended'].includes(match.value.status)
 })
 
 const canReviewStudent = computed(() => {
   if (!match.value) return false
   return !reviews.value.some(r => r.reviewer_user_id === userId.value && r.review_type === 'tutor_to_student')
-    && ['active', 'ended'].includes(match.value.status)
+    && ['active', 'paused', 'ended'].includes(match.value.status)
 })
 
 async function handleSubmitReview() {
@@ -417,7 +417,7 @@ async function submitExam() {
     await examsApi.create({
       student_id: match.value.student_id,
       subject_id: match.value.subject_id,
-      exam_date: new Date(examForm.exam_date).toISOString(),
+      exam_date: examForm.exam_date,
       exam_type: examForm.exam_type,
       score: examForm.score,
       visible_to_parent: examForm.visible_to_parent,

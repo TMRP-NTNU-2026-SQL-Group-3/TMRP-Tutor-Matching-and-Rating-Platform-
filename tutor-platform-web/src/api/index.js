@@ -75,7 +75,7 @@ api.interceptors.response.use(
           pendingRequests = []
           auth.logout()
           window.location.href = '/login'
-          return Promise.reject(error)
+          return Promise.reject(refreshError)
         } finally {
           isRefreshing = false
         }
