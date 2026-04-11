@@ -11,13 +11,16 @@ router = APIRouter(prefix="/api/tutors", tags=["tutors"])
 
 
 def _apply_visibility(tutor: dict) -> dict:
-    """根據老師的隱私設定，遮蔽不公開的欄位。"""
+    """根據老師的隱私設定，遮蔽不公開的欄位，並移除 show_* 旗標本身。"""
     if not tutor.get("show_university"):
         tutor.pop("university", None)
     if not tutor.get("show_department"):
         tutor.pop("department", None)
     if not tutor.get("show_grade_year"):
         tutor.pop("grade_year", None)
+    # 移除 show_* 旗標，避免洩漏老師的隱私設定給其他使用者
+    for key in [k for k in tutor if k.startswith("show_")]:
+        del tutor[key]
     return tutor
 
 
@@ -206,12 +209,13 @@ def get_tutor_detail(
 
     # 如果查看者不是老師本人，套用隱私設定
     if int(user["sub"]) != tutor["user_id"]:
-        _apply_visibility(tutor)
-        if not tutor.get("show_subjects", True):
-            tutor["subjects"] = []
+        # 先處理 subjects/hourly_rate 遮蔽，再呼叫 _apply_visibility 清除 show_* 旗標
         if not tutor.get("show_hourly_rate", True):
             for s in tutor.get("subjects", []):
                 s.pop("hourly_rate", None)
+        if not tutor.get("show_subjects", True):
+            tutor["subjects"] = []
+        _apply_visibility(tutor)
 
     return ApiResponse(success=True, data=tutor)
 

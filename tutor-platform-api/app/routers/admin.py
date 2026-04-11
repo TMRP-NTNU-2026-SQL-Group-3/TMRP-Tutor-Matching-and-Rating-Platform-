@@ -73,6 +73,27 @@ def _validate_table(table_name: str) -> str:
     return table_name
 
 
+def _reset_serial_sequences(cursor, table_names: list[str]) -> None:
+    """重置指定資料表的 SERIAL 序列，使其與目前最大 ID 對齊。
+
+    CSV 匯入帶有明確主鍵值的資料後，若不重置序列，
+    後續 INSERT 產生的 ID 可能與已有資料衝突（UniqueViolation）。
+    """
+    for table in table_names:
+        cursor.execute(
+            "SELECT column_name, pg_get_serial_sequence(%s, column_name) AS seq "
+            "FROM information_schema.columns "
+            "WHERE table_name = %s AND column_default LIKE 'nextval%%'",
+            (table, table),
+        )
+        for row in cursor.fetchall():
+            col_name, seq_name = row[0], row[1]
+            if seq_name:
+                cursor.execute(
+                    f"SELECT setval('{seq_name}', COALESCE((SELECT MAX(\"{col_name}\") FROM {table}), 0) + 1, false)"
+                )
+
+
 # ---------- 1. 使用者列表 ----------
 
 @router.get("/users", summary="使用者列表", description="列出系統中所有使用者的基本資料。僅限管理員。", response_model=ApiResponse)
@@ -131,6 +152,7 @@ def import_csv(
         for row in rows:
             values = tuple(coerce_csv_value(row[c]) for c in columns)
             cursor.execute(sql, values)
+        _reset_serial_sequences(cursor, [table_name])
         conn.commit()
     except Exception:
         conn.rollback()
@@ -396,14 +418,20 @@ def import_all(
             for i, row in enumerate(rows, 1):
                 values = tuple(coerce_csv_value(row[c]) for c in columns)
                 try:
+                    cursor.execute("SAVEPOINT row_sp")
                     cursor.execute(sql, values)
+                    cursor.execute("RELEASE SAVEPOINT row_sp")
                     inserted += 1
                 except Exception as e:
+                    cursor.execute("ROLLBACK TO SAVEPOINT row_sp")
                     table_errors.append(f"第 {i} 列: {e}")
 
             result[table] = inserted
             if table_errors:
                 errors[table] = table_errors
+
+        # 重置所有已匯入資料表的 SERIAL 序列
+        _reset_serial_sequences(cursor, list(result.keys()))
 
     total = sum(result.values())
     data = {"imported": result}

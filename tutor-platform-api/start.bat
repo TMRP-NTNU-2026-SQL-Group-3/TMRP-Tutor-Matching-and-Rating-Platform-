@@ -20,7 +20,7 @@ if errorlevel 1 (
 )
 
 echo [1/3] Starting Huey worker...
-start "huey-worker" cmd /k "python -m app.worker"
+start "huey-worker" cmd /k "huey_consumer app.worker.huey"
 
 echo [2/3] Starting FastAPI server...
 start "fastapi-server" cmd /k "uvicorn app.main:app --reload --port 8000"

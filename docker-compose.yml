@@ -1,0 +1,59 @@
+services:
+  # ── PostgreSQL ──
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tmrp
+      POSTGRES_PASSWORD: tmrp
+      POSTGRES_DB: tmrp
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tmrp"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── FastAPI 後端 ──
+  api:
+    build: ./tutor-platform-api
+    env_file: ./tutor-platform-api/.env.docker
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - api-data:/app/data
+      - api-logs:/app/logs
+
+  # ── Huey 任務佇列 Worker ──
+  worker:
+    build: ./tutor-platform-api
+    env_file: ./tutor-platform-api/.env.docker
+    command: huey_consumer app.worker.huey
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - api-data:/app/data
+      - api-logs:/app/logs
+
+  # ── Vue 前端（nginx）──
+  web:
+    build:
+      context: ./tutor-platform-web
+      args:
+        VITE_API_BASE_URL: ""
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+
+volumes:
+  pgdata:
+  api-data:
+  api-logs:

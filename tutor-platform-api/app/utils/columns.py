@@ -26,16 +26,21 @@ def coerce_csv_value(val):
     """將 CSV 字串值轉換為適合 PostgreSQL 的型別。
 
     - None / 空字串 → None
-    - 布林真值 ('True', 'true', '1', '-1') → True
-    - 布林假值 ('False', 'false', '0') → False
+    - 布林真值 ('True', 'true') → True
+    - 布林假值 ('False', 'false') → False
     - 其他 → 原值
+
+    注意：不將 '0'、'1'、'-1' 視為布林值，
+    因為它們可能是整數欄位（如 day_of_week、grade_year、score）的合法數值。
+    舊版曾加入 '0'→False / '1'→True 是為了相容 MS Access BIT(-1/0) 型別，
+    PostgreSQL 已使用原生 BOOLEAN，不再需要此轉換。
     """
     if val is None:
         return None
     if not val or val.strip() == "":
         return None
-    if val in ('True', 'true', '1', '-1'):
+    if val in ('True', 'true'):
         return True
-    if val in ('False', 'false', '0'):
+    if val in ('False', 'false'):
         return False
     return val

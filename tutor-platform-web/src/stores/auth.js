@@ -49,7 +49,7 @@ export const useAuthStore = defineStore('auth', () => {
     // P-BIZ-01: 非同步撤銷 refresh token（fire-and-forget，不阻塞登出流程）
     // 使用原始 axios 而非 api instance，因為 store 的 token 已清除
     if (savedRefreshToken && savedToken) {
-      const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      const baseURL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
       axios.post(`${baseURL}/api/auth/logout`, { refresh_token: savedRefreshToken }, {
         headers: { Authorization: `Bearer ${savedToken}` }
       }).catch(() => {})

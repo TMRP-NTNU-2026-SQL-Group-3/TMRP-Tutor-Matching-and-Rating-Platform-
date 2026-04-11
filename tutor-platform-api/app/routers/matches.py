@@ -103,8 +103,9 @@ def list_matches(user=Depends(get_current_user), conn=Depends(get_db)):
     elif role == "admin":
         matches = repo.fetch_all(
             "SELECT m.*, s.subject_name, st.name AS student_name "
-            "FROM ((Matches m INNER JOIN Subjects s ON m.subject_id = s.subject_id) "
-            "INNER JOIN Students st ON m.student_id = st.student_id) "
+            "FROM matches m "
+            "INNER JOIN subjects s ON m.subject_id = s.subject_id "
+            "INNER JOIN students st ON m.student_id = st.student_id "
             "ORDER BY m.updated_at DESC"
         )
     else:

@@ -1,6 +1,5 @@
 import psycopg2
 from psycopg2 import pool
-from psycopg2.extras import RealDictCursor
 
 from app.config import settings
 
@@ -27,11 +26,20 @@ def close_pool():
 
 
 def get_db():
-    """FastAPI 依賴注入：從連線池取得連線，請求結束歸還。"""
+    """FastAPI 依賴注入：從連線池取得連線，請求結束歸還。
+
+    歸還前一律 rollback，確保連線不會帶著未提交或已中止的交易回到連線池，
+    避免下一位使用者收到 InFailedSqlTransaction 錯誤。
+    已 commit 的交易 rollback 為 no-op，不影響正確性。
+    """
     conn = _pool.getconn()
     try:
         yield conn
     finally:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         _pool.putconn(conn)
 
 
@@ -41,7 +49,11 @@ def get_connection():
 
 
 def release_connection(conn):
-    """歸還連線至連線池。"""
+    """歸還連線至連線池。歸還前一律 rollback，與 get_db() 行為一致。"""
+    try:
+        conn.rollback()
+    except Exception:
+        pass
     _pool.putconn(conn)
 
 

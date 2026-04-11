@@ -1,8 +1,5 @@
 from contextlib import contextmanager
 
-# 追蹤連線是否已在交易中，防止巢狀交易導致提前 commit
-_in_transaction = set()
-
 
 @contextmanager
 def transaction(conn):
@@ -16,14 +13,16 @@ def transaction(conn):
 
     成功時自動 commit，例外時自動 rollback。
     不支援巢狀使用——若已在交易中，直接 yield 不做額外 commit/rollback。
+
+    使用連線物件的 _in_tx 屬性追蹤交易狀態，取代舊版的全域 set + id(conn)，
+    避免 ThreadedConnectionPool 下多執行緒的競態條件。
     """
-    conn_id = id(conn)
-    if conn_id in _in_transaction:
+    if getattr(conn, '_in_tx', False):
         # 已在外層交易中，直接穿透，由外層管理 commit/rollback
         yield conn
         return
 
-    _in_transaction.add(conn_id)
+    conn._in_tx = True
     try:
         yield conn
         conn.commit()
@@ -31,4 +30,4 @@ def transaction(conn):
         conn.rollback()
         raise
     finally:
-        _in_transaction.discard(conn_id)
+        conn._in_tx = False

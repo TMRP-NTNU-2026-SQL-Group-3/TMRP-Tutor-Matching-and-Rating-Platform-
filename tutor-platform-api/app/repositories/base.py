@@ -1,6 +1,5 @@
 import logging
 
-from app.database_tx import _in_transaction as _tx_set
 from app.utils.columns import validate_column_name
 
 logger = logging.getLogger("app")
@@ -60,7 +59,7 @@ class BaseRepository:
 
     def _in_transaction(self) -> bool:
         """檢查當前連線是否在 transaction() 上下文中。"""
-        return id(self.conn) in _tx_set
+        return getattr(self.conn, '_in_tx', False)
 
     def execute(self, sql: str, params: tuple = ()) -> None:
         """執行寫入操作（INSERT / UPDATE / DELETE）。

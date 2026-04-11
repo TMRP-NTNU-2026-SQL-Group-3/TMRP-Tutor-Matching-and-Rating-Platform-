@@ -7,7 +7,7 @@
 
 import logging
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta, timezone
 
 from app.utils.security import hash_password
 
@@ -56,7 +56,7 @@ def run_seed(conn) -> dict:
         logger.info("已有非管理員使用者，跳過假資料寫入")
         return {"skipped": True, "message": "資料庫已有種子資料，跳過寫入"}
 
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     hashed = hash_password("password123")
 
     counts = {}
@@ -231,11 +231,9 @@ def run_seed(conn) -> dict:
     ]
 
     avail_count = 0
-    # 使用今日日期搭配時間，PostgreSQL TIMESTAMPTZ 會正確儲存
-    base_date = datetime(2000, 1, 1)
     for tid, dow, sh, sm, eh, em in availability_data:
-        start_time = base_date.replace(hour=sh, minute=sm)
-        end_time = base_date.replace(hour=eh, minute=em)
+        start_time = time(sh, sm)
+        end_time = time(eh, em)
         _insert_and_get_id(
             cursor,
             "INSERT INTO tutor_availability (tutor_id, day_of_week, start_time, end_time) "

@@ -78,8 +78,8 @@ CREATE TABLE IF NOT EXISTS tutor_availability (
     availability_id SERIAL PRIMARY KEY,
     tutor_id        INTEGER   NOT NULL REFERENCES tutors(tutor_id),
     day_of_week     SMALLINT  NOT NULL CHECK (day_of_week >= 0 AND day_of_week <= 6),
-    start_time      TIMESTAMPTZ NOT NULL,
-    end_time        TIMESTAMPTZ NOT NULL
+    start_time      TIME NOT NULL,
+    end_time        TIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -255,16 +255,12 @@ def ensure_admin_user(conn, settings: Settings | None = None) -> None:
         "SELECT COUNT(*) FROM users WHERE username = %s",
         (settings.admin_username,),
     )
-    hashed = hash_password(settings.admin_password)
 
     if cursor.fetchone()[0] > 0:
-        cursor.execute(
-            "UPDATE users SET password_hash = %s WHERE username = %s AND role = 'admin'",
-            (hashed, settings.admin_username),
-        )
-        conn.commit()
-        logger.info("  管理員帳號已存在，已同步密碼")
+        logger.info("  管理員帳號已存在，跳過建立")
         return
+
+    hashed = hash_password(settings.admin_password)
 
     cursor.execute(
         "INSERT INTO users (username, password_hash, role, display_name) "

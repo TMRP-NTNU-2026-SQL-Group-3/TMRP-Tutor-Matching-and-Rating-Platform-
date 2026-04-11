@@ -1,5 +1,8 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, Query
 
+from app.config import settings
 from app.database_tx import transaction
 from app.dependencies import get_current_user, get_db, is_admin
 from app.exceptions import AppException, ConflictException, ForbiddenException, NotFoundException
@@ -97,7 +100,16 @@ def update_review(
     if review["reviewer_user_id"] != user_id:
         raise ForbiddenException("只有評價者本人可以修改評價")
     if review["is_locked"]:
-        raise AppException("評價已超過 7 天編輯期限，無法修改")
+        raise AppException("評價已超過編輯期限，無法修改")
+
+    # 即時檢查建立時間，不依賴排程任務的 is_locked 旗標
+    # 排程任務每日凌晨 3 點才更新 is_locked，這裡補上即時防線
+    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.review_lock_days)
+    created_at = review["created_at"]
+    if hasattr(created_at, 'tzinfo') and created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    if created_at < cutoff:
+        raise AppException("評價已超過編輯期限，無法修改")
 
     updates = body.model_dump(exclude_unset=True)
     if not updates:

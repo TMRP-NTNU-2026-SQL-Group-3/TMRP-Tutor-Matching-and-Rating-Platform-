@@ -35,16 +35,18 @@ async def lifespan(app: FastAPI):
     logger.info("PostgreSQL 連線池已建立")
 
     try:
-        from app.init_db import ensure_admin_user
+        from app.init_db import create_schema, seed_subjects, ensure_admin_user
 
         conn = get_connection()
         try:
+            create_schema(conn)
+            seed_subjects(conn)
             ensure_admin_user(conn, settings)
         finally:
             release_connection(conn)
-        logger.info("管理員帳號檢查完成")
+        logger.info("資料庫初始化與管理員帳號檢查完成")
     except Exception as e:
-        logger.error("管理員帳號建立失敗: %s", e)
+        logger.error("資料庫初始化失敗: %s", e)
     yield
     # Shutdown
     close_pool()
