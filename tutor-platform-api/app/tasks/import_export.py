@@ -4,18 +4,18 @@ import logging
 from pathlib import Path
 
 from app.config import settings
-from app.database import get_connection
+from app.database import get_connection, release_connection
 from app.repositories.base import BaseRepository
-from app.utils.columns import bracket_columns, coerce_csv_value, validate_column_name
+from app.utils.columns import quote_columns, coerce_csv_value, validate_column_name
 from app.utils.csv_handler import write_csv
 from app.worker import huey
 
 logger = logging.getLogger("app.tasks.import_export")
 
 ALLOWED_TABLES = {
-    "Users", "Students", "Tutors", "Subjects", "Tutor_Subjects",
-    "Tutor_Availability", "Matches", "Sessions", "Session_Edit_Logs",
-    "Exams", "Reviews", "Conversations", "Messages",
+    "users", "students", "tutors", "subjects", "tutor_subjects",
+    "tutor_availability", "matches", "sessions", "session_edit_logs",
+    "exams", "reviews", "conversations", "messages",
 }
 
 
@@ -39,8 +39,8 @@ def import_csv_task(table_name: str, csv_content: str) -> dict:
         for col in columns:
             if not validate_column_name(col):
                 return {"table": table_name, "error": f"不合法的欄位名稱：{col!r}"}
-        placeholders = ", ".join(["?"] * len(columns))
-        col_names = bracket_columns(columns)
+        placeholders = ", ".join(["%s"] * len(columns))
+        col_names = quote_columns(columns)
         sql = f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})"
 
         cursor = conn.cursor()
@@ -59,7 +59,7 @@ def import_csv_task(table_name: str, csv_content: str) -> dict:
         logger.exception("匯入 %s 失敗", table_name)
         raise
     finally:
-        conn.close()
+        release_connection(conn)
 
 
 @huey.task(retries=3, retry_delay=10)
@@ -77,7 +77,7 @@ def export_csv_task(table_name: str) -> dict:
         if not rows:
             return {"table": table_name, "count": 0, "path": None}
 
-        export_dir = Path(settings.access_db_path).parent / "export"
+        export_dir = Path("data/export")
         export_dir.mkdir(parents=True, exist_ok=True)
         export_path = export_dir / f"{table_name}.csv"
         write_csv(str(export_path), rows)
@@ -88,4 +88,4 @@ def export_csv_task(table_name: str) -> dict:
         logger.exception("匯出 %s 失敗", table_name)
         raise
     finally:
-        conn.close()
+        release_connection(conn)

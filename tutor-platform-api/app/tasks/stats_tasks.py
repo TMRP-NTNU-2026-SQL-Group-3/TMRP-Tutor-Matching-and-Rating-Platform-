@@ -2,7 +2,7 @@ import logging
 import re
 from datetime import datetime
 
-from app.database import get_connection
+from app.database import get_connection, release_connection
 from app.repositories.stats_repo import StatsRepository
 from app.worker import huey
 
@@ -68,7 +68,7 @@ def calculate_income_stats(user_id: int, month: str | None = None) -> dict:
         logger.exception("計算收入統計失敗")
         raise
     finally:
-        conn.close()
+        release_connection(conn)
 
 
 @huey.task(retries=3, retry_delay=10)
@@ -105,4 +105,4 @@ def calculate_expense_stats(user_id: int, month: str | None = None) -> dict:
         logger.exception("計算支出統計失敗")
         raise
     finally:
-        conn.close()
+        release_connection(conn)

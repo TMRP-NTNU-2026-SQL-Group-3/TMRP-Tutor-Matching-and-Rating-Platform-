@@ -26,7 +26,7 @@ def health_check(request: Request, conn=Depends(get_db)):
 
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM Users")
+        cursor.execute("SELECT COUNT(*) FROM users")
         cursor.fetchone()
         if is_admin:
             return {"status": "healthy", "database": "connected"}

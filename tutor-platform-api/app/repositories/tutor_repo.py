@@ -1,6 +1,5 @@
 from app.database_tx import transaction
 from app.repositories.base import BaseRepository
-from app.utils.access_bits import to_access_bit
 
 
 class TutorRepository(BaseRepository):
@@ -16,23 +15,21 @@ class TutorRepository(BaseRepository):
                    t.show_university, t.show_department, t.show_grade_year,
                    t.show_hourly_rate, t.show_subjects,
                    u.display_name
-            FROM Tutors t
-            INNER JOIN Users u ON t.user_id = u.user_id
+            FROM tutors t
+            INNER JOIN users u ON t.user_id = u.user_id
         """
         conditions = []
         params = []
 
         if subject_id is not None:
             conditions.append(
-                "t.tutor_id IN (SELECT ts.tutor_id FROM Tutor_Subjects ts WHERE ts.subject_id = ?)"
+                "t.tutor_id IN (SELECT ts.tutor_id FROM tutor_subjects ts WHERE ts.subject_id = %s)"
             )
             params.append(subject_id)
 
         if school:
-            # P-API-03: 完整轉義 MS Access LIKE 通配符（含方括號）
-            # 必須先處理 [ 的轉義（用臨時佔位符避免後續替換干擾）
-            escaped = school.replace("[", "\x00").replace("]", "[]]").replace("\x00", "[[]").replace("%", "[%]").replace("_", "[_]")
-            conditions.append("t.university LIKE ?")
+            escaped = school.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conditions.append("t.university LIKE %s ESCAPE '\\'")
             params.append(f"%{escaped}%")
 
         if conditions:
@@ -44,30 +41,30 @@ class TutorRepository(BaseRepository):
     def find_by_id(self, tutor_id: int) -> dict | None:
         sql = """
             SELECT t.*, u.display_name, u.email, u.phone
-            FROM Tutors t
-            INNER JOIN Users u ON t.user_id = u.user_id
-            WHERE t.tutor_id = ?
+            FROM tutors t
+            INNER JOIN users u ON t.user_id = u.user_id
+            WHERE t.tutor_id = %s
         """
         return self.fetch_one(sql, (tutor_id,))
 
     def find_by_user_id(self, user_id: int) -> dict | None:
-        sql = "SELECT * FROM Tutors WHERE user_id = ?"
+        sql = "SELECT * FROM tutors WHERE user_id = %s"
         return self.fetch_one(sql, (user_id,))
 
     def get_subjects(self, tutor_id: int) -> list[dict]:
         sql = """
             SELECT ts.subject_id, s.subject_name, s.category, ts.hourly_rate
-            FROM Tutor_Subjects ts
-            INNER JOIN Subjects s ON ts.subject_id = s.subject_id
-            WHERE ts.tutor_id = ?
+            FROM tutor_subjects ts
+            INNER JOIN subjects s ON ts.subject_id = s.subject_id
+            WHERE ts.tutor_id = %s
         """
         return self.fetch_all(sql, (tutor_id,))
 
     def get_availability(self, tutor_id: int) -> list[dict]:
         sql = """
             SELECT availability_id, day_of_week, start_time, end_time
-            FROM Tutor_Availability
-            WHERE tutor_id = ?
+            FROM tutor_availability
+            WHERE tutor_id = %s
             ORDER BY day_of_week, start_time
         """
         return self.fetch_all(sql, (tutor_id,))
@@ -77,16 +74,16 @@ class TutorRepository(BaseRepository):
             SELECT AVG(r.rating_1) AS avg_r1, AVG(r.rating_2) AS avg_r2,
                    AVG(r.rating_3) AS avg_r3, AVG(r.rating_4) AS avg_r4,
                    COUNT(*) AS review_count
-            FROM Reviews r
-            INNER JOIN Matches m ON r.match_id = m.match_id
-            WHERE m.tutor_id = ? AND r.review_type = 'parent_to_tutor'
+            FROM reviews r
+            INNER JOIN matches m ON r.match_id = m.match_id
+            WHERE m.tutor_id = %s AND r.review_type = 'parent_to_tutor'
         """
         return self.fetch_one(sql, (tutor_id,))
 
     def get_active_student_count(self, tutor_id: int) -> int:
         sql = """
-            SELECT COUNT(*) AS cnt FROM Matches
-            WHERE tutor_id = ? AND status IN ('active', 'trial')
+            SELECT COUNT(*) AS cnt FROM matches
+            WHERE tutor_id = %s AND status IN ('active', 'trial')
         """
         row = self.fetch_one(sql, (tutor_id,))
         return row["cnt"] if row else 0
@@ -94,12 +91,12 @@ class TutorRepository(BaseRepository):
     def replace_subjects(self, tutor_id: int, items: list[dict]) -> None:
         """整批替換老師的可教授科目（交易隔離）。"""
         with transaction(self.conn):
-            self.cursor.execute("DELETE FROM Tutor_Subjects WHERE tutor_id = ?", (tutor_id,))
+            self.cursor.execute("DELETE FROM tutor_subjects WHERE tutor_id = %s", (tutor_id,))
             for item in items:
                 self.cursor.execute(
                     """
-                    INSERT INTO Tutor_Subjects (tutor_id, subject_id, hourly_rate)
-                    VALUES (?, ?, ?)
+                    INSERT INTO tutor_subjects (tutor_id, subject_id, hourly_rate)
+                    VALUES (%s, %s, %s)
                     """,
                     (tutor_id, item["subject_id"], item["hourly_rate"]),
                 )
@@ -107,12 +104,12 @@ class TutorRepository(BaseRepository):
     def replace_availability(self, tutor_id: int, slots: list[dict]) -> None:
         """整批替換老師的可用時段（交易隔離）。"""
         with transaction(self.conn):
-            self.cursor.execute("DELETE FROM Tutor_Availability WHERE tutor_id = ?", (tutor_id,))
+            self.cursor.execute("DELETE FROM tutor_availability WHERE tutor_id = %s", (tutor_id,))
             for slot in slots:
                 self.cursor.execute(
                     """
-                    INSERT INTO Tutor_Availability (tutor_id, day_of_week, start_time, end_time)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO tutor_availability (tutor_id, day_of_week, start_time, end_time)
+                    VALUES (%s, %s, %s, %s)
                     """,
                     (tutor_id, slot["day_of_week"], slot["start_time"], slot["end_time"]),
                 )
@@ -134,11 +131,11 @@ class TutorRepository(BaseRepository):
         set_parts = []
         params = []
         for col, val in flags.items():
-            set_parts.append(f"{col} = ?")
-            params.append(to_access_bit(val))
+            set_parts.append(f"{col} = %s")
+            params.append(val)
         if not set_parts:
             return
-        sql = f"UPDATE Tutors SET {', '.join(set_parts)} WHERE tutor_id = ?"
+        sql = f"UPDATE tutors SET {', '.join(set_parts)} WHERE tutor_id = %s"
         params.append(tutor_id)
         self.execute(sql, tuple(params))
 
@@ -147,13 +144,10 @@ class TutorRepository(BaseRepository):
         set_parts = []
         params = []
         for col, val in fields.items():
-            set_parts.append(f"{col} = ?")
-            if isinstance(val, bool):
-                params.append(to_access_bit(val))
-            else:
-                params.append(val)
+            set_parts.append(f"{col} = %s")
+            params.append(val)
         if not set_parts:
             return
-        sql = f"UPDATE Tutors SET {', '.join(set_parts)} WHERE tutor_id = ?"
+        sql = f"UPDATE tutors SET {', '.join(set_parts)} WHERE tutor_id = %s"
         params.append(tutor_id)
         self.execute(sql, tuple(params))

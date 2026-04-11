@@ -1,12 +1,11 @@
 from app.repositories.base import BaseRepository
-from app.utils.access_bits import to_access_bit
 
 
 class ExamRepository(BaseRepository):
 
     def get_student(self, student_id: int) -> dict | None:
         return self.fetch_one(
-            "SELECT student_id, parent_user_id FROM Students WHERE student_id = ?",
+            "SELECT student_id, parent_user_id FROM students WHERE student_id = %s",
             (student_id,),
         )
 
@@ -14,9 +13,9 @@ class ExamRepository(BaseRepository):
         """確認老師目前有此學生的進行中配對。"""
         return self.fetch_one(
             """
-            SELECT 1 FROM Matches m
-            INNER JOIN Tutors t ON m.tutor_id = t.tutor_id
-            WHERE m.student_id = ? AND t.user_id = ?
+            SELECT 1 FROM matches m
+            INNER JOIN tutors t ON m.tutor_id = t.tutor_id
+            WHERE m.student_id = %s AND t.user_id = %s
               AND m.status IN ('active', 'trial')
             """,
             (student_id, tutor_user_id),
@@ -28,37 +27,38 @@ class ExamRepository(BaseRepository):
     ) -> int:
         return self.execute_returning_id(
             """
-            INSERT INTO Exams
+            INSERT INTO exams
                 (student_id, subject_id, added_by_user_id, exam_date,
                  exam_type, score, visible_to_parent, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, Now())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+            RETURNING exam_id
             """,
             (
                 student_id, subject_id, added_by_user_id,
                 exam_date, exam_type, score,
-                to_access_bit(visible_to_parent),
+                visible_to_parent,
             ),
         )
 
     def get_by_id(self, exam_id: int) -> dict | None:
         return self.fetch_one(
-            "SELECT * FROM Exams WHERE exam_id = ?",
+            "SELECT * FROM exams WHERE exam_id = %s",
             (exam_id,),
         )
 
     ALLOWED_COLUMNS = {"exam_date", "exam_type", "score", "visible_to_parent"}
 
     def update(self, exam_id: int, updates: dict) -> None:
-        self.safe_update("Exams", "exam_id", exam_id, updates, self.ALLOWED_COLUMNS)
+        self.safe_update("exams", "exam_id", exam_id, updates, self.ALLOWED_COLUMNS)
 
     def list_by_student(self, student_id: int, parent_only: bool = False) -> list[dict]:
         if parent_only:
             return self.fetch_all(
                 """
                 SELECT e.*, s.subject_name
-                FROM Exams e
-                INNER JOIN Subjects s ON e.subject_id = s.subject_id
-                WHERE e.student_id = ? AND e.visible_to_parent <> 0
+                FROM exams e
+                INNER JOIN subjects s ON e.subject_id = s.subject_id
+                WHERE e.student_id = %s AND e.visible_to_parent = TRUE
                 ORDER BY e.exam_date DESC
                 """,
                 (student_id,),
@@ -66,9 +66,9 @@ class ExamRepository(BaseRepository):
         return self.fetch_all(
             """
             SELECT e.*, s.subject_name
-            FROM Exams e
-            INNER JOIN Subjects s ON e.subject_id = s.subject_id
-            WHERE e.student_id = ?
+            FROM exams e
+            INNER JOIN subjects s ON e.subject_id = s.subject_id
+            WHERE e.student_id = %s
             ORDER BY e.exam_date DESC
             """,
             (student_id,),

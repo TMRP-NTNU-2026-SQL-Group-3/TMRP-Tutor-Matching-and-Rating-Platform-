@@ -10,7 +10,6 @@ from app.models.match import MatchCreate, MatchStatusUpdate
 from app.repositories.match_repo import MatchRepository
 from app.repositories.student_repo import StudentRepository
 from app.repositories.tutor_repo import TutorRepository
-from app.utils.access_bits import from_access_bit
 
 logger = logging.getLogger(__name__)
 
@@ -196,8 +195,7 @@ def update_match_status(
     if action == "accept":
         if current_status != "pending":
             raise AppException("只有「等待中」狀態的配對可以接受")
-        # T-API-04: 使用 from_access_bit 安全轉換 BIT 欄位
-        new_status = "trial" if from_access_bit(match.get("want_trial")) else "active"
+        new_status = "trial" if match.get("want_trial") else "active"
         repo.update_status(match_id, new_status)
 
     elif action == "terminate":

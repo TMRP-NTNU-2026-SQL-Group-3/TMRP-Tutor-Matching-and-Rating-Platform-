@@ -1,6 +1,6 @@
 import logging
 
-from app.database import get_connection
+from app.database import get_connection, release_connection
 from app.worker import huey
 
 logger = logging.getLogger("app.tasks.seed_tasks")
@@ -25,4 +25,4 @@ def generate_seed_data() -> dict:
         logger.exception("假資料生成失敗")
         raise
     finally:
-        conn.close()
+        release_connection(conn)

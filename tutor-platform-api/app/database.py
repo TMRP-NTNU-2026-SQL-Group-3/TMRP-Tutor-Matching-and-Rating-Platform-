@@ -1,48 +1,48 @@
-import random
-import time
-
-import pyodbc
+import psycopg2
+from psycopg2 import pool
+from psycopg2.extras import RealDictCursor
 
 from app.config import settings
 
+# 應用啟動時建立連線池
+_pool: pool.ThreadedConnectionPool | None = None
 
-def get_connection(retries: int = 5, base_delay: float = 0.5) -> pyodbc.Connection:
-    """
-    建立並回傳一個新的 MS Access ODBC 連線。
-    內建指數退避 + jitter 重試機制以應對多 process 併發存取時的暫時性鎖定錯誤。
-    包含連線逾時與查詢逾時設定。
 
-    參數：
-        retries: 最大重試次數（預設 5 次）
-        base_delay: 初始等待秒數（預設 0.5 秒），每次重試加倍並加入隨機 jitter
-    """
-    if retries <= 0:
-        raise ValueError("retries must be > 0")
-    conn_str = (
-        r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
-        rf"DBQ={settings.access_db_path};"
+def init_pool():
+    """初始化 PostgreSQL 連線池。應在應用啟動時呼叫一次。"""
+    global _pool
+    _pool = pool.ThreadedConnectionPool(
+        minconn=settings.db_pool_min,
+        maxconn=settings.db_pool_max,
+        dsn=settings.database_url,
     )
-    for attempt in range(retries):
-        try:
-            conn = pyodbc.connect(conn_str)
-            return conn
-        except pyodbc.Error:
-            if attempt < retries - 1:
-                delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
-                time.sleep(delay)
-            else:
-                raise
+
+
+def close_pool():
+    """關閉連線池。應在應用關閉時呼叫。"""
+    global _pool
+    if _pool:
+        _pool.closeall()
+        _pool = None
 
 
 def get_db():
-    """FastAPI 依賴注入用之 generator。每次請求建立連線，請求結束時關閉。含連線驗證。"""
-    conn = get_connection()
+    """FastAPI 依賴注入：從連線池取得連線，請求結束歸還。"""
+    conn = _pool.getconn()
     try:
-        # 驗證連線可用：建立 cursor 即可確認檔案連線正常
-        conn.cursor().close()
         yield conn
     finally:
-        conn.close()
+        _pool.putconn(conn)
+
+
+def get_connection():
+    """背景任務用：從連線池取得連線。呼叫者需自行呼叫 release_connection() 歸還。"""
+    return _pool.getconn()
+
+
+def release_connection(conn):
+    """歸還連線至連線池。"""
+    _pool.putconn(conn)
 
 
 if __name__ == "__main__":

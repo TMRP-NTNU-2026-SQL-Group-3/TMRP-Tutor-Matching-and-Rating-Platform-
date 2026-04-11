@@ -3,8 +3,10 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # 資料庫
-    access_db_path: str = "data/tutoring.accdb"
+    # 資料庫（PostgreSQL）
+    database_url: str = "postgresql://tmrp:tmrp@localhost:5432/tmrp"
+    db_pool_min: int = 2
+    db_pool_max: int = 10
 
     # JWT 認證
     jwt_secret_key: str = "change-me-in-production"

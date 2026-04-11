@@ -24,7 +24,6 @@ def transaction(conn):
         return
 
     _in_transaction.add(conn_id)
-    conn.autocommit = False
     try:
         yield conn
         conn.commit()
@@ -33,4 +32,3 @@ def transaction(conn):
         raise
     finally:
         _in_transaction.discard(conn_id)
-        conn.autocommit = True

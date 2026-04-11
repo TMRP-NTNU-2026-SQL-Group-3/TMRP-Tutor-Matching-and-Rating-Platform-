@@ -9,25 +9,18 @@ import logging
 import random
 from datetime import datetime, timedelta
 
-import pyodbc
-
-from app.utils.access_bits import to_access_bit
 from app.utils.security import hash_password
 
 logger = logging.getLogger("seed.generator")
-
-TRUE = to_access_bit(True)
-FALSE = to_access_bit(False)
 
 # ──────────────────────────────────────────────
 # 輔助函式
 # ──────────────────────────────────────────────
 
 
-def _insert_and_get_id(cursor: pyodbc.Cursor, sql: str, params: tuple) -> int:
-    """執行 INSERT 並回傳自動產生的 ID。"""
+def _insert_and_get_id(cursor, sql: str, params: tuple) -> int:
+    """執行 INSERT ... RETURNING 並回傳自動產生的 ID。"""
     cursor.execute(sql, params)
-    cursor.execute("SELECT @@IDENTITY")
     return int(cursor.fetchone()[0])
 
 
@@ -41,14 +34,14 @@ def _dt(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> date
 # ──────────────────────────────────────────────
 
 
-def run_seed(conn: pyodbc.Connection) -> dict:
+def run_seed(conn) -> dict:
     """
     填入展示用假資料。回傳各表新增筆數。
 
     Parameters
     ----------
-    conn : pyodbc.Connection
-        已連線的 MS Access pyodbc 連線物件。
+    conn
+        已連線的 PostgreSQL psycopg2 連線物件。
 
     Returns
     -------
@@ -58,7 +51,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
     cursor = conn.cursor()
 
     # ── 防重複 ─────────────────────────────────
-    cursor.execute("SELECT COUNT(*) FROM Users WHERE role <> 'admin'")
+    cursor.execute("SELECT COUNT(*) FROM users WHERE role <> 'admin'")
     if cursor.fetchone()[0] > 0:
         logger.info("已有非管理員使用者，跳過假資料寫入")
         return {"skipped": True, "message": "資料庫已有種子資料，跳過寫入"}
@@ -88,8 +81,8 @@ def run_seed(conn: pyodbc.Connection) -> dict:
     for username, role, display_name, phone, email in parent_data:
         uid = _insert_and_get_id(
             cursor,
-            "INSERT INTO Users (username, password_hash, role, display_name, phone, email, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users (username, password_hash, role, display_name, phone, email, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING user_id",
             (username, hashed, role, display_name, phone, email, now - timedelta(days=random.randint(30, 90))),
         )
         parent_user_ids.append(uid)
@@ -97,8 +90,8 @@ def run_seed(conn: pyodbc.Connection) -> dict:
     for username, role, display_name, phone, email in tutor_data:
         uid = _insert_and_get_id(
             cursor,
-            "INSERT INTO Users (username, password_hash, role, display_name, phone, email, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users (username, password_hash, role, display_name, phone, email, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING user_id",
             (username, hashed, role, display_name, phone, email, now - timedelta(days=random.randint(30, 90))),
         )
         tutor_user_ids.append(uid)
@@ -144,14 +137,14 @@ def run_seed(conn: pyodbc.Connection) -> dict:
     for t in tutor_profiles:
         tid = _insert_and_get_id(
             cursor,
-            "INSERT INTO Tutors (user_id, university, department, grade_year, self_intro, "
+            "INSERT INTO tutors (user_id, university, department, grade_year, self_intro, "
             "teaching_experience, max_students, show_university, show_department, "
             "show_grade_year, show_hourly_rate, show_subjects) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING tutor_id",
             (
                 t["user_id"], t["university"], t["department"], t["grade_year"],
                 t["self_intro"], t["teaching_experience"], t["max_students"],
-                TRUE, TRUE, TRUE, TRUE, TRUE,
+                True, True, True, True, True,
             ),
         )
         tutor_ids.append(tid)
@@ -176,8 +169,8 @@ def run_seed(conn: pyodbc.Connection) -> dict:
     for parent_uid, name, school, grade, target, phone, notes in student_data:
         sid = _insert_and_get_id(
             cursor,
-            "INSERT INTO Students (parent_user_id, name, school, grade, target_school, parent_phone, notes) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO students (parent_user_id, name, school, grade, target_school, parent_phone, notes) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING student_id",
             (parent_uid, name, school, grade, target, phone, notes),
         )
         student_ids.append(sid)
@@ -189,7 +182,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
     # ══════════════════════════════════════════
     # 4. 查詢科目 ID
     # ══════════════════════════════════════════
-    cursor.execute("SELECT subject_id, subject_name FROM Subjects")
+    cursor.execute("SELECT subject_id, subject_name FROM subjects")
     subject_map = {row[1]: row[0] for row in cursor.fetchall()}
 
     # ══════════════════════════════════════════
@@ -213,7 +206,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             logger.warning("  找不到科目 %s，跳過", subj_name)
             continue
         cursor.execute(
-            "INSERT INTO Tutor_Subjects (tutor_id, subject_id, hourly_rate) VALUES (?, ?, ?)",
+            "INSERT INTO tutor_subjects (tutor_id, subject_id, hourly_rate) VALUES (%s, %s, %s)",
             (tid, subj_id, rate),
         )
         ts_count += 1
@@ -238,15 +231,15 @@ def run_seed(conn: pyodbc.Connection) -> dict:
     ]
 
     avail_count = 0
-    # 使用固定日期作為基準，只取時間部分
-    base_date = datetime(1899, 12, 30)  # Access 日期基準（Access 以此日期儲存時間部分）
+    # 使用今日日期搭配時間，PostgreSQL TIMESTAMPTZ 會正確儲存
+    base_date = datetime(2000, 1, 1)
     for tid, dow, sh, sm, eh, em in availability_data:
         start_time = base_date.replace(hour=sh, minute=sm)
         end_time = base_date.replace(hour=eh, minute=em)
         _insert_and_get_id(
             cursor,
-            "INSERT INTO Tutor_Availability (tutor_id, day_of_week, start_time, end_time) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO tutor_availability (tutor_id, day_of_week, start_time, end_time) "
+            "VALUES (%s, %s, %s, %s) RETURNING availability_id",
             (tid, dow, start_time, end_time),
         )
         avail_count += 1
@@ -290,8 +283,8 @@ def run_seed(conn: pyodbc.Connection) -> dict:
 
         conv_id = _insert_and_get_id(
             cursor,
-            "INSERT INTO Conversations (user_a_id, user_b_id, created_at, last_message_at) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO conversations (user_a_id, user_b_id, created_at, last_message_at) "
+            "VALUES (%s, %s, %s, %s) RETURNING conversation_id",
             (spec["user_a"], spec["user_b"], base_time, base_time),
         )
         conv_count += 1
@@ -301,15 +294,15 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             last_msg_time = msg_time
             _insert_and_get_id(
                 cursor,
-                "INSERT INTO Messages (conversation_id, sender_user_id, content, sent_at) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO messages (conversation_id, sender_user_id, content, sent_at) "
+                "VALUES (%s, %s, %s, %s) RETURNING message_id",
                 (conv_id, sender_id, content, msg_time),
             )
             msg_count += 1
 
         # 更新最後訊息時間
         cursor.execute(
-            "UPDATE Conversations SET last_message_at = ? WHERE conversation_id = ?",
+            "UPDATE conversations SET last_message_at = %s WHERE conversation_id = %s",
             (last_msg_time, conv_id),
         )
 
@@ -330,7 +323,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             # 王小明 <-> 張家豪 (數學) — active
             "tutor_id": tutor_ids[0], "student_id": student_ids[0],
             "subject_id": math_id, "status": "active",
-            "invite_message": "希望老師能幫小明打好數學基礎", "want_trial": TRUE,
+            "invite_message": "希望老師能幫小明打好數學基礎", "want_trial": True,
             "hourly_rate": 800, "sessions_per_week": 2,
             "start_date": now - timedelta(days=45), "end_date": None,
             "penalty_amount": 200, "trial_price": 400, "trial_count": 1,
@@ -341,7 +334,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             # 陳品妤 <-> 李佳穎 (英文) — active
             "tutor_id": tutor_ids[1], "student_id": student_ids[2],
             "subject_id": eng_id, "status": "active",
-            "invite_message": "品妤想加強英文閱讀和寫作", "want_trial": FALSE,
+            "invite_message": "品妤想加強英文閱讀和寫作", "want_trial": False,
             "hourly_rate": 900, "sessions_per_week": 1,
             "start_date": now - timedelta(days=30), "end_date": None,
             "penalty_amount": 300, "trial_price": None, "trial_count": None,
@@ -352,7 +345,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             # 林宥辰 <-> 黃柏翰 (物理) — trial
             "tutor_id": tutor_ids[2], "student_id": student_ids[4],
             "subject_id": phys_id, "status": "trial",
-            "invite_message": "宥辰物理觀念不太清楚，想試教看看", "want_trial": TRUE,
+            "invite_message": "宥辰物理觀念不太清楚，想試教看看", "want_trial": True,
             "hourly_rate": 700, "sessions_per_week": 1,
             "start_date": now - timedelta(days=7), "end_date": None,
             "penalty_amount": None, "trial_price": 350, "trial_count": 1,
@@ -363,7 +356,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             # 王小華 <-> 張家豪 (數學) — pending
             "tutor_id": tutor_ids[0], "student_id": student_ids[1],
             "subject_id": math_id, "status": "pending",
-            "invite_message": "小華要準備會考，希望能加強數學", "want_trial": TRUE,
+            "invite_message": "小華要準備會考，希望能加強數學", "want_trial": True,
             "hourly_rate": 800, "sessions_per_week": 2,
             "start_date": None, "end_date": None,
             "penalty_amount": None, "trial_price": 400, "trial_count": 1,
@@ -374,7 +367,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             # 陳柏宇 <-> 黃柏翰 (數學) — ended
             "tutor_id": tutor_ids[2], "student_id": student_ids[3],
             "subject_id": math_id, "status": "ended",
-            "invite_message": "柏宇國一數學需要加強", "want_trial": FALSE,
+            "invite_message": "柏宇國一數學需要加強", "want_trial": False,
             "hourly_rate": 650, "sessions_per_week": 1,
             "start_date": now - timedelta(days=90), "end_date": now - timedelta(days=14),
             "penalty_amount": 200, "trial_price": None, "trial_count": None,
@@ -387,11 +380,12 @@ def run_seed(conn: pyodbc.Connection) -> dict:
     for m in match_specs:
         mid = _insert_and_get_id(
             cursor,
-            "INSERT INTO Matches (tutor_id, student_id, subject_id, status, invite_message, "
+            "INSERT INTO matches (tutor_id, student_id, subject_id, status, invite_message, "
             "want_trial, hourly_rate, sessions_per_week, start_date, end_date, penalty_amount, "
             "trial_price, trial_count, contract_notes, terminated_by, termination_reason, "
             "created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            "RETURNING match_id",
             (
                 m["tutor_id"], m["student_id"], m["subject_id"], m["status"],
                 m["invite_message"], m["want_trial"], m["hourly_rate"],
@@ -423,7 +417,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             "homework": "課本第三章習題 1-15",
             "student_performance": "理解力不錯，但計算常粗心，需要多練習。",
             "next_plan": "進入指數與對數函數",
-            "visible_to_parent": TRUE,
+            "visible_to_parent": True,
         },
         {
             "match_id": match_ids[0],
@@ -433,7 +427,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             "homework": "講義第 5-8 頁",
             "student_performance": "對數的概念需要多加理解，指數部分掌握得不錯。",
             "next_plan": "對數函數與應用",
-            "visible_to_parent": TRUE,
+            "visible_to_parent": True,
         },
         {
             "match_id": match_ids[0],
@@ -443,7 +437,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             "homework": "段考複習卷一份",
             "student_performance": "進步明顯，換底公式已能靈活運用。",
             "next_plan": "段考複習總整理",
-            "visible_to_parent": TRUE,
+            "visible_to_parent": True,
         },
         # 陳品妤的英文課
         {
@@ -454,7 +448,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             "homework": "完成兩篇閱讀測驗並標註不會的單字",
             "student_performance": "閱讀速度偏慢但正確率高，需要提升速度。",
             "next_plan": "英文寫作基礎：段落結構",
-            "visible_to_parent": TRUE,
+            "visible_to_parent": True,
         },
         {
             "match_id": match_ids[1],
@@ -464,7 +458,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             "homework": "寫一篇 150 字短文，主題：My Favorite Season",
             "student_performance": "文法基礎好，但句型較單調，需要多樣化。",
             "next_plan": "進階句型與轉折詞使用",
-            "visible_to_parent": TRUE,
+            "visible_to_parent": True,
         },
         # 林宥辰的物理試教課
         {
@@ -475,7 +469,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             "homework": "基礎練習題 10 題",
             "student_performance": "第三定律的作用力反作用力容易混淆，需要多用實例說明。",
             "next_plan": "力的合成與分解",
-            "visible_to_parent": TRUE,
+            "visible_to_parent": True,
         },
         # 陳柏宇的已結束數學課
         {
@@ -486,7 +480,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             "homework": "課本習題第一章",
             "student_performance": "基礎運算能力可以，正負數觀念需加強。",
             "next_plan": "分數與小數的運算",
-            "visible_to_parent": TRUE,
+            "visible_to_parent": True,
         },
         {
             "match_id": match_ids[4],
@@ -496,7 +490,7 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             "homework": "練習卷第 1-2 頁",
             "student_performance": "應用題的閱讀理解需要加強。",
             "next_plan": "一元一次方程式",
-            "visible_to_parent": TRUE,
+            "visible_to_parent": True,
         },
     ]
 
@@ -504,9 +498,9 @@ def run_seed(conn: pyodbc.Connection) -> dict:
     for s in session_specs:
         _insert_and_get_id(
             cursor,
-            "INSERT INTO Sessions (match_id, session_date, hours, content_summary, homework, "
+            "INSERT INTO sessions (match_id, session_date, hours, content_summary, homework, "
             "student_performance, next_plan, visible_to_parent, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING session_id",
             (
                 s["match_id"], s["session_date"], s["hours"],
                 s["content_summary"], s["homework"], s["student_performance"],
@@ -529,27 +523,27 @@ def run_seed(conn: pyodbc.Connection) -> dict:
             "student_id": student_ids[0], "subject_id": math_id,
             "added_by_user_id": tutor_user_ids[0],
             "exam_date": now - timedelta(days=35),
-            "exam_type": "段考", "score": 72.0, "visible_to_parent": TRUE,
+            "exam_type": "段考", "score": 72.0, "visible_to_parent": True,
         },
         {
             "student_id": student_ids[0], "subject_id": math_id,
             "added_by_user_id": tutor_user_ids[0],
             "exam_date": now - timedelta(days=7),
-            "exam_type": "段考", "score": 85.0, "visible_to_parent": TRUE,
+            "exam_type": "段考", "score": 85.0, "visible_to_parent": True,
         },
         # 陳品妤的英文考試
         {
             "student_id": student_ids[2], "subject_id": eng_id,
             "added_by_user_id": tutor_user_ids[1],
             "exam_date": now - timedelta(days=20),
-            "exam_type": "小考", "score": 92.0, "visible_to_parent": TRUE,
+            "exam_type": "小考", "score": 92.0, "visible_to_parent": True,
         },
         # 陳柏宇的數學考試（已結束的配對）
         {
             "student_id": student_ids[3], "subject_id": math_id,
             "added_by_user_id": tutor_user_ids[2],
             "exam_date": now - timedelta(days=50),
-            "exam_type": "段考", "score": 68.0, "visible_to_parent": TRUE,
+            "exam_type": "段考", "score": 68.0, "visible_to_parent": True,
         },
     ]
 
@@ -557,9 +551,9 @@ def run_seed(conn: pyodbc.Connection) -> dict:
     for e in exam_specs:
         _insert_and_get_id(
             cursor,
-            "INSERT INTO Exams (student_id, subject_id, added_by_user_id, exam_date, "
+            "INSERT INTO exams (student_id, subject_id, added_by_user_id, exam_date, "
             "exam_type, score, visible_to_parent, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING exam_id",
             (
                 e["student_id"], e["subject_id"], e["added_by_user_id"],
                 e["exam_date"], e["exam_type"], e["score"],
@@ -618,10 +612,10 @@ def run_seed(conn: pyodbc.Connection) -> dict:
     for r in review_specs:
         _insert_and_get_id(
             cursor,
-            "INSERT INTO Reviews (match_id, reviewer_user_id, review_type, "
+            "INSERT INTO reviews (match_id, reviewer_user_id, review_type, "
             "rating_1, rating_2, rating_3, rating_4, personality_comment, comment, "
             "created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING review_id",
             (
                 r["match_id"], r["reviewer_user_id"], r["review_type"],
                 r["rating_1"], r["rating_2"], r["rating_3"], r["rating_4"],

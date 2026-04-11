@@ -6,7 +6,6 @@ from app.exceptions import AppException, ForbiddenException, NotFoundException
 from app.models.common import ApiResponse
 from app.models.session import SessionCreate, SessionUpdate
 from app.repositories.session_repo import SessionRepository
-from app.utils.access_bits import from_access_bit, to_access_bit
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -92,7 +91,7 @@ def update_session(
         if updates["visible_to_parent"] is None:
             del updates["visible_to_parent"]
         else:
-            updates["visible_to_parent"] = to_access_bit(updates["visible_to_parent"])
+            updates["visible_to_parent"] = bool(updates["visible_to_parent"])
 
     if not updates:
         return ApiResponse(success=True, data={"session_id": session_id}, message="無需更新的欄位")
@@ -102,7 +101,7 @@ def update_session(
     with transaction(conn):
         # 在交易內重新取得 session，避免並發更新時讀到過時的舊值
         session_fresh = repo.fetch_one(
-            "SELECT * FROM Sessions WHERE session_id = ?", (session_id,)
+            "SELECT * FROM sessions WHERE session_id = %s", (session_id,)
         )
         if not session_fresh:
             raise NotFoundException("找不到此上課日誌")
@@ -112,7 +111,7 @@ def update_session(
         for field, new_val in updates.items():
             old_val = session_fresh.get(field)
             if field == "visible_to_parent":
-                old_val = to_access_bit(from_access_bit(old_val))
+                old_val = bool(old_val)
             old_str = str(old_val) if old_val is not None else ""
             new_str = str(new_val) if new_val is not None else ""
             if old_str != new_str:
@@ -121,15 +120,15 @@ def update_session(
         if not diffs:
             return ApiResponse(success=True, data={"session_id": session_id}, message="無實際變動")
 
-        set_clause = ", ".join(f"[{col}] = ?" for col in updates)
+        set_clause = ", ".join(f"{col} = %s" for col in updates)
         repo.cursor.execute(
-            f"UPDATE Sessions SET {set_clause}, updated_at = Now() WHERE session_id = ?",
+            f"UPDATE sessions SET {set_clause}, updated_at = NOW() WHERE session_id = %s",
             list(updates.values()) + [session_id],
         )
         for field, old_val, new_val in diffs:
             repo.cursor.execute(
-                "INSERT INTO Session_Edit_Logs (session_id, field_name, old_value, new_value, edited_at) "
-                "VALUES (?, ?, ?, ?, Now())",
+                "INSERT INTO session_edit_logs (session_id, field_name, old_value, new_value, edited_at) "
+                "VALUES (%s, %s, %s, %s, NOW())",
                 (session_id, field,
                  str(old_val) if old_val is not None else None,
                  str(new_val) if new_val is not None else None),

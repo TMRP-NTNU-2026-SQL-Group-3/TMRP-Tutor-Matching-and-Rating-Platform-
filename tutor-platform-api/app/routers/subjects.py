@@ -11,6 +11,6 @@ router = APIRouter(prefix="/api/subjects", tags=["subjects"])
 def list_subjects(conn=Depends(get_db)):
     repo = BaseRepository(conn)
     subjects = repo.fetch_all(
-        "SELECT * FROM Subjects ORDER BY category, subject_name"
+        "SELECT * FROM subjects ORDER BY category, subject_name"
     )
     return ApiResponse(success=True, data=subjects)

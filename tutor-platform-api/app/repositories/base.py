@@ -33,12 +33,12 @@ class BaseRepository:
                     allowed_columns: set, extra_set: str = "") -> None:
         """安全的動態 UPDATE，強制驗證欄位白名單。"""
         self.validate_columns(list(updates.keys()), allowed_columns)
-        set_clause = ", ".join(f"[{col}] = ?" for col in updates)
+        set_clause = ", ".join(f"{col} = %s" for col in updates)
         if extra_set:
             set_clause += ", " + extra_set
         values = list(updates.values()) + [id_val]
         self.execute(
-            f"UPDATE {table} SET {set_clause} WHERE {id_col} = ?",
+            f"UPDATE {table} SET {set_clause} WHERE {id_col} = %s",
             values,
         )
 
@@ -72,14 +72,11 @@ class BaseRepository:
 
     def execute_returning_id(self, sql: str, params: tuple = ()) -> int:
         """
-        執行 INSERT 並回傳自動產生之主鍵值（AutoNumber）。
+        執行 INSERT 並回傳自動產生之主鍵值。
 
-        注意：@@IDENTITY 為連線層級，安全性仰賴每個請求使用獨立連線
-        （由 get_db() 保證）。INSERT 與 SELECT @@IDENTITY 之間不可
-        穿插其他 INSERT，否則會取得錯誤的 ID。
+        呼叫者的 SQL 須包含 RETURNING <id_column> 子句。
         """
         self.cursor.execute(sql, params)
-        self.cursor.execute("SELECT @@IDENTITY")
         new_id = self.cursor.fetchone()[0]
         if not self._in_transaction():
             self.conn.commit()
@@ -89,14 +86,10 @@ class BaseRepository:
         self, sql: str, params: tuple, page: int, page_size: int
     ) -> tuple[list[dict], int]:
         """
-        執行分頁查詢。
-        由於 MS Access 不支援 LIMIT/OFFSET 語法，先以 COUNT 查詢取得總數，
-        再用 TOP N 限制回傳筆數，最後在 Python 端做 offset 切割。
-        當資料量大時僅載入 page*page_size 筆，而非全部。
+        執行分頁查詢（PostgreSQL LIMIT/OFFSET）。
         回傳值：(items, total_count)
         """
-        # 取得總筆數（避免載入全部資料）
-        # MS Access 子查詢需加別名
+        # 取得總筆數
         count_sql = f"SELECT COUNT(*) AS cnt FROM ({sql}) AS _sub"
         self.cursor.execute(count_sql, params)
         total = self.cursor.fetchone()[0]
@@ -104,10 +97,8 @@ class BaseRepository:
         if total == 0:
             return [], 0
 
-        # 用 TOP 限制載入量：最多取 page * page_size 筆，再切出當頁
-        top_n = page * page_size
-        top_sql = sql.replace("SELECT ", f"SELECT TOP {top_n} ", 1)
-        rows = self.fetch_all(top_sql, params)
-        start = (page - 1) * page_size
-        items = rows[start : start + page_size]
+        # PostgreSQL 原生分頁
+        offset = (page - 1) * page_size
+        paged_sql = f"{sql} LIMIT {page_size} OFFSET {offset}"
+        items = self.fetch_all(paged_sql, params)
         return items, total

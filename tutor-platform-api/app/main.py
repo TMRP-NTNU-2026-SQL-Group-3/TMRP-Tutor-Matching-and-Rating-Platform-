@@ -29,20 +29,25 @@ logger = setup_logger()
 async def lifespan(app: FastAPI):
     logger.info("API Server 啟動")
     # JWT_SECRET_KEY 與 ADMIN_PASSWORD 預設值已由 config.py model_validator 硬性阻擋
+    from app.database import init_pool, close_pool, get_connection, release_connection
+
+    init_pool()
+    logger.info("PostgreSQL 連線池已建立")
+
     try:
-        from app.database import get_connection
         from app.init_db import ensure_admin_user
 
         conn = get_connection()
         try:
             ensure_admin_user(conn, settings)
         finally:
-            conn.close()
+            release_connection(conn)
         logger.info("管理員帳號檢查完成")
     except Exception as e:
         logger.error("管理員帳號建立失敗: %s", e)
     yield
     # Shutdown
+    close_pool()
     logger.info("API Server 關閉 — flushing logs")
     logging.shutdown()
 

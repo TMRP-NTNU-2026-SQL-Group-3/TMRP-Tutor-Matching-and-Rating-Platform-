@@ -2,7 +2,7 @@
 共用 Fixtures：提供 TestClient、假使用者 Token、Mock DB 連線。
 
 測試策略：
-    以 unittest.mock 攔截 repository 方法，不依賴 MS Access 驅動，
+    以 unittest.mock 攔截 repository 方法，不依賴實際資料庫連線，
     確保測試可在任何環境中快速、獨立地執行。
 """
 
@@ -19,7 +19,7 @@ from app.utils.security import create_access_token
 # ── Mock DB 連線 ──────────────────────────────────────────────
 @pytest.fixture()
 def mock_conn():
-    """回傳一個 MagicMock 作為 pyodbc.Connection 替身。"""
+    """回傳一個 MagicMock 作為 psycopg2 Connection 替身。"""
     conn = MagicMock()
     conn.cursor.return_value = MagicMock()
     return conn

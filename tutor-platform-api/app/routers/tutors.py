@@ -140,7 +140,7 @@ def update_subjects(
     if body.subjects:
         from app.repositories.base import BaseRepository
         base = BaseRepository(conn)
-        all_subjects = base.fetch_all("SELECT subject_id FROM Subjects")
+        all_subjects = base.fetch_all("SELECT subject_id FROM subjects")
         valid_ids = {s["subject_id"] for s in all_subjects}
         for s in body.subjects:
             if s.subject_id not in valid_ids:

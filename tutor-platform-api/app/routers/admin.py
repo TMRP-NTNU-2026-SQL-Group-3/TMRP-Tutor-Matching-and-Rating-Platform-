@@ -14,7 +14,7 @@ from app.dependencies import get_db, require_role
 from app.exceptions import AppException, NotFoundException
 from app.models.common import ApiResponse
 from app.repositories.base import BaseRepository
-from app.utils.columns import bracket_columns, coerce_csv_value, validate_columns
+from app.utils.columns import quote_columns, coerce_csv_value, validate_columns
 from app.utils.csv_handler import write_csv
 
 logger = logging.getLogger("app.admin")
@@ -33,36 +33,36 @@ def _safe_validate_columns(columns: list[str]) -> None:
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 ALLOWED_TABLES = {
-    "Users",
-    "Students",
-    "Tutors",
-    "Subjects",
-    "Tutor_Subjects",
-    "Tutor_Availability",
-    "Matches",
-    "Sessions",
-    "Session_Edit_Logs",
-    "Exams",
-    "Reviews",
-    "Conversations",
-    "Messages",
+    "users",
+    "students",
+    "tutors",
+    "subjects",
+    "tutor_subjects",
+    "tutor_availability",
+    "matches",
+    "sessions",
+    "session_edit_logs",
+    "exams",
+    "reviews",
+    "conversations",
+    "messages",
 }
 
 # 清空資料庫時的刪除順序（先刪子表，再刪父表）
 _DELETE_ORDER = [
-    "Session_Edit_Logs",
-    "Messages",
-    "Conversations",
-    "Reviews",
-    "Exams",
-    "Sessions",
-    "Matches",
-    "Tutor_Availability",
-    "Tutor_Subjects",
-    "Students",
-    "Tutors",
-    "Subjects",
-    "Users",
+    "session_edit_logs",
+    "messages",
+    "conversations",
+    "reviews",
+    "exams",
+    "sessions",
+    "matches",
+    "tutor_availability",
+    "tutor_subjects",
+    "students",
+    "tutors",
+    "subjects",
+    "users",
 ]
 
 
@@ -80,7 +80,7 @@ def list_users(user=Depends(require_role("admin")), conn=Depends(get_db)):
     repo = BaseRepository(conn)
     rows = repo.fetch_all(
         "SELECT user_id, username, role, display_name, phone, email, created_at "
-        "FROM Users ORDER BY user_id"
+        "FROM users ORDER BY user_id"
     )
     return ApiResponse(success=True, data=rows, message=f"共 {len(rows)} 位使用者")
 
@@ -122,8 +122,8 @@ def import_csv(
     rows = [{h.strip(): v for h, v in row.items()} for row in rows]
     columns = list(rows[0].keys())
     _safe_validate_columns(columns)
-    placeholders = ", ".join(["?"] * len(columns))
-    col_names = bracket_columns(columns)
+    placeholders = ", ".join(["%s"] * len(columns))
+    col_names = quote_columns(columns)
     sql = f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})"
 
     cursor = conn.cursor()
@@ -160,7 +160,7 @@ def export_csv(
     if not rows:
         raise NotFoundException(f"{table_name} 無資料可匯出")
 
-    export_dir = Path(settings.access_db_path).parent / "export"
+    export_dir = Path("data/export")
     export_dir.mkdir(parents=True, exist_ok=True)
     export_path = export_dir / f"{table_name}.csv"
     write_csv(str(export_path), rows)
@@ -192,10 +192,10 @@ def reset_database(
 
     try:
         for table in _DELETE_ORDER:
-            if table == "Users":
+            if table == "users":
                 # 保留目前操作的 Admin 帳號
                 rows_before = repo.fetch_one(f"SELECT COUNT(*) AS cnt FROM {table}")
-                cursor.execute(f"DELETE FROM {table} WHERE user_id <> ?", (admin_user_id,))
+                cursor.execute(f"DELETE FROM {table} WHERE user_id <> %s", (admin_user_id,))
                 rows_after = repo.fetch_one(f"SELECT COUNT(*) AS cnt FROM {table}")
                 deleted[table] = (rows_before["cnt"] or 0) - (rows_after["cnt"] or 0)
             else:
@@ -227,12 +227,12 @@ def system_status(user=Depends(require_role("admin")), conn=Depends(get_db)):
         counts[table] = row["cnt"] or 0
 
     role_counts = repo.fetch_all(
-        "SELECT role, COUNT(*) AS cnt FROM Users GROUP BY role"
+        "SELECT role, COUNT(*) AS cnt FROM users GROUP BY role"
     )
     roles = {r["role"]: r["cnt"] for r in role_counts}
 
     status_counts = repo.fetch_all(
-        "SELECT status, COUNT(*) AS cnt FROM Matches GROUP BY status"
+        "SELECT status, COUNT(*) AS cnt FROM matches GROUP BY status"
     )
     match_statuses = {r["status"]: r["cnt"] for r in status_counts}
 
@@ -253,7 +253,7 @@ def system_status(user=Depends(require_role("admin")), conn=Depends(get_db)):
 def export_all(user=Depends(require_role("admin")), conn=Depends(get_db)):
     logger.warning("Admin user_id=%s 執行一鍵匯出全部資料表", user.get("sub"))
     repo = BaseRepository(conn)
-    export_dir = Path(settings.access_db_path).parent / "export"
+    export_dir = Path("data/export")
     export_dir.mkdir(parents=True, exist_ok=True)
 
     exported_tables = []
@@ -365,8 +365,8 @@ def import_all(
         if clear_first:
             admin_user_id = int(user["sub"])
             for table in _DELETE_ORDER:
-                if table == "Users":
-                    cursor.execute(f"DELETE FROM {table} WHERE user_id <> ?", (admin_user_id,))
+                if table == "users":
+                    cursor.execute(f"DELETE FROM {table} WHERE user_id <> %s", (admin_user_id,))
                 else:
                     cursor.execute(f"DELETE FROM {table}")
 
@@ -387,8 +387,8 @@ def import_all(
             rows = [{h.strip(): v for h, v in row.items()} for row in rows]
             columns = list(rows[0].keys())
             _safe_validate_columns(columns)
-            placeholders = ", ".join(["?"] * len(columns))
-            col_names = bracket_columns(columns)
+            placeholders = ", ".join(["%s"] * len(columns))
+            col_names = quote_columns(columns)
             sql = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
 
             table_errors = []

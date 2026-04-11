@@ -22,7 +22,7 @@ def create_conversation(
 
     # 驗證對方存在
     base = BaseRepository(conn)
-    target = base.fetch_one("SELECT user_id FROM Users WHERE user_id = ?", (body.target_user_id,))
+    target = base.fetch_one("SELECT user_id FROM users WHERE user_id = %s", (body.target_user_id,))
     if not target:
         raise NotFoundException("找不到該使用者")
 

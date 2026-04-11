@@ -1,12 +1,10 @@
 import csv
 from pathlib import Path
 
-from app.config import settings
-
 
 def _get_allowed_base() -> Path:
-    """以 access_db_path 的父目錄作為允許的檔案存取根目錄。"""
-    return Path(settings.access_db_path).resolve().parent
+    """以 data/ 目錄作為允許的檔案存取根目錄。"""
+    return Path("data").resolve()
 
 
 def read_csv(file_path: str) -> list[dict]:

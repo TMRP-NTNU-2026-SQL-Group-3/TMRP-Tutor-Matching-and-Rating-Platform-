@@ -17,17 +17,17 @@ def validate_columns(columns: list[str]) -> None:
             raise ValueError(f"不合法的欄位名稱：{col!r}")
 
 
-def bracket_columns(columns: list[str]) -> str:
-    """將欄位名稱以 [col] 格式組合，避免 MS Access 保留字衝突。"""
-    return ", ".join(f"[{col}]" for col in columns)
+def quote_columns(columns: list[str]) -> str:
+    """將欄位名稱以雙引號引用組合（PostgreSQL 識別符引用方式）。"""
+    return ", ".join(f'"{col}"' for col in columns)
 
 
 def coerce_csv_value(val):
-    """將 CSV 字串值轉換為適合 MS Access 的型別。
+    """將 CSV 字串值轉換為適合 PostgreSQL 的型別。
 
     - None / 空字串 → None
-    - 布林真值 ('True', 'true', '1', '-1') → -1  (MS Access BIT True)
-    - 布林假值 ('False', 'false', '0') → 0
+    - 布林真值 ('True', 'true', '1', '-1') → True
+    - 布林假值 ('False', 'false', '0') → False
     - 其他 → 原值
     """
     if val is None:
@@ -35,7 +35,7 @@ def coerce_csv_value(val):
     if not val or val.strip() == "":
         return None
     if val in ('True', 'true', '1', '-1'):
-        return -1   # MS Access BIT True
+        return True
     if val in ('False', 'false', '0'):
-        return 0
+        return False
     return val

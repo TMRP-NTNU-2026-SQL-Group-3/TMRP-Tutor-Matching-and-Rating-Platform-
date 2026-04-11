@@ -1,5 +1,4 @@
 from app.repositories.base import BaseRepository
-from app.utils.access_bits import to_access_bit
 
 
 class SessionRepository(BaseRepository):
@@ -9,9 +8,9 @@ class SessionRepository(BaseRepository):
         return self.fetch_one(
             """
             SELECT m.match_id, m.status, t.user_id AS tutor_user_id
-            FROM Matches m
-            INNER JOIN Tutors t ON m.tutor_id = t.tutor_id
-            WHERE m.match_id = ?
+            FROM matches m
+            INNER JOIN tutors t ON m.tutor_id = t.tutor_id
+            WHERE m.match_id = %s
             """,
             (match_id,),
         )
@@ -21,10 +20,10 @@ class SessionRepository(BaseRepository):
         return self.fetch_one(
             """
             SELECT m.match_id, t.user_id AS tutor_user_id, st.parent_user_id
-            FROM (Matches m
-            INNER JOIN Tutors t ON m.tutor_id = t.tutor_id)
-            INNER JOIN Students st ON m.student_id = st.student_id
-            WHERE m.match_id = ?
+            FROM matches m
+            INNER JOIN tutors t ON m.tutor_id = t.tutor_id
+            INNER JOIN students st ON m.student_id = st.student_id
+            WHERE m.match_id = %s
             """,
             (match_id,),
         )
@@ -37,33 +36,34 @@ class SessionRepository(BaseRepository):
     ) -> int:
         return self.execute_returning_id(
             """
-            INSERT INTO Sessions
+            INSERT INTO sessions
                 (match_id, session_date, hours, content_summary, homework,
                  student_performance, next_plan, visible_to_parent, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, Now(), Now())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            RETURNING session_id
             """,
             (
                 match_id, session_date, hours,
                 content_summary, homework,
                 student_performance, next_plan,
-                to_access_bit(visible_to_parent),
+                visible_to_parent,
             ),
         )
 
     def list_by_match(self, match_id: int, parent_only: bool = False) -> list[dict]:
         if parent_only:
             return self.fetch_all(
-                "SELECT * FROM Sessions WHERE match_id = ? AND visible_to_parent <> 0 ORDER BY session_date DESC",
+                "SELECT * FROM sessions WHERE match_id = %s AND visible_to_parent = TRUE ORDER BY session_date DESC",
                 (match_id,),
             )
         return self.fetch_all(
-            "SELECT * FROM Sessions WHERE match_id = ? ORDER BY session_date DESC",
+            "SELECT * FROM sessions WHERE match_id = %s ORDER BY session_date DESC",
             (match_id,),
         )
 
     def get_by_id(self, session_id: int) -> dict | None:
         return self.fetch_one(
-            "SELECT * FROM Sessions WHERE session_id = ?",
+            "SELECT * FROM sessions WHERE session_id = %s",
             (session_id,),
         )
 
@@ -72,14 +72,14 @@ class SessionRepository(BaseRepository):
 
     def update(self, session_id: int, fields: dict) -> None:
         """更新指定欄位，fields 為 {column: value} dict。"""
-        self.safe_update("Sessions", "session_id", session_id, fields,
-                         self.ALLOWED_COLUMNS, extra_set="updated_at = Now()")
+        self.safe_update("sessions", "session_id", session_id, fields,
+                         self.ALLOWED_COLUMNS, extra_set="updated_at = NOW()")
 
     def insert_edit_log(self, session_id: int, field_name: str, old_value: str | None, new_value: str | None) -> None:
         self.execute(
             """
-            INSERT INTO Session_Edit_Logs (session_id, field_name, old_value, new_value, edited_at)
-            VALUES (?, ?, ?, ?, Now())
+            INSERT INTO session_edit_logs (session_id, field_name, old_value, new_value, edited_at)
+            VALUES (%s, %s, %s, %s, NOW())
             """,
             (session_id, field_name, str(old_value) if old_value is not None else None,
              str(new_value) if new_value is not None else None),
@@ -87,6 +87,6 @@ class SessionRepository(BaseRepository):
 
     def get_edit_logs(self, session_id: int) -> list[dict]:
         return self.fetch_all(
-            "SELECT * FROM Session_Edit_Logs WHERE session_id = ? ORDER BY edited_at DESC",
+            "SELECT * FROM session_edit_logs WHERE session_id = %s ORDER BY edited_at DESC",
             (session_id,),
         )

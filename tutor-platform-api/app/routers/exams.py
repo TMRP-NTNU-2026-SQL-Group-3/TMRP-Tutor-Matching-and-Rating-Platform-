@@ -89,8 +89,7 @@ def update_exam(
     for k, v in body.model_dump(exclude_unset=True).items():
         if k == "visible_to_parent":
             if v is not None:
-                from app.utils.access_bits import to_access_bit
-                updates[k] = to_access_bit(v)
+                updates[k] = bool(v)
             # visible_to_parent 為 boolean 欄位，送 null 視為不更新
         else:
             updates[k] = v

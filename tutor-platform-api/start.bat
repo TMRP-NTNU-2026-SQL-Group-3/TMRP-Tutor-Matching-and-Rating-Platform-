@@ -11,14 +11,12 @@ if not exist ".env" (
     exit /b 1
 )
 
-if not exist "data\tutoring.accdb" (
-    echo [INFO] Database not found. Initializing...
-    python -m app.database --init
-    if errorlevel 1 (
-        echo [ERROR] Database initialization failed.
-        pause
-        exit /b 1
-    )
+echo [INFO] Checking database...
+python -m app.database --init
+if errorlevel 1 (
+    echo [ERROR] Database initialization failed.
+    pause
+    exit /b 1
 )
 
 echo [1/3] Starting Huey worker...
