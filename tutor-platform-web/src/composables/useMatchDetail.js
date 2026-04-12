@@ -38,16 +38,26 @@ export function useMatchDetail() {
   async function fetchMatch() {
     const currentFetchId = ++_fetchId
 
+    // Bug #26: 提早驗證路由參數，避免直接訪問 /parent/match/abc 時送出無效 ID
+    const rawId = route.params.id
+    const matchId = Number(rawId)
+    if (!rawId || !Number.isInteger(matchId) || matchId <= 0) {
+      error.value = '配對編號格式錯誤'
+      loading.value = false
+      toast.error('配對編號格式錯誤')
+      return
+    }
+
     // 首次載入才顯示 skeleton，後續重新整理不閃爍
     if (!match.value) loading.value = true
     error.value = ''
     try {
-      const detail = await matchesApi.getDetail(route.params.id)
+      const detail = await matchesApi.getDetail(matchId)
       if (currentFetchId !== _fetchId) return  // 已有更新的請求，丟棄此結果
       match.value = detail
       const [sessData, reviewData] = await Promise.all([
-        sessionsApi.list({ match_id: route.params.id }),
-        reviewsApi.list({ match_id: route.params.id }),
+        sessionsApi.list({ match_id: matchId }),
+        reviewsApi.list({ match_id: matchId }),
       ])
       if (currentFetchId !== _fetchId) return
       sessions.value = sessData

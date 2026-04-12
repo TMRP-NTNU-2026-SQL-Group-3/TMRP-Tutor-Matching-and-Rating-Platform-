@@ -1,6 +1,6 @@
 import logging
 
-from app.database import get_connection, release_connection
+from app.shared.infrastructure.database import get_connection, release_connection
 from app.worker import huey
 
 logger = logging.getLogger("app.tasks.seed_tasks")

@@ -252,7 +252,10 @@ async function handleSubmitReview() {
   }
   await submitReview({ review_type: 'parent_to_tutor', ...reviewForm })
   if (!reviewError.value) {
+    // Bug #28: 與 tutor/MatchDetailView 一致，重置時帶入 review_type，
+    // 避免將來新增更多欄位時遺漏覆蓋導致殘留舊值。
     Object.assign(reviewForm, {
+      review_type: 'parent_to_tutor',
       rating_1: 5, rating_2: 5, rating_3: 5, rating_4: 5,
       personality_comment: '', comment: ''
     })

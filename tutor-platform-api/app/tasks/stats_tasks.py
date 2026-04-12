@@ -2,8 +2,8 @@ import logging
 import re
 from datetime import datetime
 
-from app.database import get_connection, release_connection
-from app.repositories.stats_repo import StatsRepository
+from app.shared.infrastructure.database import get_connection, release_connection
+from app.analytics.infrastructure.postgres_stats_repo import PostgresStatsRepository as StatsRepository
 from app.worker import huey
 
 logger = logging.getLogger("app.tasks.stats_tasks")

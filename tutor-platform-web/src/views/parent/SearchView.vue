@@ -41,9 +41,10 @@ async function doSearch(filters = {}) {
   loading.value = true
   try {
     const params = {}
-    if (filters.subject_id) params.subject_id = filters.subject_id
-    if (filters.min_rate) params.min_rate = filters.min_rate
-    if (filters.max_rate) params.max_rate = filters.max_rate
+    // Bug #20: 用 != null 檢查取代 falsy，避免使用者把費率設為 0 時被當成「未填」
+    if (filters.subject_id != null && filters.subject_id !== '') params.subject_id = filters.subject_id
+    if (filters.min_rate != null && filters.min_rate !== '') params.min_rate = filters.min_rate
+    if (filters.max_rate != null && filters.max_rate !== '') params.max_rate = filters.max_rate
     if (filters.school) params.school = filters.school
     params.sort_by = filters.sort_by || 'rating'
     const res = await tutorsApi.search(params)

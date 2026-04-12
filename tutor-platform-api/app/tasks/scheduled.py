@@ -3,8 +3,8 @@ from datetime import datetime, timedelta, timezone
 
 from huey import crontab
 
-from app.config import settings
-from app.database import get_connection, release_connection
+from app.shared.infrastructure.config import settings
+from app.shared.infrastructure.database import get_connection, release_connection
 from app.worker import huey
 
 logger = logging.getLogger("app.tasks.scheduled")
@@ -29,3 +29,12 @@ def check_expired_reviews():
         logger.info("已鎖定 %d 筆過期評價", count)
     finally:
         release_connection(conn)
+
+
+# Bug #11: refresh_token_blacklist 表的過期條目每日清理一次，避免無限增長
+@huey.periodic_task(crontab(hour="3", minute="30"))
+@huey.lock_task("cleanup-refresh-token-blacklist")
+def cleanup_refresh_token_blacklist():
+    from app.shared.infrastructure.security import cleanup_expired_blacklist
+    deleted = cleanup_expired_blacklist()
+    logger.info("已清除 %d 筆過期 refresh token 黑名單", deleted)

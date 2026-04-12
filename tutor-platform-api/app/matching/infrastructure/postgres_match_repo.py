@@ -1,0 +1,136 @@
+from app.matching.domain.entities import Match
+from app.matching.domain.ports import IMatchRepository
+from app.matching.domain.value_objects import Contract, MatchStatus
+from app.shared.infrastructure.base_repository import BaseRepository
+
+
+class PostgresMatchRepository(BaseRepository, IMatchRepository):
+
+    def _row_to_entity(self, row: dict) -> Match:
+        return Match(
+            match_id=row["match_id"],
+            tutor_id=row["tutor_id"],
+            student_id=row["student_id"],
+            subject_id=row["subject_id"],
+            status=MatchStatus(row["status"]),
+            contract=Contract(
+                hourly_rate=float(row.get("hourly_rate") or 0),
+                sessions_per_week=int(row.get("sessions_per_week") or 0),
+                want_trial=bool(row.get("want_trial")),
+                invite_message=row.get("invite_message"),
+                start_date=row.get("start_date"),
+                end_date=row.get("end_date"),
+                penalty_amount=float(row["penalty_amount"]) if row.get("penalty_amount") is not None else None,
+                trial_price=float(row["trial_price"]) if row.get("trial_price") is not None else None,
+                trial_count=int(row["trial_count"]) if row.get("trial_count") is not None else None,
+                contract_notes=row.get("contract_notes"),
+            ),
+            terminated_by=row.get("terminated_by"),
+            termination_reason=row.get("termination_reason"),
+            created_at=row.get("created_at"),
+            updated_at=row.get("updated_at"),
+            subject_name=row.get("subject_name"),
+            student_name=row.get("student_name"),
+            parent_user_id=row.get("parent_user_id"),
+            tutor_user_id=row.get("tutor_user_id"),
+            tutor_display_name=row.get("tutor_display_name"),
+        )
+
+    def find_by_id(self, match_id: int) -> Match | None:
+        row = self.fetch_one(
+            """SELECT m.*, s.subject_name,
+                      st.name AS student_name, st.parent_user_id,
+                      t.user_id AS tutor_user_id,
+                      u.display_name AS tutor_display_name
+               FROM matches m
+               INNER JOIN subjects s ON m.subject_id = s.subject_id
+               INNER JOIN students st ON m.student_id = st.student_id
+               INNER JOIN tutors t ON m.tutor_id = t.tutor_id
+               INNER JOIN users u ON t.user_id = u.user_id
+               WHERE m.match_id = %s""",
+            (match_id,),
+        )
+        return self._row_to_entity(row) if row else None
+
+    def find_by_tutor_user_id(self, user_id: int) -> list[dict]:
+        return self.fetch_all(
+            """SELECT m.*, s.subject_name, st.name AS student_name
+               FROM matches m
+               INNER JOIN subjects s ON m.subject_id = s.subject_id
+               INNER JOIN students st ON m.student_id = st.student_id
+               INNER JOIN tutors t ON m.tutor_id = t.tutor_id
+               WHERE t.user_id = %s ORDER BY m.updated_at DESC""",
+            (user_id,),
+        )
+
+    def find_by_parent_user_id(self, user_id: int) -> list[dict]:
+        return self.fetch_all(
+            """SELECT m.*, s.subject_name, st.name AS student_name,
+                      u.display_name AS tutor_display_name
+               FROM matches m
+               INNER JOIN subjects s ON m.subject_id = s.subject_id
+               INNER JOIN students st ON m.student_id = st.student_id
+               INNER JOIN tutors t ON m.tutor_id = t.tutor_id
+               INNER JOIN users u ON t.user_id = u.user_id
+               WHERE st.parent_user_id = %s ORDER BY m.updated_at DESC""",
+            (user_id,),
+        )
+
+    def find_all(self) -> list[dict]:
+        return self.fetch_all(
+            """SELECT m.*, s.subject_name, st.name AS student_name
+               FROM matches m
+               INNER JOIN subjects s ON m.subject_id = s.subject_id
+               INNER JOIN students st ON m.student_id = st.student_id
+               ORDER BY m.updated_at DESC"""
+        )
+
+    def create(self, tutor_id, student_id, subject_id, hourly_rate,
+               sessions_per_week, want_trial, invite_message) -> int:
+        return self.execute_returning_id(
+            """INSERT INTO matches
+                (tutor_id, student_id, subject_id, status,
+                 hourly_rate, sessions_per_week, want_trial,
+                 invite_message, created_at, updated_at)
+               VALUES (%s, %s, %s, 'pending', %s, %s, %s, %s, NOW(), NOW())
+               RETURNING match_id""",
+            (tutor_id, student_id, subject_id,
+             hourly_rate, sessions_per_week, want_trial, invite_message),
+        )
+
+    VALID_STATUSES = {'pending', 'trial', 'active', 'paused', 'cancelled',
+                      'rejected', 'terminating', 'ended'}
+
+    def update_status(self, match_id: int, new_status: str) -> None:
+        if new_status not in self.VALID_STATUSES:
+            raise ValueError(f"Invalid status: {new_status}")
+        self.execute(
+            "UPDATE matches SET status = %s, updated_at = NOW() WHERE match_id = %s",
+            (new_status, match_id),
+        )
+
+    def set_terminating(self, match_id, user_id, reason, previous_status) -> None:
+        combined_reason = f"{previous_status}|{reason}" if reason else previous_status
+        self.execute(
+            """UPDATE matches SET status = 'terminating', terminated_by = %s,
+                      termination_reason = %s, updated_at = NOW()
+               WHERE match_id = %s""",
+            (user_id, combined_reason, match_id),
+        )
+
+    def clear_termination(self, match_id, revert_status) -> None:
+        self.execute(
+            """UPDATE matches SET status = %s, terminated_by = NULL,
+                      termination_reason = NULL, updated_at = NOW()
+               WHERE match_id = %s""",
+            (revert_status, match_id),
+        )
+
+    def check_duplicate_active(self, tutor_id, student_id, subject_id) -> bool:
+        row = self.fetch_one(
+            """SELECT COUNT(*) AS cnt FROM matches
+               WHERE tutor_id = %s AND student_id = %s AND subject_id = %s
+               AND status NOT IN ('cancelled', 'rejected', 'ended')""",
+            (tutor_id, student_id, subject_id),
+        )
+        return row["cnt"] > 0 if row else False

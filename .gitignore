@@ -1,6 +1,10 @@
 # 環境設定（不可提交至版本庫）
 .env
 *.env
+.env.*
+# 但保留 *.example 範本以利新人 onboarding
+!.env.example
+!.env.docker.example
 
 # Python
 __pycache__/

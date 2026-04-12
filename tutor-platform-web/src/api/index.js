@@ -1,19 +1,19 @@
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
+import { API_BASE_URL } from './baseURL'
+
+// 重新導出，方便外部維持 `import { API_BASE_URL } from '@/api'` 的舊用法
+export { API_BASE_URL }
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000',
+  baseURL: API_BASE_URL,
   timeout: 30000,
 })
 
-let isRefreshing = false
-let pendingRequests = []
-
-// P-BIZ-02: 傳入第二個參數 null 表示無錯誤，與排隊 callback 簽名一致
-function onRefreshed(newToken) {
-  pendingRequests.forEach((cb) => cb(newToken, null))
-  pendingRequests = []
-}
+// P-BIZ-02 / Bug #18: 用單一 Promise 而非 callback 佇列，避免並發 401 時
+// 因 push/iterate 非原子操作而漏掉某些等待者。
+// refreshPromise 為 null 代表沒有刷新中；非 null 即所有並發請求應 await 同一個。
+let refreshPromise = null
 
 // Request Interceptor：自動附加 JWT Token
 api.interceptors.request.use(config => {
@@ -45,39 +45,37 @@ api.interceptors.response.use(
       const auth = useAuthStore()
 
       if (auth.refreshToken) {
-        if (isRefreshing) {
-          // 已在刷新中，排隊等待
-          return new Promise((resolve, reject) => {
-            pendingRequests.push((newToken, error) => {
-              if (error) return reject(error)
-              originalConfig._retry = true
-              originalConfig.headers.Authorization = `Bearer ${newToken}`
-              resolve(api.request(originalConfig))
-            })
-          })
+        originalConfig._retry = true
+
+        // Bug #18: 同時間僅啟動一個 refresh 請求；其餘並發 401 共享同個 Promise。
+        // 使用 Promise 而非可變佇列，避免「先檢查 isRefreshing → 後 push」之間
+        // 的非原子視窗造成 callback 漏注冊。
+        if (!refreshPromise) {
+          refreshPromise = (async () => {
+            try {
+              const res = await axios.post(
+                `${api.defaults.baseURL}/api/auth/refresh`,
+                { refresh_token: auth.refreshToken }
+              )
+              const { access_token, refresh_token, user_id, role, display_name } = res.data.data
+              auth.setAuth(access_token, { user_id, role, display_name }, refresh_token)
+              return access_token
+            } finally {
+              // 將 promise 清除延後到 microtask 之後，確保所有同步排隊的等待者
+              // 都已掛上 .then 才釋放，避免後續請求重新觸發 refresh。
+              setTimeout(() => { refreshPromise = null }, 0)
+            }
+          })()
         }
 
-        originalConfig._retry = true
-        isRefreshing = true
-
         try {
-          const res = await axios.post(
-            `${api.defaults.baseURL}/api/auth/refresh`,
-            { refresh_token: auth.refreshToken }
-          )
-          const { access_token, refresh_token, user_id, role, display_name } = res.data.data
-          auth.setAuth(access_token, { user_id, role, display_name }, refresh_token)
-          onRefreshed(access_token)
-          originalConfig.headers.Authorization = `Bearer ${access_token}`
+          const newToken = await refreshPromise
+          originalConfig.headers.Authorization = `Bearer ${newToken}`
           return api.request(originalConfig)
         } catch (refreshError) {
-          pendingRequests.forEach((cb) => cb(null, refreshError))
-          pendingRequests = []
           auth.logout()
           window.location.href = '/login'
           return Promise.reject(refreshError)
-        } finally {
-          isRefreshing = false
         }
       }
 

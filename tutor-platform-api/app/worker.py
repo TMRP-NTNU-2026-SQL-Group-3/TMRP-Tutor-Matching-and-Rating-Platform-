@@ -1,6 +1,6 @@
 from huey import SqliteHuey
 
-from app.config import settings
+from app.shared.infrastructure.config import settings
 
 huey = SqliteHuey(filename=settings.huey_db_path)
 

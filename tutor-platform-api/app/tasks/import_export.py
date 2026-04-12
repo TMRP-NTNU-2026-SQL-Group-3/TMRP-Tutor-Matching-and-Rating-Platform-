@@ -3,10 +3,9 @@ import io
 import logging
 from pathlib import Path
 
-from app.config import settings
-from app.database import get_connection, release_connection
-from app.repositories.base import BaseRepository
-from app.utils.columns import quote_columns, coerce_csv_value, validate_column_name
+from app.shared.infrastructure.config import settings
+from app.shared.infrastructure.database import get_connection, release_connection
+from app.shared.infrastructure.base_repository import BaseRepository, quote_columns, coerce_csv_value, validate_column_name
 from app.utils.csv_handler import write_csv
 from app.worker import huey
 

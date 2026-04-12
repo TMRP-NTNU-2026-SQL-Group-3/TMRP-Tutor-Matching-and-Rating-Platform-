@@ -1,0 +1,47 @@
+from abc import ABC, abstractmethod
+
+
+class ISessionRepository(ABC):
+    @abstractmethod
+    def get_match_for_create(self, match_id: int) -> dict | None: ...
+
+    @abstractmethod
+    def get_match_participants(self, match_id: int) -> dict | None: ...
+
+    @abstractmethod
+    def create(self, match_id, session_date, hours, content_summary, homework, student_performance, next_plan, visible_to_parent) -> int: ...
+
+    @abstractmethod
+    def list_by_match(self, match_id: int, parent_only: bool = False) -> list[dict]: ...
+
+    @abstractmethod
+    def get_by_id(self, session_id: int) -> dict | None: ...
+
+    @abstractmethod
+    def update(self, session_id: int, fields: dict) -> None: ...
+
+    @abstractmethod
+    def insert_edit_log(self, session_id: int, field_name: str, old_value: str | None, new_value: str | None) -> None: ...
+
+    @abstractmethod
+    def get_edit_logs(self, session_id: int) -> list[dict]: ...
+
+
+class IExamRepository(ABC):
+    @abstractmethod
+    def get_student(self, student_id: int) -> dict | None: ...
+
+    @abstractmethod
+    def get_active_match_for_tutor(self, student_id: int, tutor_user_id: int) -> dict | None: ...
+
+    @abstractmethod
+    def create(self, student_id, subject_id, added_by_user_id, exam_date, exam_type, score, visible_to_parent) -> int: ...
+
+    @abstractmethod
+    def get_by_id(self, exam_id: int) -> dict | None: ...
+
+    @abstractmethod
+    def update(self, exam_id: int, updates: dict) -> None: ...
+
+    @abstractmethod
+    def list_by_student(self, student_id: int, parent_only: bool = False) -> list[dict]: ...

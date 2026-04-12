@@ -12,8 +12,8 @@ import logging
 
 import psycopg2
 
-from app.config import Settings, settings as _default_settings
-from app.utils.security import hash_password
+from app.shared.infrastructure.config import Settings, settings as _default_settings
+from app.shared.infrastructure.security import hash_password
 
 logger = logging.getLogger("app.init_db")
 
@@ -171,6 +171,19 @@ CREATE TABLE IF NOT EXISTS reviews (
     is_locked          BOOLEAN     DEFAULT FALSE
 );
 
+-- 認證 / 限流支援表（多 worker 部署下需共享狀態，避免 in-memory 漂移）
+CREATE TABLE IF NOT EXISTS refresh_token_blacklist (
+    jti        VARCHAR(64)  PRIMARY KEY,
+    expires_at TIMESTAMPTZ  NOT NULL,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS rate_limit_hits (
+    id         BIGSERIAL    PRIMARY KEY,
+    bucket_key VARCHAR(255) NOT NULL,
+    hit_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
 -- 唯一索引
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username     ON users (username);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subjects_name      ON subjects (subject_name);
@@ -193,6 +206,8 @@ CREATE INDEX IF NOT EXISTS idx_conv_last_msg          ON conversations (last_mes
 CREATE INDEX IF NOT EXISTS idx_tutor_subjects_subject ON tutor_subjects (subject_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_created       ON sessions (created_at);
 CREATE INDEX IF NOT EXISTS idx_matches_status_updated ON matches (status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_rl_bucket_hit_at       ON rate_limit_hits (bucket_key, hit_at);
+CREATE INDEX IF NOT EXISTS idx_rt_blacklist_exp       ON refresh_token_blacklist (expires_at);
 """
 
 # ──────────────────────────────────────────────

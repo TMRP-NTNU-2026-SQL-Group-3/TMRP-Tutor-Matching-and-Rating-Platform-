@@ -196,7 +196,9 @@ onMounted(async () => {
   } catch (e) {
     if (isMounted) error.value = e.message
   } finally {
-    if (isMounted) loading.value = false
+    // Bug #23: 無條件重置 loading；即使元件已卸載，下次掛載仍能從乾淨狀態開始
+    // （loading 是 ref，setter 對未掛載元件無副作用，安全）
+    loading.value = false
   }
 })
 </script>

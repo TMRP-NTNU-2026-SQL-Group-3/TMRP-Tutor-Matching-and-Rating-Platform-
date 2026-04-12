@@ -75,6 +75,11 @@ const error = ref('')
 const chatContainer = ref(null)
 const toast = useToastStore()
 let pollTimer = null
+// Bug #21: 用 fetchId 區分當前對話與舊對話，避免快速切換時舊請求覆蓋新資料
+let fetchId = 0
+// Bug #21: 紀錄當前 in-flight 的 fetch promise；新呼叫可 await 它以等待既有結果，
+// 並於需要時再觸發新 fetch（例如送出訊息後一定要看到最新訊息）。
+let inFlightFetch = null
 
 const userId = computed(() => auth.user?.user_id)
 
@@ -92,12 +97,30 @@ function scrollToBottom() {
   })
 }
 
-async function fetchMessages() {
+// dedupe=true（預設，輪詢用）：若已有 in-flight fetch 則複用其 promise，避免重疊請求
+// dedupe=false（送訊息後用）：等待既有 fetch 結束，再起一輪新的，確保看到最新訊息
+async function fetchMessages({ dedupe = true } = {}) {
+  if (inFlightFetch) {
+    const existing = inFlightFetch
+    if (dedupe) return existing
+    try { await existing } catch { /* 既有 fetch 的錯誤由它自己處理 */ }
+  }
+  const myFetchId = fetchId
+  const promise = (async () => {
+    try {
+      const result = await messagesApi.getMessages(route.params.id)
+      if (myFetchId !== fetchId) return  // 對話已切換，丟棄舊結果
+      messages.value = result
+      scrollToBottom()
+    } catch (e) {
+      if (myFetchId === fetchId) error.value = e.message
+    }
+  })()
+  inFlightFetch = promise
   try {
-    messages.value = await messagesApi.getMessages(route.params.id)
-    scrollToBottom()
-  } catch (e) {
-    error.value = e.message
+    await promise
+  } finally {
+    if (inFlightFetch === promise) inFlightFetch = null
   }
 }
 
@@ -108,7 +131,8 @@ async function handleSend() {
   try {
     await messagesApi.sendMessage(route.params.id, newMessage.value.trim())
     newMessage.value = ''
-    await fetchMessages()
+    // 送出後強制一輪新 fetch，避免落入既有 in-flight poll 的舊快照
+    await fetchMessages({ dedupe: false })
   } catch (e) {
     error.value = e.message
     toast.error('訊息傳送失敗')
@@ -118,20 +142,49 @@ async function handleSend() {
 }
 
 function startPolling() {
-  if (pollTimer) clearInterval(pollTimer)
-  pollTimer = setInterval(fetchMessages, 5000)
+  stopPolling()
+  pollTimer = setInterval(() => {
+    // Bug #21: 分頁不可見時暫停輪詢，省頻寬與後端負載
+    if (typeof document !== 'undefined' && document.hidden) return
+    fetchMessages()
+  }, 5000)
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+// Bug #21: 切換回分頁時立即拉一次最新訊息，補齊隱藏期間的更新
+function onVisibilityChange() {
+  if (typeof document !== 'undefined' && !document.hidden) {
+    fetchMessages()
+  }
 }
 
 watch(() => route.params.id, async () => {
+  fetchId++  // 標記新對話開始；舊請求的回應將被丟棄
   loading.value = true
   error.value = ''
   messages.value = []
-  await fetchMessages()
+  // dedupe:false — 若恰好有舊對話的 poll 仍 in-flight，等它結束後再起一輪新的，
+  // 否則新對話將拿不到資料（舊 promise 的結果被 fetchId 過濾掉了）
+  await fetchMessages({ dedupe: false })
   loading.value = false
   startPolling()
 }, { immediate: true })
 
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+}
+
 onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer)
+  stopPolling()
+  fetchId++  // 防止 onUnmounted 後仍有 in-flight 請求改 messages
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+  }
 })
 </script>

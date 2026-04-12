@@ -1,64 +1,13 @@
-import logging
+# Bug #16: 過渡用 re-export shim
+#
+# 目前主程式（app/main.py）只認 app.shared.domain.exceptions 中的 DomainException
+# 體系；本檔僅保留舊名稱的別名，讓 app/routers/* 下的舊路由模組（已棄用，
+# 詳見 app/routers/__init__.py）仍可匯入。原本檔內重複定義的 *_exception_handler
+# 函式並未被任何地方註冊，已移除以消除「兩套錯誤處理器」的混淆。
 
-from fastapi import Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
-
-logger = logging.getLogger("app.exceptions")
-
-
-class AppException(Exception):
-    def __init__(self, message: str, status_code: int = 400):
-        self.message = message
-        self.status_code = status_code
-
-
-class NotFoundException(AppException):
-    def __init__(self, message: str = "資源不存在"):
-        super().__init__(message, 404)
-
-
-class ForbiddenException(AppException):
-    def __init__(self, message: str = "無權限執行此操作"):
-        super().__init__(message, 403)
-
-
-class ConflictException(AppException):
-    def __init__(self, message: str = "資源狀態衝突"):
-        super().__init__(message, 409)
-
-
-async def app_exception_handler(request: Request, exc: AppException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"success": False, "data": None, "message": exc.message},
-    )
-
-
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    logger.warning("Validation error on %s %s: %s", request.method, request.url.path, exc.errors())
-    return JSONResponse(
-        status_code=422,
-        content={
-            "success": False,
-            "data": None,
-            "message": "輸入資料格式錯誤",
-            "errors": exc.errors(),
-        },
-    )
-
-
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"success": False, "data": None, "message": exc.detail or "HTTP 錯誤"},
-    )
-
-
-async def unhandled_exception_handler(request: Request, exc: Exception):
-    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
-    return JSONResponse(
-        status_code=500,
-        content={"success": False, "data": None, "message": "伺服器內部錯誤"},
-    )
+from app.shared.domain.exceptions import (  # noqa: F401
+    ConflictError as ConflictException,
+    DomainException as AppException,
+    NotFoundError as NotFoundException,
+    PermissionDeniedError as ForbiddenException,
+)

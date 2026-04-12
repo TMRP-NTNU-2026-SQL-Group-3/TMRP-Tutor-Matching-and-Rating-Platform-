@@ -412,6 +412,12 @@ async function submitExam() {
     examError.value = '日期為必填'
     return
   }
+  // Bug #24: match 載入失敗時 student_id / subject_id 會是 undefined，
+  // 提早攔截避免送出含 null id 的 API 請求觸發後端 500
+  if (!match.value || match.value.student_id == null || match.value.subject_id == null) {
+    examError.value = '配對資料尚未載入完成，請稍候再試'
+    return
+  }
   examSubmitting.value = true
   try {
     await examsApi.create({

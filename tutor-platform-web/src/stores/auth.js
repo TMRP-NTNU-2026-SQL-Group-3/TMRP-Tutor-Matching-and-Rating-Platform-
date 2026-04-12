@@ -4,6 +4,7 @@ import { ref, computed } from 'vue'
 import { useMatchStore } from './match'
 import { useMessageStore } from './message'
 import { useTutorStore } from './tutor'
+import { API_BASE_URL } from '@/api/baseURL'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || '')
@@ -47,10 +48,11 @@ export const useAuthStore = defineStore('auth', () => {
     tutorStore.setFilters({})
 
     // P-BIZ-01: 非同步撤銷 refresh token（fire-and-forget，不阻塞登出流程）
-    // 使用原始 axios 而非 api instance，因為 store 的 token 已清除
+    // 使用原始 axios 而非 api instance，因為 store 的 token 已清除，
+    // 攔截器無法再附上 Authorization header；改以保留下來的 savedToken 直接帶。
+    // baseURL 由 @/api 集中定義，避免與 axios instance 的 baseURL 漂移（Bug #19）。
     if (savedRefreshToken && savedToken) {
-      const baseURL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-      axios.post(`${baseURL}/api/auth/logout`, { refresh_token: savedRefreshToken }, {
+      axios.post(`${API_BASE_URL}/api/auth/logout`, { refresh_token: savedRefreshToken }, {
         headers: { Authorization: `Bearer ${savedToken}` }
       }).catch(() => {})
     }
