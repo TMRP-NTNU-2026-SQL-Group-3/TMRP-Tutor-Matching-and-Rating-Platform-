@@ -1,7 +1,7 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class RegisterRequest(BaseModel):
@@ -10,7 +10,16 @@ class RegisterRequest(BaseModel):
     display_name: str = Field(..., description="顯示名稱", examples=["王小明"])
     role: Literal["parent", "tutor"] = Field(..., description="使用者角色（parent 或 tutor）", examples=["parent"])
     phone: str | None = Field(default=None, description="聯絡電話", examples=["0912345678"])
-    email: str | None = Field(default=None, description="電子信箱", examples=["user@example.com"])
+    email: EmailStr | None = Field(default=None, description="電子信箱", examples=["user@example.com"])
+
+    @field_validator("phone", "email", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        # Treat empty strings (default value used by some clients) as missing so the DB
+        # stores NULL consistently and unique indexes do not see "" as a duplicate value.
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @field_validator("password")
     @classmethod

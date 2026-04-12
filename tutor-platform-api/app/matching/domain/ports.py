@@ -41,6 +41,9 @@ class ICatalogQuery(ABC):
     def get_student_owner(self, student_id: int) -> int | None: ...
 
     @abstractmethod
+    def get_student_owner_for_update(self, student_id: int) -> int | None: ...
+
+    @abstractmethod
     def tutor_exists(self, tutor_id: int) -> bool: ...
 
     @abstractmethod

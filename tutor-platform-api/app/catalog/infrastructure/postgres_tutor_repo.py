@@ -31,6 +31,123 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
         sql += " ORDER BY t.tutor_id DESC"
         return self.fetch_all(sql, tuple(params))
 
+    def search_with_stats(
+        self,
+        subject_id: int | None = None,
+        school: str | None = None,
+        min_rate: float | None = None,
+        max_rate: float | None = None,
+        min_rating: float | None = None,
+        sort_by: str = "rating",
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[dict], int]:
+        # Single-pass query: subjects/avg_rate/avg_rating/active_count are aggregated
+        # in subqueries instead of issuing N+3 round-trips per tutor.
+        order_clause = {
+            "rate_asc": "avg_rate ASC NULLS LAST, tutor_id DESC",
+            "newest": "tutor_id DESC",
+        }.get(sort_by, "avg_rating DESC NULLS LAST, tutor_id DESC")
+
+        conditions = []
+        params: list = []
+        if subject_id is not None:
+            conditions.append(
+                "t.tutor_id IN (SELECT ts.tutor_id FROM tutor_subjects ts WHERE ts.subject_id = %s)"
+            )
+            params.append(subject_id)
+        if school:
+            escaped = school.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conditions.append("t.university LIKE %s ESCAPE '\\'")
+            params.append(f"%{escaped}%")
+        where_sql = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        having_parts = []
+        having_params: list = []
+        if min_rate is not None:
+            having_parts.append("COALESCE(s_agg.avg_rate, 0) >= %s")
+            having_params.append(min_rate)
+        if max_rate is not None:
+            having_parts.append("COALESCE(s_agg.avg_rate, 0) <= %s")
+            having_params.append(max_rate)
+        if min_rating is not None:
+            having_parts.append(
+                "COALESCE("
+                "(COALESCE(r_agg.avg_r1,0)+COALESCE(r_agg.avg_r2,0)+COALESCE(r_agg.avg_r3,0)+COALESCE(r_agg.avg_r4,0))"
+                " / NULLIF("
+                "(CASE WHEN r_agg.avg_r1 IS NOT NULL THEN 1 ELSE 0 END"
+                "+CASE WHEN r_agg.avg_r2 IS NOT NULL THEN 1 ELSE 0 END"
+                "+CASE WHEN r_agg.avg_r3 IS NOT NULL THEN 1 ELSE 0 END"
+                "+CASE WHEN r_agg.avg_r4 IS NOT NULL THEN 1 ELSE 0 END), 0)"
+                ", 0) >= %s"
+            )
+            having_params.append(min_rating)
+        filter_sql = (" AND " + " AND ".join(having_parts)) if having_parts else ""
+
+        base_sql = f"""
+            SELECT t.tutor_id, t.user_id, t.university, t.department,
+                   t.grade_year, t.self_intro, t.max_students,
+                   t.show_university, t.show_department, t.show_grade_year,
+                   t.show_hourly_rate, t.show_subjects,
+                   u.display_name,
+                   COALESCE(s_agg.subjects, '[]'::json) AS subjects,
+                   COALESCE(s_agg.avg_rate, 0) AS avg_rate,
+                   COALESCE(
+                     (COALESCE(r_agg.avg_r1,0)+COALESCE(r_agg.avg_r2,0)+COALESCE(r_agg.avg_r3,0)+COALESCE(r_agg.avg_r4,0))
+                     / NULLIF(
+                       (CASE WHEN r_agg.avg_r1 IS NOT NULL THEN 1 ELSE 0 END
+                       +CASE WHEN r_agg.avg_r2 IS NOT NULL THEN 1 ELSE 0 END
+                       +CASE WHEN r_agg.avg_r3 IS NOT NULL THEN 1 ELSE 0 END
+                       +CASE WHEN r_agg.avg_r4 IS NOT NULL THEN 1 ELSE 0 END), 0)
+                   , 0) AS avg_rating,
+                   COALESCE(r_agg.review_count, 0) AS review_count,
+                   COALESCE(a_agg.active_count, 0) AS active_student_count
+            FROM tutors t
+            INNER JOIN users u ON t.user_id = u.user_id
+            LEFT JOIN (
+                SELECT ts.tutor_id,
+                       json_agg(json_build_object(
+                           'subject_id', ts.subject_id,
+                           'subject_name', s.subject_name,
+                           'category', s.category,
+                           'hourly_rate', ts.hourly_rate
+                       )) AS subjects,
+                       AVG(ts.hourly_rate) AS avg_rate
+                FROM tutor_subjects ts
+                INNER JOIN subjects s ON ts.subject_id = s.subject_id
+                GROUP BY ts.tutor_id
+            ) s_agg ON s_agg.tutor_id = t.tutor_id
+            LEFT JOIN (
+                SELECT m.tutor_id,
+                       AVG(r.rating_1) AS avg_r1,
+                       AVG(r.rating_2) AS avg_r2,
+                       AVG(r.rating_3) AS avg_r3,
+                       AVG(r.rating_4) AS avg_r4,
+                       COUNT(*) AS review_count
+                FROM reviews r
+                INNER JOIN matches m ON r.match_id = m.match_id
+                WHERE r.review_type = 'parent_to_tutor'
+                GROUP BY m.tutor_id
+            ) r_agg ON r_agg.tutor_id = t.tutor_id
+            LEFT JOIN (
+                SELECT tutor_id, COUNT(*) AS active_count
+                FROM matches
+                WHERE status IN ('active', 'trial')
+                GROUP BY tutor_id
+            ) a_agg ON a_agg.tutor_id = t.tutor_id
+            {where_sql}
+        """
+
+        filtered_sql = f"SELECT * FROM ({base_sql}) f WHERE 1=1{filter_sql}"
+        count_sql = f"SELECT COUNT(*) AS cnt FROM ({filtered_sql}) c"
+        count_row = self.fetch_one(count_sql, tuple(params + having_params))
+        total = count_row["cnt"] if count_row else 0
+
+        page_sql = f"{filtered_sql} ORDER BY {order_clause} LIMIT %s OFFSET %s"
+        offset = (page - 1) * page_size
+        rows = self.fetch_all(page_sql, tuple(params + having_params + [page_size, offset]))
+        return rows, total
+
     def find_by_id(self, tutor_id: int) -> dict | None:
         return self.fetch_one(
             """SELECT t.*, u.display_name, u.email, u.phone

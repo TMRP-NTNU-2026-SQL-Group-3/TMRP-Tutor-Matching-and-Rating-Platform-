@@ -8,6 +8,13 @@ class CatalogQueryAdapter(BaseRepository, ICatalogQuery):
         row = self.fetch_one("SELECT parent_user_id FROM students WHERE student_id = %s", (student_id,))
         return row["parent_user_id"] if row else None
 
+    def get_student_owner_for_update(self, student_id: int) -> int | None:
+        row = self.fetch_one(
+            "SELECT parent_user_id FROM students WHERE student_id = %s FOR UPDATE",
+            (student_id,),
+        )
+        return row["parent_user_id"] if row else None
+
     def tutor_exists(self, tutor_id: int) -> bool:
         row = self.fetch_one("SELECT 1 FROM tutors WHERE tutor_id = %s", (tutor_id,))
         return row is not None
@@ -28,4 +35,4 @@ class CatalogQueryAdapter(BaseRepository, ICatalogQuery):
 
     def get_max_students(self, tutor_id: int) -> int:
         row = self.fetch_one("SELECT max_students FROM tutors WHERE tutor_id = %s", (tutor_id,))
-        return row["max_students"] if row and row["max_students"] else 5
+        return row["max_students"] if row and row["max_students"] is not None else 5

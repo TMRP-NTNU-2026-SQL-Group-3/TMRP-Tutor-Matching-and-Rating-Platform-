@@ -4,7 +4,9 @@ import { ref, computed } from 'vue'
 import { useMatchStore } from './match'
 import { useMessageStore } from './message'
 import { useTutorStore } from './tutor'
+import { useToastStore } from './toast'
 import { API_BASE_URL } from '@/api/baseURL'
+import { resetRefreshState } from '@/api'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || '')
@@ -46,6 +48,11 @@ export const useAuthStore = defineStore('auth', () => {
     const tutorStore = useTutorStore()
     tutorStore.setResults([])
     tutorStore.setFilters({})
+    useToastStore().clear()
+
+    // Drop any pending token-refresh from the previous session so it cannot
+    // resolve into the next user's request stream.
+    resetRefreshState()
 
     // P-BIZ-01: 非同步撤銷 refresh token（fire-and-forget，不阻塞登出流程）
     // 使用原始 axios 而非 api instance，因為 store 的 token 已清除，

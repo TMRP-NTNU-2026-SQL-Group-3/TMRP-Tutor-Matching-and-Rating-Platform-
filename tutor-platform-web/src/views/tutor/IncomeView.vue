@@ -4,7 +4,7 @@
 
     <div class="flex items-center gap-3 mb-6">
       <label class="text-sm font-medium text-gray-700">選擇月份：</label>
-      <input type="month" v-model="month" @change="fetchData"
+      <input type="month" v-model="month" :max="maxMonth" @change="fetchData"
         class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
     </div>
 
@@ -47,7 +47,7 @@
       <EmptyState v-else message="本月無上課紀錄" />
     </div>
 
-    <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3 mt-4">{{ error }}</p>
+    <p v-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3 mt-4">{{ error }}</p>
   </div>
 </template>
 
@@ -60,7 +60,8 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import IncomeChart from '@/components/stats/IncomeChart.vue'
 
 const now = new Date()
-const month = ref(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+const maxMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+const month = ref(maxMonth)
 const data = ref(null)
 const loading = ref(false)
 const error = ref('')

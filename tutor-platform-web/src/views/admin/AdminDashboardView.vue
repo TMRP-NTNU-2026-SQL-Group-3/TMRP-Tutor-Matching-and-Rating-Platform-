@@ -2,14 +2,65 @@
   <div>
     <PageHeader title="管理後台" />
 
-    <!-- Seed data -->
+    <!-- System status -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-      <h2 class="text-lg font-semibold text-gray-900 mb-3">假資料生成</h2>
-      <button @click="handleSeed" :disabled="seeding"
-        class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
-        {{ seeding ? '生成中...' : '生成假資料' }}
-      </button>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-900">系統狀態</h2>
+        <button @click="fetchSystemStatus" :disabled="loadingStatus"
+          class="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50">
+          {{ loadingStatus ? '載入中...' : '重新載入' }}
+        </button>
+      </div>
+      <div v-if="loadingStatus && !systemStatus" class="py-4 text-center text-sm text-gray-400">載入中...</div>
+      <div v-else-if="systemStatus">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
+          <div v-for="t in tables" :key="t"
+            class="bg-gray-50 rounded-lg p-3 border border-gray-100">
+            <div class="text-xs text-gray-500 truncate" :title="t">{{ t }}</div>
+            <div class="text-lg font-semibold text-gray-900 mt-0.5">
+              {{ (systemStatus.table_counts?.[t] ?? 0).toLocaleString() }}
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <h3 class="text-sm font-semibold text-gray-700 mb-2">使用者角色</h3>
+            <ul class="text-sm text-gray-600 space-y-1">
+              <li v-for="(cnt, role) in systemStatus.role_counts" :key="role" class="flex justify-between">
+                <span>{{ role }}</span><span class="font-medium text-gray-900">{{ cnt }}</span>
+              </li>
+              <li v-if="!Object.keys(systemStatus.role_counts || {}).length" class="text-gray-400">無資料</li>
+            </ul>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-gray-700 mb-2">配對狀態</h3>
+            <ul class="text-sm text-gray-600 space-y-1">
+              <li v-for="(cnt, status) in systemStatus.match_statuses" :key="status" class="flex justify-between">
+                <span>{{ status }}</span><span class="font-medium text-gray-900">{{ cnt }}</span>
+              </li>
+              <li v-if="!Object.keys(systemStatus.match_statuses || {}).length" class="text-gray-400">無資料</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <p v-else class="text-sm text-gray-400">尚未載入</p>
+    </div>
+
+    <!-- Seed / reset data -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-3">資料維護</h2>
+      <div class="flex flex-wrap gap-3">
+        <button @click="handleSeed" :disabled="seeding"
+          class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
+          {{ seeding ? '生成中...' : '生成假資料' }}
+        </button>
+        <button @click="handleReset" :disabled="resetting"
+          class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
+          {{ resetting ? '清空中...' : '清空資料庫' }}
+        </button>
+      </div>
       <p v-if="seedResult" class="text-sm text-green-700 bg-green-50 rounded-lg p-3 mt-3">{{ seedResult }}</p>
+      <p v-if="resetResult" class="text-sm text-green-700 bg-green-50 rounded-lg p-3 mt-3">{{ resetResult }}</p>
     </div>
 
     <!-- Users -->
@@ -117,29 +168,36 @@
       </div>
     </div>
 
-    <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
+    <p v-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { adminApi } from '@/api/admin'
+import { useToastStore } from '@/stores/toast'
 import PageHeader from '@/components/common/PageHeader.vue'
 
+const toast = useToastStore()
+
 const tables = [
-  'Users', 'Tutors', 'Students', 'Subjects', 'Tutor_Subjects',
-  'Tutor_Availability', 'Matches', 'Sessions', 'Session_Edit_Logs',
-  'Exams', 'Reviews', 'Conversations', 'Messages',
+  'users', 'tutors', 'students', 'subjects', 'tutor_subjects',
+  'tutor_availability', 'matches', 'sessions', 'session_edit_logs',
+  'exams', 'reviews', 'conversations', 'messages',
 ]
 
 const users = ref([])
 const loadingUsers = ref(false)
 const seeding = ref(false)
 const seedResult = ref('')
+const resetting = ref(false)
+const resetResult = ref('')
+const systemStatus = ref(null)
+const loadingStatus = ref(false)
 const error = ref('')
 
-const exportTable = ref('Users')
-const importTable = ref('Users')
+const exportTable = ref('users')
+const importTable = ref('users')
 const importing = ref(false)
 const importResult = ref('')
 const fileInput = ref(null)
@@ -155,6 +213,7 @@ function clearResults() {
   seedResult.value = ''
   importResult.value = ''
   importAllResult.value = ''
+  resetResult.value = ''
   error.value = ''
 }
 
@@ -179,6 +238,18 @@ async function fetchUsers() {
   }
 }
 
+async function fetchSystemStatus() {
+  loadingStatus.value = true
+  error.value = ''
+  try {
+    systemStatus.value = await adminApi.getSystemStatus()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    loadingStatus.value = false
+  }
+}
+
 async function handleSeed() {
   seeding.value = true
   clearResults()
@@ -189,11 +260,35 @@ async function handleSeed() {
     } else {
       seedResult.value = '假資料生成完成！'
     }
-    await fetchUsers()
+    await Promise.all([fetchUsers(), fetchSystemStatus()])
   } catch (e) {
     error.value = e.message
   } finally {
     seeding.value = false
+  }
+}
+
+async function handleReset() {
+  // Destructive: require explicit double confirmation before wiping everything.
+  if (!window.confirm('確定要清空資料庫嗎？此操作會刪除所有資料（Admin 帳號會保留），無法復原。')) return
+  const typed = window.prompt('請輸入「RESET」以確認執行清空資料庫')
+  if (typed !== 'RESET') {
+    toast.info('已取消清空資料庫')
+    return
+  }
+  resetting.value = true
+  clearResults()
+  try {
+    const result = await adminApi.resetDatabase()
+    const total = Object.values(result || {}).reduce((a, v) => a + (Number(v) || 0), 0)
+    resetResult.value = `已清空 ${total} 筆資料`
+    toast.success('資料庫已清空')
+    await Promise.all([fetchUsers(), fetchSystemStatus()])
+  } catch (e) {
+    error.value = e.message
+    toast.error(e.message)
+  } finally {
+    resetting.value = false
   }
 }
 
@@ -235,9 +330,13 @@ async function handleImportAll() {
     const formData = new FormData()
     formData.append('file', file)
     const result = await adminApi.importAll(formData, importAllClearFirst.value)
-    const tableCount = Object.keys(result).length
-    const totalRows = Object.values(result).filter(v => typeof v === 'number').reduce((a, b) => a + b, 0)
+    const imported = result?.imported || {}
+    const errors = result?.errors || {}
+    const tableCount = Object.keys(imported).length
+    const totalRows = Object.values(imported).reduce((a, b) => a + (Number(b) || 0), 0)
+    const errorCount = Object.values(errors).reduce((a, v) => a + (Array.isArray(v) ? v.length : 1), 0)
     importAllResult.value = `已匯入 ${tableCount} 張資料表，共 ${totalRows} 筆資料`
+      + (errorCount ? `（${errorCount} 筆失敗）` : '')
     if (zipFileInput.value) zipFileInput.value.value = ''
     await fetchUsers()
   } catch (e) {
@@ -269,5 +368,8 @@ async function handleImport() {
   }
 }
 
-onMounted(fetchUsers)
+onMounted(() => {
+  fetchUsers()
+  fetchSystemStatus()
+})
 </script>

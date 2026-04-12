@@ -49,7 +49,7 @@
 
       <!-- Action buttons -->
       <div class="flex flex-wrap gap-2 mb-6">
-        <button v-if="match.status === 'pending'" @click="doAction('cancel')" :disabled="actionLoading"
+        <button v-if="match.status === 'pending'" @click="confirmAction('cancel', '確定要取消這筆邀請嗎？')" :disabled="actionLoading"
           class="bg-gray-600 hover:bg-gray-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           {{ actionLoading ? '處理中...' : '取消邀請' }}
         </button>
@@ -57,7 +57,7 @@
           class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           確認正式合作
         </button>
-        <button v-if="match.status === 'trial'" @click="doAction('reject_trial')" :disabled="actionLoading"
+        <button v-if="match.status === 'trial'" @click="confirmAction('reject_trial', '確定要結束試教嗎？此配對將關閉，無法再恢復。')" :disabled="actionLoading"
           class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           結束試教
         </button>
@@ -65,7 +65,7 @@
           class="bg-gray-600 hover:bg-gray-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           暫停
         </button>
-        <button v-if="match.status === 'active'" @click="showTerminate = true" :disabled="actionLoading"
+        <button v-if="match.status === 'active'" @click="confirmTerminate()" :disabled="actionLoading"
           class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           申請終止
         </button>
@@ -73,16 +73,16 @@
           class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           恢復
         </button>
-        <button v-if="match.status === 'paused'" @click="showTerminate = true" :disabled="actionLoading"
+        <button v-if="match.status === 'paused'" @click="confirmTerminate()" :disabled="actionLoading"
           class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           申請終止
         </button>
         <template v-if="match.status === 'terminating' && match.terminated_by !== userId">
-          <button @click="doAction('agree_terminate')" :disabled="actionLoading"
+          <button @click="confirmAction('agree_terminate', '確定要同意終止這筆配對嗎？')" :disabled="actionLoading"
             class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
             同意終止
           </button>
-          <button @click="doAction('disagree_terminate')" :disabled="actionLoading"
+          <button @click="confirmAction('disagree_terminate', '確定要拒絕對方的終止申請嗎？')" :disabled="actionLoading"
             class="bg-gray-600 hover:bg-gray-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
             不同意
           </button>
@@ -102,7 +102,7 @@
         @cancel="handleTerminateCancel"
       />
 
-      <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3 mb-6">{{ error }}</p>
+      <p v-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3 mb-6">{{ error }}</p>
 
       <!-- Sessions -->
       <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
@@ -176,7 +176,7 @@
                 <textarea v-model="reviewForm.comment" rows="2"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"></textarea>
               </div>
-              <p v-if="reviewError" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ reviewError }}</p>
+              <p v-if="reviewError" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ reviewError }}</p>
               <div class="flex gap-3">
                 <button @click="handleSubmitReview" :disabled="reviewSubmitting"
                   class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
@@ -216,6 +216,16 @@ const {
   formatDate,
 } = useMatchDetail()
 
+// Destructive action buttons require explicit confirmation to avoid mis-clicks.
+function confirmAction(action, message) {
+  if (!window.confirm(message)) return
+  doAction(action)
+}
+function confirmTerminate() {
+  if (!window.confirm('申請終止後，對方確認即會關閉配對。是否繼續？')) return
+  showTerminate.value = true
+}
+
 // Contract form
 const contractFormRef = ref(null)
 function handleTerminateCancel() {
@@ -252,10 +262,12 @@ async function handleSubmitReview() {
   }
   await submitReview({ review_type: 'parent_to_tutor', ...reviewForm })
   if (!reviewError.value) {
-    // Bug #28: 與 tutor/MatchDetailView 一致，重置時帶入 review_type，
-    // 避免將來新增更多欄位時遺漏覆蓋導致殘留舊值。
+    // U-7: Mirror the tutor side's reset pattern by preserving the currently
+    // chosen review_type. Parents only have one valid type, so this stays a
+    // no-op in behavior but keeps the two call sites structurally identical.
+    const currentType = reviewForm.review_type || 'parent_to_tutor'
     Object.assign(reviewForm, {
-      review_type: 'parent_to_tutor',
+      review_type: currentType,
       rating_1: 5, rating_2: 5, rating_3: 5, rating_4: 5,
       personality_comment: '', comment: ''
     })

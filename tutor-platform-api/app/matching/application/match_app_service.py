@@ -29,17 +29,20 @@ class MatchAppService:
         subject_id: int, hourly_rate: float, sessions_per_week: int,
         want_trial: bool, invite_message: str | None,
     ) -> int:
-        owner = self._catalog.get_student_owner(student_id)
-        if owner != user_id:
-            raise StudentNotOwnedError()
-
-        if not self._catalog.tutor_exists(tutor_id):
-            raise TutorNotFoundError()
-
-        if not self._catalog.tutor_teaches_subject(tutor_id, subject_id):
-            raise SubjectNotTaughtError()
-
         with transaction(self._conn):
+            # All consistency checks live inside the tx. The student row is locked
+            # FOR UPDATE so a concurrent transfer/delete cannot slip between the
+            # ownership check and the INSERT below.
+            owner = self._catalog.get_student_owner_for_update(student_id)
+            if owner != user_id:
+                raise StudentNotOwnedError()
+
+            if not self._catalog.tutor_exists(tutor_id):
+                raise TutorNotFoundError()
+
+            if not self._catalog.tutor_teaches_subject(tutor_id, subject_id):
+                raise SubjectNotTaughtError()
+
             if self._match_repo.check_duplicate_active(tutor_id, student_id, subject_id):
                 raise DuplicateMatchError()
 

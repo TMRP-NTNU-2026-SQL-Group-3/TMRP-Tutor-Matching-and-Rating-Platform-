@@ -44,51 +44,26 @@ def search_tutors(
 ):
     repo = _build_repo(conn)
     service = _build_service(conn)
-    tutors = repo.search(subject_id=subject_id, school=school)
+    rows, total = repo.search_with_stats(
+        subject_id=subject_id, school=school,
+        min_rate=min_rate, max_rate=max_rate, min_rating=min_rating,
+        sort_by=sort_by, page=page, page_size=page_size,
+    )
 
     results = []
-    for t in tutors:
-        subjects = repo.get_subjects(t["tutor_id"])
-        rating = repo.get_avg_rating(t["tutor_id"])
-        rates = [s["hourly_rate"] for s in subjects if s.get("hourly_rate")]
-        avg_rate = sum(rates) / len(rates) if rates else 0
-        if min_rate is not None and avg_rate < min_rate:
-            continue
-        if max_rate is not None and avg_rate > max_rate:
-            continue
-
-        avg_rating_val = 0
-        review_count = 0
-        if rating and rating.get("review_count"):
-            review_count = rating["review_count"]
-            vals = [rating.get(f"avg_r{i}") for i in range(1, 5) if rating.get(f"avg_r{i}") is not None]
-            avg_rating_val = sum(vals) / len(vals) if vals else 0
-        if min_rating is not None and avg_rating_val < min_rating:
-            continue
-
+    for t in rows:
+        subjects = t.get("subjects") or []
         if not t.get("show_hourly_rate", True):
             for s in subjects:
-                s.pop("hourly_rate", None)
+                if isinstance(s, dict):
+                    s.pop("hourly_rate", None)
         t["subjects"] = subjects if t.get("show_subjects", True) else []
-        t["avg_rating"] = round(avg_rating_val, 2)
-        t["review_count"] = review_count
+        t["avg_rating"] = round(float(t.get("avg_rating") or 0), 2)
+        t["review_count"] = int(t.get("review_count") or 0)
         service.apply_visibility(t)
         results.append(t)
 
-    if sort_by == "rate_asc":
-        def _avg_rate(x):
-            rates = [s["hourly_rate"] for s in x.get("subjects", []) if s.get("hourly_rate")]
-            return (0 if rates else 1, sum(rates) / len(rates) if rates else float('inf'))
-        results.sort(key=_avg_rate)
-    elif sort_by == "newest":
-        results.sort(key=lambda x: x.get("tutor_id", 0), reverse=True)
-    else:
-        results.sort(key=lambda x: x.get("avg_rating", 0), reverse=True)
-
-    total = len(results)
-    start = (page - 1) * page_size
-    paginated = results[start:start + page_size]
-    return ApiResponse(success=True, data={"items": paginated, "total": total})
+    return ApiResponse(success=True, data={"items": results, "total": total})
 
 
 @router.put("/profile", summary="更新老師個人資料", response_model=ApiResponse)

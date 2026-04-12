@@ -8,17 +8,33 @@
 
       <form @submit.prevent="handleLogin" class="space-y-5">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">帳號</label>
-          <input v-model="username" type="text" required
+          <label for="login-username" class="block text-sm font-medium text-gray-700 mb-1">帳號</label>
+          <input id="login-username" v-model="username" type="text" required autocomplete="username"
+            :aria-invalid="!!error || null" aria-describedby="login-error"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">密碼</label>
-          <input v-model="password" type="password" required
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
+          <label for="login-password" class="block text-sm font-medium text-gray-700 mb-1">密碼</label>
+          <div class="relative">
+            <input id="login-password" v-model="password" :type="showPassword ? 'text' : 'password'" required
+              autocomplete="current-password"
+              :aria-invalid="!!error || null" aria-describedby="login-error"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 pr-16 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
+            <button type="button" @click="showPassword = !showPassword"
+              :aria-label="showPassword ? '隱藏密碼' : '顯示密碼'"
+              class="absolute inset-y-0 right-0 flex items-center px-3 text-xs text-gray-500 hover:text-primary-600 transition-colors">
+              {{ showPassword ? '隱藏' : '顯示' }}
+            </button>
+          </div>
         </div>
 
-        <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
+        <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+          <input v-model="rememberMe" type="checkbox"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          記住我
+        </label>
+
+        <p v-if="error" id="login-error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
 
         <button type="submit" :disabled="submitting || !username || !password"
           class="w-full bg-primary-600 hover:bg-primary-700 text-white rounded-lg py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
@@ -43,8 +59,11 @@ import { authApi } from '@/api/auth'
 const router = useRouter()
 const auth = useAuthStore()
 
-const username = ref('')
+const REMEMBERED_USERNAME_KEY = 'login:rememberedUsername'
+const username = ref(localStorage.getItem(REMEMBERED_USERNAME_KEY) || '')
 const password = ref('')
+const rememberMe = ref(!!localStorage.getItem(REMEMBERED_USERNAME_KEY))
+const showPassword = ref(false)
 const error = ref('')
 const submitting = ref(false)
 
@@ -53,6 +72,11 @@ async function handleLogin() {
   try {
     error.value = ''
     const data = await authApi.login(username.value, password.value)
+    if (rememberMe.value) {
+      localStorage.setItem(REMEMBERED_USERNAME_KEY, username.value)
+    } else {
+      localStorage.removeItem(REMEMBERED_USERNAME_KEY)
+    }
     auth.setAuth(data.access_token, {
       user_id: data.user_id,
       role: data.role,

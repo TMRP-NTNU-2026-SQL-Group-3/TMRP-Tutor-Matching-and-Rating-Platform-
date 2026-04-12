@@ -15,6 +15,12 @@ const api = axios.create({
 // refreshPromise 為 null 代表沒有刷新中；非 null 即所有並發請求應 await 同一個。
 let refreshPromise = null
 
+// Drop any in-flight refresh attempt — called from auth.logout() so the next
+// signed-in user does not inherit the previous user's pending refresh result.
+export function resetRefreshState() {
+  refreshPromise = null
+}
+
 // Request Interceptor：自動附加 JWT Token
 api.interceptors.request.use(config => {
   const auth = useAuthStore()

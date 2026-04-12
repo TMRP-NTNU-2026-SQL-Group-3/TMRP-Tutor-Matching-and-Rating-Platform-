@@ -65,7 +65,13 @@ export function useMatchDetail() {
       if (match.value.student_id) {
         const examData = await examsApi.list({ student_id: match.value.student_id })
         if (currentFetchId !== _fetchId) return
-        exams.value = examData
+        // The exams API returns every exam for the student (across tutors/subjects).
+        // Restrict to this match's subject so the trend chart and "本配對考試紀錄"
+        // panel don't leak data from other matches.
+        const subjectId = match.value.subject_id
+        exams.value = subjectId
+          ? examData.filter(e => e.subject_id === subjectId)
+          : examData
       }
     } catch (e) {
       if (currentFetchId !== _fetchId) return

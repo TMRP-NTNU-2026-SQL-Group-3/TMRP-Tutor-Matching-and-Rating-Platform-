@@ -59,9 +59,11 @@
         <h2 class="text-lg font-semibold text-gray-900">授課科目</h2>
         <div v-for="(item, idx) in subjectList" :key="idx" class="flex items-center gap-3">
           <select v-model="item.subject_id"
-            class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition">
+            :aria-invalid="isDuplicateSubject(item, idx) || null"
+            class="flex-1 rounded-lg border px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"
+            :class="isDuplicateSubject(item, idx) ? 'border-red-400' : 'border-gray-300'">
             <option :value="null" disabled>選擇科目</option>
-            <option v-for="s in allSubjects" :key="s.subject_id" :value="s.subject_id">
+            <option v-for="s in availableSubjectsFor(item)" :key="s.subject_id" :value="s.subject_id">
               {{ s.subject_name }}
             </option>
           </select>
@@ -74,8 +76,33 @@
           <button type="button" @click="subjectList.splice(idx, 1)"
             class="text-red-500 hover:text-red-700 text-sm font-medium transition-colors">移除</button>
         </div>
-        <button type="button" @click="subjectList.push({ subject_id: null, hourly_rate: null })"
-          class="text-primary-600 hover:text-primary-700 text-sm font-medium transition-colors">+ 新增科目</button>
+        <p v-if="hasDuplicateSubjects" role="alert"
+          class="text-xs text-red-600">同一科目不能重複加入，請先移除或更改重複項。</p>
+        <button type="button" @click="addSubjectRow" :disabled="!hasFreeSubject"
+          class="text-primary-600 hover:text-primary-700 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          + 新增科目
+        </button>
+      </div>
+
+      <!-- Availability -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
+        <h2 class="text-lg font-semibold text-gray-900">可用時段</h2>
+        <p class="text-xs text-gray-500">家長會看到這些時段以安排課程</p>
+        <div v-for="(slot, idx) in availabilityList" :key="idx" class="flex items-center gap-3 flex-wrap">
+          <select v-model.number="slot.day_of_week"
+            class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition">
+            <option v-for="d in dayOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
+          </select>
+          <input v-model="slot.start_time" type="time"
+            class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
+          <span class="text-sm text-gray-500">至</span>
+          <input v-model="slot.end_time" type="time"
+            class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
+          <button type="button" @click="availabilityList.splice(idx, 1)"
+            class="text-red-500 hover:text-red-700 text-sm font-medium transition-colors">移除</button>
+        </div>
+        <button type="button" @click="availabilityList.push({ day_of_week: 1, start_time: '19:00', end_time: '21:00' })"
+          class="text-primary-600 hover:text-primary-700 text-sm font-medium transition-colors">+ 新增時段</button>
       </div>
 
       <!-- Settings -->
@@ -101,8 +128,8 @@
       </div>
 
       <!-- Messages -->
-      <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
-      <p v-if="success" class="text-sm text-green-700 bg-green-50 rounded-lg p-3">{{ success }}</p>
+      <p v-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
+      <p v-if="success" role="status" class="text-sm text-green-700 bg-green-50 rounded-lg p-3">{{ success }}</p>
 
       <button type="submit" :disabled="saving"
         class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-6 py-2.5 text-sm font-medium transition-colors disabled:opacity-50">
@@ -113,7 +140,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { tutorsApi } from '@/api/tutors'
 import { subjectsApi } from '@/api/subjects'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -124,6 +151,23 @@ const error = ref('')
 const success = ref('')
 const allSubjects = ref([])
 const subjectList = ref([])
+const availabilityList = ref([])
+
+const dayOptions = [
+  { value: 0, label: '週日' },
+  { value: 1, label: '週一' },
+  { value: 2, label: '週二' },
+  { value: 3, label: '週三' },
+  { value: 4, label: '週四' },
+  { value: 5, label: '週五' },
+  { value: 6, label: '週六' },
+]
+
+function _hhmm(t) {
+  if (!t) return ''
+  const s = String(t)
+  return s.length >= 5 ? s.slice(0, 5) : s
+}
 
 let isMounted = true
 onUnmounted(() => { isMounted = false })
@@ -142,9 +186,50 @@ const form = reactive({
   show_subjects: true,
 })
 
+// U-11: The (tutor_id, subject_id) pair is a composite PK in tutor_subjects,
+// so duplicates are rejected by the DB. Filter them out before we even offer a
+// "new row" button, and surface a clear inline error if any slip through.
+function isDuplicateSubject(item, idx) {
+  if (item.subject_id == null) return false
+  return subjectList.value.some((s, i) => i !== idx && s.subject_id === item.subject_id)
+}
+
+const hasDuplicateSubjects = computed(() => {
+  const seen = new Set()
+  for (const s of subjectList.value) {
+    if (s.subject_id == null) continue
+    if (seen.has(s.subject_id)) return true
+    seen.add(s.subject_id)
+  }
+  return false
+})
+
+const chosenSubjectIds = computed(() =>
+  new Set(subjectList.value.map(s => s.subject_id).filter(id => id != null))
+)
+
+function availableSubjectsFor(item) {
+  // Keep the already-chosen value visible in its own dropdown so users can
+  // re-select it, but hide any subject that is picked by another row.
+  return allSubjects.value.filter(s =>
+    s.subject_id === item.subject_id || !chosenSubjectIds.value.has(s.subject_id)
+  )
+}
+
+const hasFreeSubject = computed(() => chosenSubjectIds.value.size < allSubjects.value.length)
+
+function addSubjectRow() {
+  if (!hasFreeSubject.value) return
+  subjectList.value.push({ subject_id: null, hourly_rate: null })
+}
+
 async function handleSave() {
   error.value = ''
   success.value = ''
+  if (hasDuplicateSubjects.value) {
+    error.value = '同一科目不能重複加入'
+    return
+  }
   saving.value = true
   try {
     await tutorsApi.updateProfile(form)
@@ -154,6 +239,20 @@ async function handleSave() {
       await tutorsApi.updateSubjects({ subjects: validSubjects })
     } catch (e) {
       error.value = '基本資料已儲存，但科目設定失敗：' + e.message
+      return
+    }
+
+    const validSlots = availabilityList.value
+      .filter(s => s.start_time && s.end_time && s.start_time < s.end_time)
+      .map(s => ({
+        day_of_week: Number(s.day_of_week),
+        start_time: _hhmm(s.start_time),
+        end_time: _hhmm(s.end_time),
+      }))
+    try {
+      await tutorsApi.updateAvailability({ slots: validSlots })
+    } catch (e) {
+      error.value = '基本資料已儲存，但時段設定失敗：' + e.message
       return
     }
 
@@ -192,6 +291,11 @@ onMounted(async () => {
     subjectList.value = (detail.subjects || []).map(s => ({
       subject_id: s.subject_id,
       hourly_rate: s.hourly_rate,
+    }))
+    availabilityList.value = (detail.availability || []).map(a => ({
+      day_of_week: a.day_of_week,
+      start_time: _hhmm(a.start_time),
+      end_time: _hhmm(a.end_time),
     }))
   } catch (e) {
     if (isMounted) error.value = e.message

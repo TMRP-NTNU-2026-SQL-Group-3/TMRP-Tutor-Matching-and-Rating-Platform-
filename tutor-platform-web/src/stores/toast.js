@@ -23,5 +23,9 @@ export const useToastStore = defineStore('toast', () => {
   const warning = (msg) => _add('warning', msg, 4000)
   const info = (msg) => _add('info', msg)
 
-  return { toasts, remove, success, error, warning, info }
+  function clear() {
+    toasts.value = []
+  }
+
+  return { toasts, remove, success, error, warning, info, clear }
 })

@@ -22,8 +22,9 @@
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">密碼</label>
-          <input v-model="form.password" type="password" required
+          <input v-model="form.password" type="password" required minlength="8"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
+          <p class="text-xs mt-1" :class="passwordHintClass">至少 8 個字元，且需同時包含英文字母與數字</p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">姓名</label>
@@ -41,7 +42,7 @@
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
         </div>
 
-        <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
+        <p v-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
 
         <button type="submit" :disabled="submitting"
           class="w-full bg-primary-600 hover:bg-primary-700 text-white rounded-lg py-2.5 text-sm font-medium transition-colors disabled:opacity-50">
@@ -58,11 +59,13 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { authApi } from '@/api/auth'
+import { useToastStore } from '@/stores/toast'
 
 const router = useRouter()
+const toast = useToastStore()
 const error = ref('')
 const submitting = ref(false)
 
@@ -75,6 +78,15 @@ const form = reactive({
   email: ''
 })
 
+const passwordValid = computed(() => {
+  const v = form.password || ''
+  return v.length >= 8 && /[A-Za-z]/.test(v) && /\d/.test(v)
+})
+const passwordHintClass = computed(() => {
+  if (!form.password) return 'text-gray-500'
+  return passwordValid.value ? 'text-green-600' : 'text-red-500'
+})
+
 async function handleRegister() {
   if (submitting.value) return
   // P-BIZ-04: 前端驗證角色合法性
@@ -82,10 +94,20 @@ async function handleRegister() {
     error.value = '不合法的角色'
     return
   }
+  if (!passwordValid.value) {
+    error.value = '密碼至少 8 個字元，且需同時包含英文字母與數字'
+    return
+  }
   submitting.value = true
   try {
     error.value = ''
-    await authApi.register(form)
+    const payload = {
+      ...form,
+      phone: form.phone?.trim() || null,
+      email: form.email?.trim() || null,
+    }
+    await authApi.register(payload)
+    toast.success('註冊成功！請以新帳號登入')
     router.push('/login')
   } catch (e) {
     error.value = e.message

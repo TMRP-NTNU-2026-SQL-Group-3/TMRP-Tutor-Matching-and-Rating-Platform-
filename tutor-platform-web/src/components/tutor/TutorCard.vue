@@ -10,8 +10,9 @@
         </p>
       </div>
       <div class="sm:text-right">
-        <div v-if="tutor.subjects && tutor.subjects.length" class="text-lg font-bold text-primary-600">
-          {{ tutor.subjects[0].hourly_rate != null ? '$' + tutor.subjects[0].hourly_rate + '/hr' : '費率隱藏' }}
+        <div class="text-lg font-bold" :class="hasRate ? 'text-primary-600' : 'text-gray-400'">
+          <template v-if="hasRate">${{ tutor.subjects[0].hourly_rate }}/hr</template>
+          <template v-else>費率未公開</template>
         </div>
         <div class="flex items-center gap-1 text-sm text-amber-500">
           <span>★</span>
@@ -31,9 +32,16 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+
+const props = defineProps({
   tutor: { type: Object, required: true },
 })
 
 defineEmits(['select'])
+
+const hasRate = computed(() => {
+  const first = props.tutor?.subjects?.[0]
+  return first != null && first.hourly_rate != null
+})
 </script>

@@ -62,16 +62,20 @@ const routes = [
   // 預設導向
   {
     path: '/',
-    redirect: () => {
-      const auth = useAuthStore()
-      if (!auth.isLoggedIn) return '/login'
-      if (auth.role === 'admin') return '/admin'
-      if (auth.role === 'tutor') return '/tutor'
-      return '/parent'
-    },
+    redirect: () => roleHome(),
   },
-  { path: '/:pathMatch(.*)*', redirect: '/login' },
+  // Catchall — route already-authenticated users to their role home so we don't
+  // bounce them through /login → home (which produces a brief login flash).
+  { path: '/:pathMatch(.*)*', redirect: () => roleHome() },
 ]
+
+function roleHome() {
+  const auth = useAuthStore()
+  if (!auth.isLoggedIn) return '/login'
+  if (auth.role === 'admin') return '/admin'
+  if (auth.role === 'tutor') return '/tutor'
+  return '/parent'
+}
 
 const router = createRouter({
   history: createWebHistory(),

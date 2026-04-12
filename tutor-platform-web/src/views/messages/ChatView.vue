@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col h-[calc(100dvh_-_var(--nav-height)_-_var(--main-py)_*_2)]">
+  <div class="flex flex-col h-[calc(100dvh_-_var(--nav-height,3.5rem)_-_var(--main-py,1.5rem)_*_2)] min-h-[60vh]">
     <PageHeader title="聊天" />
 
     <div v-if="loading" class="flex-1 bg-gray-50 rounded-xl p-4 animate-pulse space-y-3">
@@ -51,7 +51,7 @@
         </button>
       </div>
 
-      <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3 mt-2">{{ error }}</p>
+      <p v-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3 mt-2">{{ error }}</p>
     </template>
   </div>
 </template>
@@ -110,7 +110,10 @@ async function fetchMessages({ dedupe = true } = {}) {
     try {
       const result = await messagesApi.getMessages(route.params.id)
       if (myFetchId !== fetchId) return  // 對話已切換，丟棄舊結果
-      messages.value = result
+      // Preserve optimistic (pending) entries so a poll firing mid-send does not
+      // visually drop the user's just-typed bubble.
+      const pending = messages.value.filter(m => m.pending)
+      messages.value = [...result, ...pending]
       scrollToBottom()
     } catch (e) {
       if (myFetchId === fetchId) error.value = e.message
@@ -125,15 +128,34 @@ async function fetchMessages({ dedupe = true } = {}) {
 }
 
 async function handleSend() {
-  if (!newMessage.value.trim()) return
+  const text = newMessage.value.trim()
+  if (!text) return
   error.value = ''
   sending.value = true
+  // Optimistic append so the bubble shows up immediately and stays in the user's
+  // intended order even when send takes 1–3s. The temp entry is wiped by the
+  // refetch that runs after the server confirms.
+  const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const tempMessage = {
+    message_id: tempId,
+    sender_user_id: userId.value,
+    sender_name: auth.user?.display_name || '我',
+    content: text,
+    sent_at: new Date().toISOString(),
+    pending: true,
+  }
+  messages.value = [...messages.value, tempMessage]
+  newMessage.value = ''
+  scrollToBottom()
   try {
-    await messagesApi.sendMessage(route.params.id, newMessage.value.trim())
-    newMessage.value = ''
-    // 送出後強制一輪新 fetch，避免落入既有 in-flight poll 的舊快照
+    await messagesApi.sendMessage(route.params.id, text)
+    // 送出後強制一輪新 fetch，避免落入既有 in-flight poll 的舊快照；
+    // refetch 會以伺服器版本（含真正的 message_id）覆蓋 messages，移除 temp。
     await fetchMessages({ dedupe: false })
   } catch (e) {
+    // Roll back the optimistic entry so the user can retry without a phantom.
+    messages.value = messages.value.filter(m => m.message_id !== tempId)
+    newMessage.value = text
     error.value = e.message
     toast.error('訊息傳送失敗')
   } finally {
