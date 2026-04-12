@@ -63,8 +63,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import TutorFilter from '@/components/tutor/TutorFilter.vue'
 import TutorCard from '@/components/tutor/TutorCard.vue'
-
-const PAGE_SIZE = 20
+import { PAGE_SIZE } from '@/constants'
 
 const toast = useToastStore()
 const tutors = ref([])

@@ -1,25 +1,44 @@
-"""
-共用 Fixtures：提供 TestClient、假使用者 Token、Mock DB 連線。
+"""Shared fixtures: TestClient, fake-user tokens, mock DB connection.
 
-測試策略：
-    以 unittest.mock 攔截 repository 方法，不依賴實際資料庫連線，
-    確保測試可在任何環境中快速、獨立地執行。
+Strategy: intercept repository methods via unittest.mock so tests do not
+depend on a real Postgres. The FastAPI lifespan (which otherwise tries to
+open a connection pool on app startup) is patched to a no-op for the
+duration of the test session.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import get_db
-from app.main import app
-from app.utils.security import create_access_token
+
+# Patch the infrastructure module's functions BEFORE `app.main` imports them.
+# Otherwise `app.main` has already captured bound references to the real
+# init/seed helpers, and patching later has no effect during lifespan.
+_lifespan_patchers = [
+    patch("app.shared.infrastructure.database.init_pool", return_value=None),
+    patch("app.shared.infrastructure.database.close_pool", return_value=None),
+    patch("app.shared.infrastructure.database.get_connection", return_value=MagicMock()),
+    patch("app.shared.infrastructure.database.release_connection", return_value=None),
+    patch("app.init_db.create_schema", return_value=None),
+    patch("app.init_db.seed_subjects", return_value=None),
+    patch("app.init_db.ensure_admin_user", return_value=None),
+    # Rate-limit middleware hits Postgres on every request; short-circuit it.
+    patch("app.middleware.rate_limit._check_and_record", return_value=True),
+    patch("app.middleware.rate_limit._cleanup_expired", return_value=0),
+]
+for p in _lifespan_patchers:
+    p.start()
+
+from app.main import app  # noqa: E402
+from app.shared.infrastructure.database import get_db  # noqa: E402
+from app.utils.security import create_access_token  # noqa: E402
 
 
-# ── Mock DB 連線 ──────────────────────────────────────────────
+# ── Mock DB connection ────────────────────────────────────────
 @pytest.fixture()
 def mock_conn():
-    """回傳一個 MagicMock 作為 psycopg2 Connection 替身。"""
+    """A MagicMock standing in for a psycopg2 Connection."""
     conn = MagicMock()
     conn.cursor.return_value = MagicMock()
     return conn
@@ -27,7 +46,7 @@ def mock_conn():
 
 @pytest.fixture(autouse=True)
 def _reset_overrides():
-    """確保每個測試前後清除依賴覆蓋，避免跨測試污染。"""
+    """Clear dependency overrides around each test to avoid cross-pollution."""
     app.dependency_overrides.clear()
     yield
     app.dependency_overrides.clear()
@@ -35,7 +54,7 @@ def _reset_overrides():
 
 @pytest.fixture()
 def client(mock_conn):
-    """使用 mock_conn 覆蓋 get_db 依賴的 TestClient。"""
+    """TestClient with get_db overridden to return mock_conn."""
     def _get_mock_db():
         return mock_conn
     app.dependency_overrides[get_db] = _get_mock_db
@@ -43,14 +62,14 @@ def client(mock_conn):
         yield c
 
 
-# ── Token 工廠 ────────────────────────────────────────────────
+# ── Token factory ─────────────────────────────────────────────
 def _make_token(user_id: int, role: str) -> str:
     return create_access_token({"sub": str(user_id), "role": role})
 
 
 @pytest.fixture()
 def parent_token():
-    """家長 (user_id=1) 的有效 JWT Token。"""
+    """Valid JWT for parent (user_id=1)."""
     return _make_token(1, "parent")
 
 
@@ -61,7 +80,7 @@ def parent_headers(parent_token):
 
 @pytest.fixture()
 def tutor_token():
-    """家教 (user_id=2) 的有效 JWT Token。"""
+    """Valid JWT for tutor (user_id=2)."""
     return _make_token(2, "tutor")
 
 
@@ -72,7 +91,7 @@ def tutor_headers(tutor_token):
 
 @pytest.fixture()
 def admin_token():
-    """管理員 (user_id=99) 的有效 JWT Token。"""
+    """Valid JWT for admin (user_id=99)."""
     return _make_token(99, "admin")
 
 

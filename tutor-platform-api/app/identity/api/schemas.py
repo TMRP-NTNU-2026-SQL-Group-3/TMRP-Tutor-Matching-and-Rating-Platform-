@@ -3,20 +3,22 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from app.shared.api.validators import OptionalStr
+
 
 class RegisterRequest(BaseModel):
     username: str = Field(..., description="使用者帳號", examples=["parent01"])
     password: str = Field(..., description="使用者密碼", examples=["P@ssw0rd123"])
     display_name: str = Field(..., description="顯示名稱", examples=["王小明"])
     role: Literal["parent", "tutor"] = Field(..., description="使用者角色（parent 或 tutor）", examples=["parent"])
-    phone: str | None = Field(default=None, description="聯絡電話", examples=["0912345678"])
+    phone: OptionalStr = Field(default=None, description="聯絡電話", examples=["0912345678"])
     email: EmailStr | None = Field(default=None, description="電子信箱", examples=["user@example.com"])
 
-    @field_validator("phone", "email", mode="before")
+    # EmailStr cannot share the generic OptionalStr Annotated type, so keep
+    # a tiny validator only for that single field.
+    @field_validator("email", mode="before")
     @classmethod
-    def _empty_to_none(cls, v):
-        # Treat empty strings (default value used by some clients) as missing so the DB
-        # stores NULL consistently and unique indexes do not see "" as a duplicate value.
+    def _email_empty_to_none(cls, v):
         if isinstance(v, str) and not v.strip():
             return None
         return v

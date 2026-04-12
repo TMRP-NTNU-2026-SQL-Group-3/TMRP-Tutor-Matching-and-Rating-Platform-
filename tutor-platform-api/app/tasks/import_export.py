@@ -3,19 +3,16 @@ import io
 import logging
 from pathlib import Path
 
+from app.admin.domain.tables import ALLOWED_TABLES
 from app.shared.infrastructure.config import settings
 from app.shared.infrastructure.database import get_connection, release_connection
-from app.shared.infrastructure.base_repository import BaseRepository, quote_columns, coerce_csv_value, validate_column_name
+from app.admin.infrastructure.csv_utils import coerce_csv_value, quote_columns
+from app.shared.infrastructure.base_repository import BaseRepository
+from app.shared.infrastructure.column_validation import validate_column_name
 from app.utils.csv_handler import write_csv
 from app.worker import huey
 
 logger = logging.getLogger("app.tasks.import_export")
-
-ALLOWED_TABLES = {
-    "users", "students", "tutors", "subjects", "tutor_subjects",
-    "tutor_availability", "matches", "sessions", "session_edit_logs",
-    "exams", "reviews", "conversations", "messages",
-}
 
 
 @huey.task(retries=3, retry_delay=10)

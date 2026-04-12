@@ -6,6 +6,11 @@ class ReviewNotFoundError(NotFoundError):
         super().__init__("找不到此評價")
 
 
+class ReviewMatchNotFoundError(NotFoundError):
+    def __init__(self):
+        super().__init__("找不到此配對")
+
+
 class ReviewLockedError(DomainException):
     def __init__(self):
         super().__init__("評價已超過編輯期限，無法修改")
@@ -14,3 +19,31 @@ class ReviewLockedError(DomainException):
 class DuplicateReviewError(ConflictError):
     def __init__(self):
         super().__init__("您已對此配對提交過同類型的評價")
+
+
+class InvalidReviewTypeError(DomainException):
+    def __init__(self):
+        super().__init__("評價類型必須為 parent_to_tutor、tutor_to_parent 或 tutor_to_student")
+
+
+class MatchNotReviewableError(DomainException):
+    def __init__(self):
+        super().__init__("只能對進行中或已結束的配對提交評價")
+
+
+class WrongReviewerRoleError(PermissionDeniedError):
+    def __init__(self, review_type: str):
+        if review_type == "parent_to_tutor":
+            super().__init__("只有家長可以評價老師")
+        else:
+            super().__init__("只有老師可以評價家長或學生")
+
+
+class NotReviewOwnerError(PermissionDeniedError):
+    def __init__(self):
+        super().__init__("只有評價者本人可以修改評價")
+
+
+class NotMatchParticipantError(PermissionDeniedError):
+    def __init__(self):
+        super().__init__("無權查看此配對的評價")

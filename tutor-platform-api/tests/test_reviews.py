@@ -1,6 +1,14 @@
-"""Review API 測試：三向評價 / 7 天鎖定機制 / 重複評價被拒。"""
+"""Review API tests: three-way review / lock window / duplicate rejection.
 
+Patches the Review BC infrastructure repo (`PostgresReviewRepository`) at
+its import site inside `app.review.api.router`.
+"""
+
+from datetime import datetime, timezone
 from unittest.mock import patch
+
+
+_REPO_PATH = "app.review.api.router.PostgresReviewRepository"
 
 
 def _match_participants(**overrides):
@@ -14,14 +22,14 @@ def _match_participants(**overrides):
     return base
 
 
-# ━━━━━━━━━━ 建立評價 ━━━━━━━━━━
+# ━━━━━━━━━━ Create review ━━━━━━━━━━
 
 class TestCreateReview:
     ENDPOINT = "/api/reviews"
 
     def test_parent_to_tutor_success(self, client, parent_headers, mock_conn):
-        """家長對老師評價成功。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Parent reviewing tutor succeeds."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
             repo.find_existing.return_value = None
@@ -31,6 +39,7 @@ class TestCreateReview:
                 "match_id": 1,
                 "review_type": "parent_to_tutor",
                 "rating_1": 5, "rating_2": 4,
+                "rating_3": 5, "rating_4": 4,
                 "comment": "很棒的老師",
             }, headers=parent_headers)
 
@@ -38,8 +47,8 @@ class TestCreateReview:
         assert resp.json()["data"]["review_id"] == 10
 
     def test_tutor_to_parent_success(self, client, tutor_headers, mock_conn):
-        """老師對家長評價成功。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Tutor reviewing parent succeeds."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
             repo.find_existing.return_value = None
@@ -55,8 +64,8 @@ class TestCreateReview:
         assert resp.json()["data"]["review_id"] == 11
 
     def test_tutor_to_student_success(self, client, tutor_headers, mock_conn):
-        """老師對學生評價成功。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Tutor reviewing student succeeds."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
             repo.find_existing.return_value = None
@@ -71,8 +80,8 @@ class TestCreateReview:
         assert resp.status_code == 200
 
     def test_duplicate_review_rejected(self, client, parent_headers, mock_conn):
-        """重複評價回傳 409。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Duplicate review returns 409."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
             repo.find_existing.return_value = {"review_id": 10}
@@ -81,14 +90,15 @@ class TestCreateReview:
                 "match_id": 1,
                 "review_type": "parent_to_tutor",
                 "rating_1": 5, "rating_2": 4,
+                "rating_3": 5, "rating_4": 4,
             }, headers=parent_headers)
 
         assert resp.status_code == 409
         assert "已" in resp.json()["message"]
 
     def test_parent_cannot_review_as_tutor(self, client, parent_headers, mock_conn):
-        """家長不能用 tutor_to_parent 類型評價。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Parent cannot submit tutor_to_parent review type."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
 
@@ -101,8 +111,8 @@ class TestCreateReview:
         assert resp.status_code == 403
 
     def test_invalid_review_type(self, client, parent_headers, mock_conn):
-        """不合法的評價類型回傳 400。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Invalid review type returns 400."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
 
@@ -115,8 +125,8 @@ class TestCreateReview:
         assert resp.status_code == 400
 
     def test_match_not_found(self, client, parent_headers, mock_conn):
-        """找不到配對回傳 404。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Missing match returns 404."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = None
 
@@ -124,24 +134,26 @@ class TestCreateReview:
                 "match_id": 999,
                 "review_type": "parent_to_tutor",
                 "rating_1": 5, "rating_2": 5,
+                "rating_3": 5, "rating_4": 5,
             }, headers=parent_headers)
 
         assert resp.status_code == 404
 
 
-# ━━━━━━━━━━ 7 天鎖定 ━━━━━━━━━━
+# ━━━━━━━━━━ 7-day lock window ━━━━━━━━━━
 
 class TestReviewLock:
     ENDPOINT = "/api/reviews/{review_id}"
 
     def test_update_within_lock_period(self, client, parent_headers, mock_conn):
-        """7 天內可修改評價。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Review can be edited within the lock window."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_for_update.return_value = {
                 "review_id": 10,
                 "reviewer_user_id": 1,
                 "is_locked": False,
+                "created_at": datetime.now(timezone.utc),
             }
 
             resp = client.patch(
@@ -153,13 +165,14 @@ class TestReviewLock:
         assert resp.status_code == 200
 
     def test_update_after_lock(self, client, parent_headers, mock_conn):
-        """超過 7 天鎖定後無法修改。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Locked review returns 400."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_for_update.return_value = {
                 "review_id": 10,
                 "reviewer_user_id": 1,
                 "is_locked": True,
+                "created_at": datetime.now(timezone.utc),
             }
 
             resp = client.patch(
@@ -169,35 +182,36 @@ class TestReviewLock:
             )
 
         assert resp.status_code == 400
-        assert "7 天" in resp.json()["message"]
+        assert "編輯期限" in resp.json()["message"]
 
     def test_update_not_reviewer(self, client, tutor_headers, mock_conn):
-        """非評價者無法修改。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Non-reviewer cannot modify."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_for_update.return_value = {
                 "review_id": 10,
-                "reviewer_user_id": 1,  # parent is reviewer
+                "reviewer_user_id": 1,
                 "is_locked": False,
+                "created_at": datetime.now(timezone.utc),
             }
 
             resp = client.patch(
                 self.ENDPOINT.format(review_id=10),
                 json={"rating_1": 1},
-                headers=tutor_headers,  # tutor (user_id=2) tries
+                headers=tutor_headers,
             )
 
         assert resp.status_code == 403
 
 
-# ━━━━━━━━━━ 列出評價 ━━━━━━━━━━
+# ━━━━━━━━━━ List reviews ━━━━━━━━━━
 
 class TestListReviews:
     ENDPOINT = "/api/reviews"
 
     def test_list_as_participant(self, client, parent_headers, mock_conn):
-        """配對參與者可列出評價。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Participant can list reviews."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_participants.return_value = _match_participants()
             repo.list_by_match.return_value = [
@@ -213,8 +227,8 @@ class TestListReviews:
         assert len(resp.json()["data"]) == 1
 
     def test_list_non_participant_denied(self, client, admin_headers, mock_conn):
-        """非參與者且非管理員無法列出（此測試用 admin 驗證可以）。"""
-        with patch("app.routers.reviews.ReviewRepository") as MockRepo:
+        """Admin can list any match's reviews."""
+        with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_participants.return_value = _match_participants()
             repo.list_by_match.return_value = []
@@ -224,5 +238,4 @@ class TestListReviews:
                 headers=admin_headers,
             )
 
-        # admin 可以查看
         assert resp.status_code == 200

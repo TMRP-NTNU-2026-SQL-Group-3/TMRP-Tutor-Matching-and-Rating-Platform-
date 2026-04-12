@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+from app.shared.domain.ports import IUnitOfWork  # noqa: F401 — re-exported for matching callers
+
 from .entities import Match
 
 

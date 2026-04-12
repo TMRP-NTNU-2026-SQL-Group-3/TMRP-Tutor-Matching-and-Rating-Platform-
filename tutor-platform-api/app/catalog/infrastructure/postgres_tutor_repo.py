@@ -1,5 +1,7 @@
 from app.catalog.domain.ports import ITutorRepository
+from app.shared.api.constants import DEFAULT_PAGE_SIZE
 from app.shared.infrastructure.base_repository import BaseRepository
+from app.shared.infrastructure.column_validation import validate_columns
 from app.shared.infrastructure.database_tx import transaction
 
 
@@ -40,7 +42,7 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
         min_rating: float | None = None,
         sort_by: str = "rating",
         page: int = 1,
-        page_size: int = 20,
+        page_size: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[dict], int]:
         # Single-pass query: subjects/avg_rate/avg_rating/active_count are aggregated
         # in subqueries instead of issuing N+3 round-trips per tutor.
@@ -62,28 +64,26 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
             params.append(f"%{escaped}%")
         where_sql = (" WHERE " + " AND ".join(conditions)) if conditions else ""
 
+        # Filters reference the inner query's output aliases (avg_rate,
+        # avg_rating) rather than the subquery aliases, because `filter_sql`
+        # is applied to the outer `SELECT * FROM (base_sql) f` wrapper.
         having_parts = []
         having_params: list = []
         if min_rate is not None:
-            having_parts.append("COALESCE(s_agg.avg_rate, 0) >= %s")
+            having_parts.append("f.avg_rate >= %s")
             having_params.append(min_rate)
         if max_rate is not None:
-            having_parts.append("COALESCE(s_agg.avg_rate, 0) <= %s")
+            having_parts.append("f.avg_rate <= %s")
             having_params.append(max_rate)
         if min_rating is not None:
-            having_parts.append(
-                "COALESCE("
-                "(COALESCE(r_agg.avg_r1,0)+COALESCE(r_agg.avg_r2,0)+COALESCE(r_agg.avg_r3,0)+COALESCE(r_agg.avg_r4,0))"
-                " / NULLIF("
-                "(CASE WHEN r_agg.avg_r1 IS NOT NULL THEN 1 ELSE 0 END"
-                "+CASE WHEN r_agg.avg_r2 IS NOT NULL THEN 1 ELSE 0 END"
-                "+CASE WHEN r_agg.avg_r3 IS NOT NULL THEN 1 ELSE 0 END"
-                "+CASE WHEN r_agg.avg_r4 IS NOT NULL THEN 1 ELSE 0 END), 0)"
-                ", 0) >= %s"
-            )
+            having_parts.append("f.avg_rating >= %s")
             having_params.append(min_rating)
         filter_sql = (" AND " + " AND ".join(having_parts)) if having_parts else ""
 
+        # Rating / active-count aggregations come from v_tutor_ratings and
+        # v_tutor_active_students (see init_db.py). Keeping them in the DB
+        # prevents the same N-level subqueries from being re-inlined here
+        # or in analytics.
         base_sql = f"""
             SELECT t.tutor_id, t.user_id, t.university, t.department,
                    t.grade_year, t.self_intro, t.max_students,
@@ -92,14 +92,7 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
                    u.display_name,
                    COALESCE(s_agg.subjects, '[]'::json) AS subjects,
                    COALESCE(s_agg.avg_rate, 0) AS avg_rate,
-                   COALESCE(
-                     (COALESCE(r_agg.avg_r1,0)+COALESCE(r_agg.avg_r2,0)+COALESCE(r_agg.avg_r3,0)+COALESCE(r_agg.avg_r4,0))
-                     / NULLIF(
-                       (CASE WHEN r_agg.avg_r1 IS NOT NULL THEN 1 ELSE 0 END
-                       +CASE WHEN r_agg.avg_r2 IS NOT NULL THEN 1 ELSE 0 END
-                       +CASE WHEN r_agg.avg_r3 IS NOT NULL THEN 1 ELSE 0 END
-                       +CASE WHEN r_agg.avg_r4 IS NOT NULL THEN 1 ELSE 0 END), 0)
-                   , 0) AS avg_rating,
+                   COALESCE(r_agg.avg_rating, 0) AS avg_rating,
                    COALESCE(r_agg.review_count, 0) AS review_count,
                    COALESCE(a_agg.active_count, 0) AS active_student_count
             FROM tutors t
@@ -117,24 +110,8 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
                 INNER JOIN subjects s ON ts.subject_id = s.subject_id
                 GROUP BY ts.tutor_id
             ) s_agg ON s_agg.tutor_id = t.tutor_id
-            LEFT JOIN (
-                SELECT m.tutor_id,
-                       AVG(r.rating_1) AS avg_r1,
-                       AVG(r.rating_2) AS avg_r2,
-                       AVG(r.rating_3) AS avg_r3,
-                       AVG(r.rating_4) AS avg_r4,
-                       COUNT(*) AS review_count
-                FROM reviews r
-                INNER JOIN matches m ON r.match_id = m.match_id
-                WHERE r.review_type = 'parent_to_tutor'
-                GROUP BY m.tutor_id
-            ) r_agg ON r_agg.tutor_id = t.tutor_id
-            LEFT JOIN (
-                SELECT tutor_id, COUNT(*) AS active_count
-                FROM matches
-                WHERE status IN ('active', 'trial')
-                GROUP BY tutor_id
-            ) a_agg ON a_agg.tutor_id = t.tutor_id
+            LEFT JOIN v_tutor_ratings r_agg ON r_agg.tutor_id = t.tutor_id
+            LEFT JOIN v_tutor_active_students a_agg ON a_agg.tutor_id = t.tutor_id
             {where_sql}
         """
 
@@ -175,19 +152,23 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
             (tutor_id,),
         )
 
-    def get_avg_rating(self, tutor_id: int) -> dict | None:
-        return self.fetch_one(
-            """SELECT AVG(r.rating_1) AS avg_r1, AVG(r.rating_2) AS avg_r2,
-                      AVG(r.rating_3) AS avg_r3, AVG(r.rating_4) AS avg_r4,
-                      COUNT(*) AS review_count
-               FROM reviews r INNER JOIN matches m ON r.match_id = m.match_id
-               WHERE m.tutor_id = %s AND r.review_type = 'parent_to_tutor'""",
+    def get_avg_rating(self, tutor_id: int) -> dict:
+        # v_tutor_ratings only contains tutors with ≥1 review (INNER JOIN +
+        # GROUP BY). For a tutor with no reviews we still hand the caller
+        # back the same "empty stats" shape the inlined query used to emit
+        # so response serialisation stays stable.
+        row = self.fetch_one(
+            """SELECT avg_r1, avg_r2, avg_r3, avg_r4, review_count
+               FROM v_tutor_ratings WHERE tutor_id = %s""",
             (tutor_id,),
         )
+        if row is None:
+            return {"avg_r1": None, "avg_r2": None, "avg_r3": None, "avg_r4": None, "review_count": 0}
+        return row
 
     def get_active_student_count(self, tutor_id: int) -> int:
         row = self.fetch_one(
-            "SELECT COUNT(*) AS cnt FROM matches WHERE tutor_id = %s AND status IN ('active', 'trial')",
+            "SELECT active_count AS cnt FROM v_tutor_active_students WHERE tutor_id = %s",
             (tutor_id,),
         )
         return row["cnt"] if row else 0
@@ -215,14 +196,14 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
                        "show_university", "show_department", "show_grade_year", "show_hourly_rate", "show_subjects"}
 
     def update_visibility(self, tutor_id: int, flags: dict) -> None:
-        self.validate_columns(list(flags.keys()), self.VISIBILITY_COLUMNS)
+        validate_columns(list(flags.keys()), self.VISIBILITY_COLUMNS)
         set_parts = [f"{col} = %s" for col in flags]
         params = list(flags.values()) + [tutor_id]
         if set_parts:
             self.execute(f"UPDATE tutors SET {', '.join(set_parts)} WHERE tutor_id = %s", tuple(params))
 
     def update_profile(self, tutor_id: int, **fields) -> None:
-        self.validate_columns(list(fields.keys()), self.PROFILE_COLUMNS)
+        validate_columns(list(fields.keys()), self.PROFILE_COLUMNS)
         set_parts = [f"{col} = %s" for col in fields]
         params = list(fields.values()) + [tutor_id]
         if set_parts:

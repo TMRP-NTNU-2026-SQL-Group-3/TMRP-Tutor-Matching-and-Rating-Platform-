@@ -1,8 +1,16 @@
 from app.shared.infrastructure.base_repository import BaseRepository
+from app.shared.infrastructure.column_validation import validate_columns
 from app.teaching.domain.ports import ISessionRepository
 
 
 class PostgresSessionRepository(BaseRepository, ISessionRepository):
+
+    _ALLOWED_UPDATE_COLUMNS = {"session_date", "hours", "content_summary", "homework",
+                               "student_performance", "next_plan", "visible_to_parent"}
+
+    def validate_update_fields(self, fields: list[str]) -> None:
+        """Public guard: accept only columns this repo is willing to UPDATE."""
+        validate_columns(fields, self._ALLOWED_UPDATE_COLUMNS)
 
     def get_match_for_create(self, match_id: int) -> dict | None:
         return self.fetch_one(
@@ -48,12 +56,9 @@ class PostgresSessionRepository(BaseRepository, ISessionRepository):
     def get_by_id(self, session_id: int) -> dict | None:
         return self.fetch_one("SELECT * FROM sessions WHERE session_id = %s", (session_id,))
 
-    ALLOWED_COLUMNS = {"session_date", "hours", "content_summary", "homework",
-                       "student_performance", "next_plan", "visible_to_parent"}
-
     def update(self, session_id: int, fields: dict) -> None:
         self.safe_update("sessions", "session_id", session_id, fields,
-                         self.ALLOWED_COLUMNS, extra_set="updated_at = NOW()")
+                         self._ALLOWED_UPDATE_COLUMNS, extra_set="updated_at = NOW()")
 
     def insert_edit_log(self, session_id, field_name, old_value, new_value) -> None:
         self.execute(

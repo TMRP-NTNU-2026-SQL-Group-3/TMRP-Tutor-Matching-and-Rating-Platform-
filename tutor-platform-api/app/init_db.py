@@ -208,6 +208,37 @@ CREATE INDEX IF NOT EXISTS idx_sessions_created       ON sessions (created_at);
 CREATE INDEX IF NOT EXISTS idx_matches_status_updated ON matches (status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_rl_bucket_hit_at       ON rate_limit_hits (bucket_key, hit_at);
 CREATE INDEX IF NOT EXISTS idx_rt_blacklist_exp       ON refresh_token_blacklist (expires_at);
+
+-- Derived views: centralise tutor-aggregate SQL that was inlined across
+-- several repositories (catalog, analytics, search). CREATE OR REPLACE so
+-- schema re-runs keep the view in sync.
+CREATE OR REPLACE VIEW v_tutor_ratings AS
+SELECT m.tutor_id,
+       AVG(r.rating_1) AS avg_r1,
+       AVG(r.rating_2) AS avg_r2,
+       AVG(r.rating_3) AS avg_r3,
+       AVG(r.rating_4) AS avg_r4,
+       COUNT(*)        AS review_count,
+       -- Overall rating = mean of whichever dimensions were rated.
+       COALESCE(
+         (COALESCE(AVG(r.rating_1),0)+COALESCE(AVG(r.rating_2),0)
+         +COALESCE(AVG(r.rating_3),0)+COALESCE(AVG(r.rating_4),0))
+         / NULLIF(
+           (CASE WHEN AVG(r.rating_1) IS NOT NULL THEN 1 ELSE 0 END
+           +CASE WHEN AVG(r.rating_2) IS NOT NULL THEN 1 ELSE 0 END
+           +CASE WHEN AVG(r.rating_3) IS NOT NULL THEN 1 ELSE 0 END
+           +CASE WHEN AVG(r.rating_4) IS NOT NULL THEN 1 ELSE 0 END), 0)
+       , 0) AS avg_rating
+FROM reviews r
+INNER JOIN matches m ON r.match_id = m.match_id
+WHERE r.review_type = 'parent_to_tutor'
+GROUP BY m.tutor_id;
+
+CREATE OR REPLACE VIEW v_tutor_active_students AS
+SELECT tutor_id, COUNT(*) AS active_count
+FROM matches
+WHERE status IN ('active', 'trial')
+GROUP BY tutor_id;
 """
 
 # ──────────────────────────────────────────────

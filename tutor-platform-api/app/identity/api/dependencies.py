@@ -37,3 +37,12 @@ def require_role(*roles: str):
             )
         return user
     return checker
+
+
+def get_auth_service(conn=Depends(get_db)):
+    # Imported lazily to keep this module free of application-layer deps
+    # for the common `get_db` / `get_current_user` import paths.
+    from app.identity.domain.services import AuthService
+    from app.identity.infrastructure.postgres_user_repo import PostgresUserRepository
+
+    return AuthService(user_repo=PostgresUserRepository(conn))

@@ -4,15 +4,26 @@ from fastapi import APIRouter, Depends, Query
 
 from app.identity.api.dependencies import get_current_user, get_db, is_admin
 from app.review.api.schemas import ReviewCreate, ReviewUpdate
+from app.review.domain.exceptions import (
+    DuplicateReviewError,
+    InvalidReviewTypeError,
+    MatchNotReviewableError,
+    NotMatchParticipantError,
+    NotReviewOwnerError,
+    ReviewLockedError,
+    ReviewMatchNotFoundError,
+    ReviewNotFoundError,
+    WrongReviewerRoleError,
+)
 from app.review.infrastructure.postgres_review_repo import PostgresReviewRepository
 from app.shared.api.schemas import ApiResponse
-from app.shared.domain.exceptions import ConflictError, DomainException, NotFoundError, PermissionDeniedError
 from app.shared.infrastructure.config import settings
 from app.shared.infrastructure.database_tx import transaction
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
 VALID_TYPES = {"parent_to_tutor", "tutor_to_parent", "tutor_to_student"}
+REVIEWABLE_STATUSES = {"active", "paused", "ended"}
 
 
 @router.post("", summary="新增評價", response_model=ApiResponse)
@@ -20,22 +31,21 @@ def create_review(body: ReviewCreate, user=Depends(get_current_user), conn=Depen
     repo = PostgresReviewRepository(conn)
     user_id = int(user["sub"])
     if body.review_type not in VALID_TYPES:
-        raise DomainException("評價類型必須為 parent_to_tutor、tutor_to_parent 或 tutor_to_student")
+        raise InvalidReviewTypeError()
     match = repo.get_match_for_create(body.match_id)
     if not match:
-        raise NotFoundError("找不到此配對")
-    REVIEWABLE_STATUSES = {'active', 'paused', 'ended'}
+        raise ReviewMatchNotFoundError()
     if match["status"] not in REVIEWABLE_STATUSES:
-        raise DomainException("只能對進行中或已結束的配對提交評價")
+        raise MatchNotReviewableError()
     is_parent = match["parent_user_id"] == user_id
     is_tutor = match["tutor_user_id"] == user_id
     if body.review_type == "parent_to_tutor" and not is_parent:
-        raise PermissionDeniedError("只有家長可以評價老師")
+        raise WrongReviewerRoleError(body.review_type)
     if body.review_type in ("tutor_to_parent", "tutor_to_student") and not is_tutor:
-        raise PermissionDeniedError("只有老師可以評價家長或學生")
+        raise WrongReviewerRoleError(body.review_type)
     with transaction(conn):
         if repo.find_existing(body.match_id, user_id, body.review_type):
-            raise ConflictError("您已對此配對提交過同類型的評價")
+            raise DuplicateReviewError()
         review_id = repo.create(
             match_id=body.match_id, reviewer_user_id=user_id,
             review_type=body.review_type, rating_1=body.rating_1,
@@ -52,10 +62,10 @@ def list_reviews(match_id: int = Query(...), user=Depends(get_current_user), con
     user_id = int(user["sub"])
     match = repo.get_match_participants(match_id)
     if not match:
-        raise NotFoundError("找不到此配對")
+        raise ReviewMatchNotFoundError()
     is_participant = match["tutor_user_id"] == user_id or match["parent_user_id"] == user_id
     if not is_participant and not is_admin(user):
-        raise PermissionDeniedError("無權查看此配對的評價")
+        raise NotMatchParticipantError()
     reviews = repo.list_by_match(match_id)
     return ApiResponse(success=True, data=reviews)
 
@@ -66,17 +76,17 @@ def update_review(review_id: int, body: ReviewUpdate, user=Depends(get_current_u
     user_id = int(user["sub"])
     review = repo.get_for_update(review_id)
     if not review:
-        raise NotFoundError("找不到此評價")
+        raise ReviewNotFoundError()
     if review["reviewer_user_id"] != user_id:
-        raise PermissionDeniedError("只有評價者本人可以修改評價")
+        raise NotReviewOwnerError()
     if review["is_locked"]:
-        raise DomainException("評價已超過編輯期限，無法修改")
+        raise ReviewLockedError()
     cutoff = datetime.now(timezone.utc) - timedelta(days=settings.review_lock_days)
     created_at = review["created_at"]
-    if hasattr(created_at, 'tzinfo') and created_at.tzinfo is None:
+    if hasattr(created_at, "tzinfo") and created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=timezone.utc)
     if created_at < cutoff:
-        raise DomainException("評價已超過編輯期限，無法修改")
+        raise ReviewLockedError()
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         return ApiResponse(success=True, data={}, message="無需更新的欄位")

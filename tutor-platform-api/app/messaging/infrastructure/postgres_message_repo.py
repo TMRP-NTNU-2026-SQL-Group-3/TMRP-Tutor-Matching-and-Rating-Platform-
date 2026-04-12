@@ -55,14 +55,25 @@ class PostgresMessageRepository(BaseRepository, IMessageRepository):
         )
         return row["cnt"] > 0 if row else False
 
-    def get_messages(self, conversation_id: int) -> list[dict]:
-        return self.fetch_all(
-            """SELECT msg.message_id, msg.sender_user_id, msg.content, msg.sent_at,
-                      u.display_name AS sender_name
-               FROM messages msg INNER JOIN users u ON msg.sender_user_id = u.user_id
-               WHERE msg.conversation_id = %s ORDER BY msg.sent_at ASC""",
-            (conversation_id,),
+    def get_messages(self, conversation_id: int, *, limit: int, before_id: int | None = None) -> list[dict]:
+        # Fetch the most recent `limit` messages (optionally older than `before_id`)
+        # in DESC order, then reverse so the UI still renders oldest-first.
+        params: list = [conversation_id]
+        where = "msg.conversation_id = %s"
+        if before_id is not None:
+            where += " AND msg.message_id < %s"
+            params.append(before_id)
+        params.append(limit)
+        rows = self.fetch_all(
+            f"""SELECT msg.message_id, msg.sender_user_id, msg.content, msg.sent_at,
+                       u.display_name AS sender_name
+                FROM messages msg INNER JOIN users u ON msg.sender_user_id = u.user_id
+                WHERE {where}
+                ORDER BY msg.message_id DESC
+                LIMIT %s""",
+            tuple(params),
         )
+        return list(reversed(rows))
 
     def send_message(self, conversation_id: int, sender_user_id: int, content: str) -> int:
         with transaction(self.conn):

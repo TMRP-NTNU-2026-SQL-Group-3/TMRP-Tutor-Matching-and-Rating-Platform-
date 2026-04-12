@@ -1,8 +1,10 @@
 from pydantic import BaseModel, Field
 
+from app.shared.api.validators import TrimmedStr
+
 
 class MessageSend(BaseModel):
-    content: str = Field(..., description="訊息內容")
+    content: TrimmedStr = Field(..., description="訊息內容")
 
 
 class ConversationCreate(BaseModel):

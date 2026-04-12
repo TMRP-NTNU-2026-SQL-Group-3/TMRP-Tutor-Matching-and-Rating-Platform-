@@ -1,3 +1,4 @@
+from app.catalog.domain.constants import DEFAULT_MAX_STUDENTS_PER_TUTOR
 from app.matching.domain.ports import ICatalogQuery
 from app.shared.infrastructure.base_repository import BaseRepository
 
@@ -28,11 +29,11 @@ class CatalogQueryAdapter(BaseRepository, ICatalogQuery):
 
     def get_active_student_count(self, tutor_id: int) -> int:
         row = self.fetch_one(
-            "SELECT COUNT(*) AS cnt FROM matches WHERE tutor_id = %s AND status IN ('active', 'trial')",
+            "SELECT active_count AS cnt FROM v_tutor_active_students WHERE tutor_id = %s",
             (tutor_id,),
         )
         return row["cnt"] if row else 0
 
     def get_max_students(self, tutor_id: int) -> int:
         row = self.fetch_one("SELECT max_students FROM tutors WHERE tutor_id = %s", (tutor_id,))
-        return row["max_students"] if row and row["max_students"] is not None else 5
+        return row["max_students"] if row and row["max_students"] is not None else DEFAULT_MAX_STUDENTS_PER_TUTOR

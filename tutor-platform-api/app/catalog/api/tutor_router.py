@@ -1,26 +1,23 @@
 from fastapi import APIRouter, Depends, Query
 
+from app.catalog.api.dependencies import get_tutor_repo, get_tutor_service
 from app.catalog.api.schemas import AvailabilityUpdate, SubjectUpdate, TutorProfileUpdate, VisibilityUpdate
 from app.catalog.domain.services import TutorService
+from app.catalog.infrastructure.postgres_subject_repo import PostgresSubjectRepository
 from app.catalog.infrastructure.postgres_tutor_repo import PostgresTutorRepository
 from app.identity.api.dependencies import get_current_user, get_db, require_role
+from app.shared.api.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.shared.api.schemas import ApiResponse
 from app.shared.domain.exceptions import DomainException, NotFoundError
 
 router = APIRouter(prefix="/api/tutors", tags=["tutors"])
 
 
-def _build_repo(conn) -> PostgresTutorRepository:
-    return PostgresTutorRepository(conn)
-
-
-def _build_service(conn) -> TutorService:
-    return TutorService(tutor_repo=_build_repo(conn))
-
-
 @router.get("/me", summary="取得自己的老師檔案", description="取得目前登入老師的完整個人檔案，包含科目與可用時段。僅限老師角色。", response_model=ApiResponse)
-def get_my_profile(user=Depends(require_role("tutor")), conn=Depends(get_db)):
-    repo = _build_repo(conn)
+def get_my_profile(
+    user=Depends(require_role("tutor")),
+    repo: PostgresTutorRepository = Depends(get_tutor_repo),
+):
     tutor = repo.find_by_user_id(int(user["sub"]))
     if not tutor:
         raise NotFoundError("找不到老師資料")
@@ -38,37 +35,31 @@ def search_tutors(
     school: str = Query(None),
     sort_by: str = Query("rating"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     user=Depends(get_current_user),
-    conn=Depends(get_db),
+    repo: PostgresTutorRepository = Depends(get_tutor_repo),
+    service: TutorService = Depends(get_tutor_service),
 ):
-    repo = _build_repo(conn)
-    service = _build_service(conn)
     rows, total = repo.search_with_stats(
         subject_id=subject_id, school=school,
         min_rate=min_rate, max_rate=max_rate, min_rating=min_rating,
         sort_by=sort_by, page=page, page_size=page_size,
     )
 
-    results = []
-    for t in rows:
-        subjects = t.get("subjects") or []
-        if not t.get("show_hourly_rate", True):
-            for s in subjects:
-                if isinstance(s, dict):
-                    s.pop("hourly_rate", None)
-        t["subjects"] = subjects if t.get("show_subjects", True) else []
-        t["avg_rating"] = round(float(t.get("avg_rating") or 0), 2)
-        t["review_count"] = int(t.get("review_count") or 0)
-        service.apply_visibility(t)
-        results.append(t)
+    results = [
+        service.apply_visibility(service.normalize_search_row(t))
+        for t in rows
+    ]
 
     return ApiResponse(success=True, data={"items": results, "total": total})
 
 
 @router.put("/profile", summary="更新老師個人資料", response_model=ApiResponse)
-def update_profile(body: TutorProfileUpdate, user=Depends(require_role("tutor")), conn=Depends(get_db)):
-    repo = _build_repo(conn)
+def update_profile(
+    body: TutorProfileUpdate,
+    user=Depends(require_role("tutor")),
+    repo: PostgresTutorRepository = Depends(get_tutor_repo),
+):
     tutor = repo.find_by_user_id(int(user["sub"]))
     if not tutor:
         raise NotFoundError("找不到老師資料")
@@ -80,16 +71,17 @@ def update_profile(body: TutorProfileUpdate, user=Depends(require_role("tutor"))
 
 
 @router.put("/profile/subjects", summary="設定可教授科目", response_model=ApiResponse)
-def update_subjects(body: SubjectUpdate, user=Depends(require_role("tutor")), conn=Depends(get_db)):
-    repo = _build_repo(conn)
+def update_subjects(
+    body: SubjectUpdate,
+    user=Depends(require_role("tutor")),
+    conn=Depends(get_db),
+    repo: PostgresTutorRepository = Depends(get_tutor_repo),
+):
     tutor = repo.find_by_user_id(int(user["sub"]))
     if not tutor:
         raise NotFoundError("找不到老師資料")
     if body.subjects:
-        from app.shared.infrastructure.base_repository import BaseRepository
-        base = BaseRepository(conn)
-        all_subjects = base.fetch_all("SELECT subject_id FROM subjects")
-        valid_ids = {s["subject_id"] for s in all_subjects}
+        valid_ids = PostgresSubjectRepository(conn).list_subject_ids()
         for s in body.subjects:
             if s.subject_id not in valid_ids:
                 raise DomainException(f"科目 ID {s.subject_id} 不存在")
@@ -99,8 +91,11 @@ def update_subjects(body: SubjectUpdate, user=Depends(require_role("tutor")), co
 
 
 @router.put("/profile/availability", summary="設定可用時段", response_model=ApiResponse)
-def update_availability(body: AvailabilityUpdate, user=Depends(require_role("tutor")), conn=Depends(get_db)):
-    repo = _build_repo(conn)
+def update_availability(
+    body: AvailabilityUpdate,
+    user=Depends(require_role("tutor")),
+    repo: PostgresTutorRepository = Depends(get_tutor_repo),
+):
     tutor = repo.find_by_user_id(int(user["sub"]))
     if not tutor:
         raise NotFoundError("找不到老師資料")
@@ -110,8 +105,11 @@ def update_availability(body: AvailabilityUpdate, user=Depends(require_role("tut
 
 
 @router.put("/profile/visibility", summary="更新欄位公開設定", response_model=ApiResponse)
-def update_visibility(body: VisibilityUpdate, user=Depends(require_role("tutor")), conn=Depends(get_db)):
-    repo = _build_repo(conn)
+def update_visibility(
+    body: VisibilityUpdate,
+    user=Depends(require_role("tutor")),
+    repo: PostgresTutorRepository = Depends(get_tutor_repo),
+):
     tutor = repo.find_by_user_id(int(user["sub"]))
     if not tutor:
         raise NotFoundError("找不到老師資料")
@@ -123,9 +121,12 @@ def update_visibility(body: VisibilityUpdate, user=Depends(require_role("tutor")
 
 
 @router.get("/{tutor_id}", summary="取得老師詳情", response_model=ApiResponse)
-def get_tutor_detail(tutor_id: int, user=Depends(get_current_user), conn=Depends(get_db)):
-    repo = _build_repo(conn)
-    service = _build_service(conn)
+def get_tutor_detail(
+    tutor_id: int,
+    user=Depends(get_current_user),
+    repo: PostgresTutorRepository = Depends(get_tutor_repo),
+    service: TutorService = Depends(get_tutor_service),
+):
     tutor = repo.find_by_id(tutor_id)
     if not tutor:
         raise NotFoundError("找不到此老師")
@@ -134,18 +135,17 @@ def get_tutor_detail(tutor_id: int, user=Depends(get_current_user), conn=Depends
     tutor["rating"] = repo.get_avg_rating(tutor_id)
     tutor["active_student_count"] = repo.get_active_student_count(tutor_id)
     if int(user["sub"]) != tutor["user_id"]:
-        if not tutor.get("show_hourly_rate", True):
-            for s in tutor.get("subjects", []):
-                s.pop("hourly_rate", None)
-        if not tutor.get("show_subjects", True):
-            tutor["subjects"] = []
         service.apply_visibility(tutor)
     return ApiResponse(success=True, data=tutor)
 
 
 @router.get("/{tutor_id}/reviews", summary="取得老師評價", response_model=ApiResponse)
-def get_tutor_reviews(tutor_id: int, user=Depends(get_current_user), conn=Depends(get_db)):
-    repo = _build_repo(conn)
+def get_tutor_reviews(
+    tutor_id: int,
+    user=Depends(get_current_user),
+    conn=Depends(get_db),
+    repo: PostgresTutorRepository = Depends(get_tutor_repo),
+):
     tutor = repo.find_by_id(tutor_id)
     if not tutor:
         raise NotFoundError("找不到此老師")

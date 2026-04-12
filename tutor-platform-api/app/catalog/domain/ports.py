@@ -36,6 +36,11 @@ class ITutorRepository(ABC):
     def update_profile(self, tutor_id: int, **fields) -> None: ...
 
 
+class ISubjectRepository(ABC):
+    @abstractmethod
+    def list_subject_ids(self) -> set[int]: ...
+
+
 class IStudentRepository(ABC):
     @abstractmethod
     def find_by_parent(self, parent_user_id: int) -> list[dict]: ...

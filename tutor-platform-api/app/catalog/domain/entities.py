@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from app.catalog.domain.constants import DEFAULT_MAX_STUDENTS_PER_TUTOR
+
 
 @dataclass
 class Tutor:
@@ -10,7 +12,7 @@ class Tutor:
     grade_year: int | None = None
     self_intro: str | None = None
     teaching_experience: str | None = None
-    max_students: int = 5
+    max_students: int = DEFAULT_MAX_STUDENTS_PER_TUTOR
     show_university: bool = True
     show_department: bool = True
     show_grade_year: bool = True

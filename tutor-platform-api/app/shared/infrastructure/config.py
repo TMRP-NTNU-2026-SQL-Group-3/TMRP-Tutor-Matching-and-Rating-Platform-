@@ -1,29 +1,33 @@
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # 資料庫（PostgreSQL）
-    database_url: str = "postgresql://tmrp:tmrp@localhost:5432/tmrp"
+    # Database (PostgreSQL) — URL is required; env-only so it is never committed.
+    database_url: str = Field(...)
     db_pool_min: int = 2
     db_pool_max: int = 10
 
-    # JWT 認證
-    jwt_secret_key: str = "change-me-in-production"
+    # JWT — secret is required; Settings() construction fails without it in env/.env
+    jwt_secret_key: str = Field(..., min_length=32)
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 15  # access token 短效期（搭配 refresh token）
+    jwt_expire_minutes: int = 15  # short-lived access token (paired with refresh token)
 
-    # Super Admin 帳號（系統啟動時自動建立）
+    # Super-admin seeded on startup — password required via env.
     admin_username: str = "admin"
-    admin_password: str = "admin123"
+    admin_password: str = Field(..., min_length=8)
 
-    # 評價鎖定天數（超過此天數的評價不可再修改）
+    # Reviews become immutable after this many days.
     review_lock_days: int = 7
 
-    # huey 任務佇列
+    # Admin CSV/ZIP import caps (infra knob, not a domain rule)
+    admin_max_upload_bytes: int = 50 * 1024 * 1024
+    admin_max_import_rows_per_table: int = 50_000
+
+    # huey task queue
     huey_db_path: str = "data/huey.db"
 
-    # 日誌
+    # Logging
     log_file: str = "logs/app.log"
     log_level: str = "INFO"
     log_format: str = "json"
@@ -35,16 +39,15 @@ class Settings(BaseSettings):
         env_file = ".env"
 
     @model_validator(mode="after")
-    def validate_security_defaults(self):
-        if self.jwt_secret_key == "change-me-in-production":
+    def reject_placeholder_secrets(self):
+        # Defence-in-depth against someone re-introducing the old placeholders via env.
+        if self.jwt_secret_key in {"change-me-in-production", "change-me"}:
             raise ValueError(
-                "JWT_SECRET_KEY 必須在 .env 中設定安全的密鑰，不可使用預設值。"
-                "請執行: python -c \"import secrets; print(secrets.token_hex(32))\" 生成密鑰。"
+                "JWT_SECRET_KEY must be a real secret. "
+                "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\""
             )
-        if self.admin_password == "admin123":
-            raise ValueError(
-                "ADMIN_PASSWORD 必須在 .env 中設定強密碼，不可使用預設值 'admin123'。"
-            )
+        if self.admin_password in {"admin123", "admin", "password"}:
+            raise ValueError("ADMIN_PASSWORD must not be a known placeholder value.")
         return self
 
 

@@ -18,12 +18,11 @@ def list_students(user=Depends(require_role("parent")), conn=Depends(get_db)):
 
 @router.post("", summary="新增子女", response_model=ApiResponse)
 def add_student(body: StudentCreate, user=Depends(require_role("parent")), conn=Depends(get_db)):
-    if not body.name or not body.name.strip():
-        raise DomainException("子女姓名不可為空")
+    # Name trimming / empty-check is handled by TrimmedStr in StudentCreate.
     repo = PostgresStudentRepository(conn)
     student_id = repo.create(
         parent_user_id=int(user["sub"]),
-        name=body.name.strip(),
+        name=body.name,
         school=body.school,
         grade=body.grade,
     )

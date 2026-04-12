@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field, model_validator
 
+from app.shared.api.validators import OptionalStr, TrimmedStr
+
 
 class TutorProfileUpdate(BaseModel):
     self_intro: str | None = Field(default=None, description="自我介紹")
@@ -58,13 +60,13 @@ class VisibilityUpdate(BaseModel):
 
 
 class StudentCreate(BaseModel):
-    name: str = Field(..., description="學生姓名")
-    school: str | None = Field(default=None, description="就讀學校")
-    grade: str | None = Field(default=None, description="年級")
+    name: TrimmedStr = Field(..., description="學生姓名")
+    school: OptionalStr = Field(default=None, description="就讀學校")
+    grade: OptionalStr = Field(default=None, description="年級")
 
 
 class StudentUpdate(BaseModel):
-    name: str | None = Field(default=None, description="學生姓名")
-    school: str | None = Field(default=None, description="就讀學校")
-    grade: str | None = Field(default=None, description="年級")
-    target_school: str | None = Field(default=None, description="目標學校")
+    name: OptionalStr = Field(default=None, description="學生姓名")
+    school: OptionalStr = Field(default=None, description="就讀學校")
+    grade: OptionalStr = Field(default=None, description="年級")
+    target_school: OptionalStr = Field(default=None, description="目標學校")

@@ -19,7 +19,18 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => !!token.value && !!user.value)
   const role = computed(() => user.value?.role || '')
 
+  const VALID_ROLES = ['parent', 'tutor', 'admin']
+
   function setAuth(tokenValue, userData, refreshTokenValue) {
+    // Guard against an upstream bug (e.g. a broken interceptor) writing a
+    // bogus role into the store — router guards and UI gates all key off
+    // `user.role`, so silently accepting anything here masks the real bug.
+    if (!userData || typeof userData !== 'object') {
+      throw new Error('setAuth: userData must be an object')
+    }
+    if (!VALID_ROLES.includes(userData.role)) {
+      throw new Error(`setAuth: invalid role "${userData.role}"`)
+    }
     token.value = tokenValue
     user.value = userData
     localStorage.setItem('token', tokenValue)
