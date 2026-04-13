@@ -75,7 +75,7 @@ class TestCreateMatch:
         ):
             catalog = MockCatalog.return_value
             catalog.get_student_owner_for_update.return_value = 1  # parent
-            catalog.tutor_exists.return_value = True
+            catalog.lock_tutor_for_update.return_value = True
             catalog.tutor_teaches_subject.return_value = True
             catalog.get_active_student_count.return_value = 0
             catalog.get_max_students.return_value = 5
@@ -108,7 +108,7 @@ class TestCreateMatch:
         ):
             catalog = MockCatalog.return_value
             catalog.get_student_owner_for_update.return_value = 1
-            catalog.tutor_exists.return_value = True
+            catalog.lock_tutor_for_update.return_value = True
             catalog.tutor_teaches_subject.return_value = True
 
             match_repo = MockMatchRepo.return_value

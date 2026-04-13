@@ -53,7 +53,10 @@ class MatchAppService:
             if owner != user_id:
                 raise StudentNotOwnedError()
 
-            if not self._catalog.tutor_exists(tutor_id):
+            # Lock the tutor row for the rest of the tx: the capacity read
+            # below must not race with a sibling create_match for the same
+            # tutor that also sees (active < max_students).
+            if not self._catalog.lock_tutor_for_update(tutor_id):
                 raise TutorNotFoundError()
 
             if not self._catalog.tutor_teaches_subject(tutor_id, subject_id):
@@ -101,6 +104,7 @@ class MatchAppService:
     def update_status(
         self, *, match_id: int, action_str: str, reason: str | None,
         user_id: int, is_admin: bool,
+        contract_terms: dict | None = None,
     ) -> dict:
         match = self._match_repo.find_by_id(match_id)
         if match is None:
@@ -140,6 +144,18 @@ class MatchAppService:
                 prev = fresh.previous_status_before_terminating
                 self._match_repo.clear_termination(match_id, prev)
                 new_status = MatchStatus(prev)
+        elif action == Action.CONFIRM_TRIAL and self._has_contract_terms(contract_terms):
+            # Spec Module D: trial → active is the parties' formal contract
+            # confirmation, so persist any edited terms in the same tx as the
+            # status flip.
+            with self._uow.begin():
+                self._match_repo.confirm_trial_with_terms(
+                    match_id=match_id,
+                    new_status=new_status.value,
+                    hourly_rate=contract_terms.get("hourly_rate"),
+                    sessions_per_week=contract_terms.get("sessions_per_week"),
+                    start_date=contract_terms.get("start_date"),
+                )
         else:
             self._match_repo.update_status(match_id, new_status.value)
 
@@ -148,3 +164,9 @@ class MatchAppService:
             "new_status": new_status.value,
             "status_label": new_status.label,
         }
+
+    @staticmethod
+    def _has_contract_terms(terms: dict | None) -> bool:
+        if not terms:
+            return False
+        return any(terms.get(k) is not None for k in ("hourly_rate", "sessions_per_week", "start_date"))

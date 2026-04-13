@@ -44,8 +44,8 @@
 
         <p v-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
 
-        <button type="submit" :disabled="submitting"
-          class="w-full bg-primary-600 hover:bg-primary-700 text-white rounded-lg py-2.5 text-sm font-medium transition-colors disabled:opacity-50">
+        <button type="submit" :disabled="submitting || !passwordValid || !form.username || !form.display_name"
+          class="w-full bg-primary-600 hover:bg-primary-700 text-white rounded-lg py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
           {{ submitting ? '註冊中...' : '註冊' }}
         </button>
       </form>

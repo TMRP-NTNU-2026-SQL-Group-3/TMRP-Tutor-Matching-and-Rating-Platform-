@@ -1,7 +1,8 @@
 <template>
   <div>
     <!-- Loading skeleton -->
-    <div v-if="loading" class="animate-pulse space-y-4">
+    <div v-if="loading" class="animate-pulse space-y-4"
+         role="status" aria-live="polite" aria-label="載入配對詳情中">
       <div class="flex items-center justify-between">
         <div class="h-8 bg-gray-200 rounded w-32"></div>
         <div class="h-6 bg-gray-200 rounded-full w-20"></div>
@@ -17,6 +18,7 @@
         <div class="h-4 bg-gray-200 rounded w-24 mb-4"></div>
         <div class="h-20 bg-gray-200 rounded"></div>
       </div>
+      <span class="sr-only">載入中...</span>
     </div>
 
     <div v-else-if="match">
@@ -56,7 +58,7 @@
           class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           拒絕邀請
         </button>
-        <button v-if="match.status === 'trial'" @click="doAction('confirm_trial')" :disabled="actionLoading"
+        <button v-if="match.status === 'trial'" @click="showContractConfirm = true" :disabled="actionLoading"
           class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           確認正式合作
         </button>
@@ -103,6 +105,15 @@
         :submitting="actionLoading"
         @submit="handleTerminateSubmit"
         @cancel="handleTerminateCancel"
+      />
+
+      <!-- Spec Module D: trial → active contract confirmation -->
+      <ContractConfirmModal
+        :visible="showContractConfirm"
+        :submitting="actionLoading"
+        :defaults="contractDefaults"
+        @submit="doConfirmTrial"
+        @cancel="showContractConfirm = false"
       />
 
       <p v-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3 mb-6">{{ error }}</p>
@@ -249,9 +260,9 @@
                 </select>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div v-for="(label, idx) in reviewLabels" :key="idx">
-                  <label class="block text-sm font-medium text-gray-700 mb-1">{{ label }}（1-5）</label>
-                  <input v-model.number="reviewForm['rating_' + (idx + 1)]" type="number" min="1" max="5"
+                <div v-for="item in reviewLabels" :key="item.id">
+                  <label class="block text-sm font-medium text-gray-700 mb-1">{{ item.label }}（1-5）</label>
+                  <input v-model.number="reviewForm[item.id]" type="number" min="1" max="5"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
                 </div>
               </div>
@@ -298,6 +309,7 @@ import SessionTimeline from '@/components/session/SessionTimeline.vue'
 import SessionForm from '@/components/session/SessionForm.vue'
 import ReviewList from '@/components/review/ReviewList.vue'
 import ContractForm from '@/components/match/ContractForm.vue'
+import ContractConfirmModal from '@/components/match/ContractConfirmModal.vue'
 import ProgressChart from '@/components/stats/ProgressChart.vue'
 
 const toast = useToastStore()
@@ -305,11 +317,19 @@ const toast = useToastStore()
 const {
   match, sessions, exams, reviews,
   loading, error, actionLoading,
-  showTerminate, userId, displayReason,
-  fetchMatch, doAction, doTerminate,
+  showTerminate, showContractConfirm, userId, displayReason,
+  fetchMatch, doAction, doTerminate, doConfirmTrial,
   showReviewForm, reviewSubmitting, reviewError, submitReview,
   formatDate,
 } = useMatchDetail()
+
+const contractDefaults = computed(() => ({
+  hourly_rate: match.value?.hourly_rate ?? null,
+  sessions_per_week: match.value?.sessions_per_week ?? null,
+  start_date: match.value?.start_date
+    ? String(match.value.start_date).slice(0, 10)
+    : '',
+}))
 
 // Destructive action buttons require explicit confirmation to avoid mis-clicks.
 function confirmAction(action, message) {
@@ -353,11 +373,23 @@ const reviewForm = reactive({
   personality_comment: '', comment: ''
 })
 
-const reviewLabels = computed(() => {
-  if (reviewForm.review_type === 'tutor_to_parent')
-    return ['配合度', '溝通態度', '準時付費', '整體滿意度']
-  return ['學習態度', '完成作業', '課堂表現', '整體進步']
-})
+const TUTOR_TO_PARENT_LABELS = [
+  { id: 'rating_1', label: '配合度' },
+  { id: 'rating_2', label: '溝通態度' },
+  { id: 'rating_3', label: '準時付費' },
+  { id: 'rating_4', label: '整體滿意度' },
+]
+const TUTOR_TO_STUDENT_LABELS = [
+  { id: 'rating_1', label: '學習態度' },
+  { id: 'rating_2', label: '完成作業' },
+  { id: 'rating_3', label: '課堂表現' },
+  { id: 'rating_4', label: '整體進步' },
+]
+const reviewLabels = computed(() =>
+  reviewForm.review_type === 'tutor_to_parent'
+    ? TUTOR_TO_PARENT_LABELS
+    : TUTOR_TO_STUDENT_LABELS
+)
 
 const canReviewParent = computed(() => {
   if (!match.value) return false

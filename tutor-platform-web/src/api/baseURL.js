@@ -1,9 +1,21 @@
-// 統一的 API baseURL（從 api/index 抽出，避免 stores 與 api 相互 import 形成循環依賴）。
+// Single source of truth for the API baseURL (split out from api/index so
+// stores ↔ api can't form an import cycle).
 //
 // Docker 環境下 VITE_API_BASE_URL="" 為刻意設計：
-//   後端所有路由皆以 /api/ 前綴，前端呼叫亦含 /api/，
-//   空 baseURL 會送出相對路徑（例如 /api/auth/login），
-//   由 nginx 代理至 api:8000。請勿改成 '/api'，否則路徑變成 /api/api/...。
+//   後端所有路由皆以 /api/ 前綴，前端呼叫亦含 /api/，空 baseURL 會送出
+//   相對路徑（例如 /api/auth/login），由 nginx 代理至 api:8000。請勿改成
+//   '/api'，否則路徑會重複成 /api/api/...。
 //
-// 開發環境（無 env 變數）則回退至 http://localhost:8000。
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+// Dev / prod URLs are supplied by `.env.development` / `.env.production`.
+// The empty-string check below is important: an explicit VITE_API_BASE_URL=""
+// (Docker prod) must survive as "" and NOT fall through to the dev default.
+const envValue = import.meta.env.VITE_API_BASE_URL
+
+export const API_BASE_URL = envValue !== undefined
+  ? envValue
+  // Dev-only safety net. If you hit this in production, something is wrong
+  // with your build-time env injection — fix the build rather than relying
+  // on this branch, so misconfigured prod deploys fail loudly in one place.
+  : (import.meta.env.DEV
+      ? 'http://localhost:8000'
+      : (() => { throw new Error('VITE_API_BASE_URL is not set in this build') })())

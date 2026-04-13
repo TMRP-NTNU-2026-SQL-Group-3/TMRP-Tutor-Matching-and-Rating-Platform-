@@ -23,6 +23,7 @@ export function useMatchDetail() {
   const loading = ref(false)
   const error = ref('')
   const showTerminate = ref(false)
+  const showContractConfirm = ref(false)
   const actionLoading = ref(false)
 
   const userId = computed(() => auth.user?.user_id)
@@ -34,9 +35,18 @@ export function useMatchDetail() {
 
   // ── 資料載入 ──
   let _fetchId = 0
+  // F-07: keep the in-flight fetch's AbortController so a new fetch (e.g.
+  // route change, post-action refetch) can cancel the previous request and
+  // free both client connections and backend work — the fetchId guard alone
+  // would still let the old response be parsed and discarded.
+  let _activeController = null
 
   async function fetchMatch() {
     const currentFetchId = ++_fetchId
+    if (_activeController) _activeController.abort()
+    const controller = new AbortController()
+    _activeController = controller
+    const { signal } = controller
 
     // Bug #26: 提早驗證路由參數，避免直接訪問 /parent/match/abc 時送出無效 ID
     const rawId = route.params.id
@@ -52,18 +62,18 @@ export function useMatchDetail() {
     if (!match.value) loading.value = true
     error.value = ''
     try {
-      const detail = await matchesApi.getDetail(matchId)
+      const detail = await matchesApi.getDetail(matchId, { signal })
       if (currentFetchId !== _fetchId) return  // 已有更新的請求，丟棄此結果
       match.value = detail
       const [sessData, reviewData] = await Promise.all([
-        sessionsApi.list({ match_id: matchId }),
-        reviewsApi.list({ match_id: matchId }),
+        sessionsApi.list({ match_id: matchId }, { signal }),
+        reviewsApi.list({ match_id: matchId }, { signal }),
       ])
       if (currentFetchId !== _fetchId) return
       sessions.value = sessData
       reviews.value = reviewData
       if (match.value.student_id) {
-        const examData = await examsApi.list({ student_id: match.value.student_id })
+        const examData = await examsApi.list({ student_id: match.value.student_id }, { signal })
         if (currentFetchId !== _fetchId) return
         // The exams API returns every exam for the student (across tutors/subjects).
         // Restrict to this match's subject so the trend chart and "本配對考試紀錄"
@@ -74,11 +84,16 @@ export function useMatchDetail() {
           : examData
       }
     } catch (e) {
+      // Aborted requests already get discarded by the fetchId guard above; this
+      // catches the rejection that abort() throws from inside the await chain.
       if (currentFetchId !== _fetchId) return
       error.value = e.message
       toast.error('載入配對資料失敗')
     } finally {
-      if (currentFetchId === _fetchId) loading.value = false
+      if (currentFetchId === _fetchId) {
+        loading.value = false
+        _activeController = null
+      }
     }
   }
 
@@ -90,6 +105,23 @@ export function useMatchDetail() {
     try {
       await matchesApi.updateStatus(match.value.match_id, action)
       toast.success('操作成功')
+      await fetchMatch()
+    } catch (e) {
+      error.value = e.message
+      toast.error(e.message)
+    } finally {
+      actionLoading.value = false
+    }
+  }
+
+  async function doConfirmTrial(terms) {
+    if (!match.value || actionLoading.value) return
+    error.value = ''
+    actionLoading.value = true
+    try {
+      await matchesApi.confirmTrial(match.value.match_id, terms)
+      showContractConfirm.value = false
+      toast.success('合約已確認，配對進入正式合作')
       await fetchMatch()
     } catch (e) {
       error.value = e.message
@@ -150,8 +182,8 @@ export function useMatchDetail() {
   return {
     match, sessions, exams, reviews,
     loading, error, actionLoading,
-    showTerminate, userId, displayReason,
-    fetchMatch, doAction, doTerminate,
+    showTerminate, showContractConfirm, userId, displayReason,
+    fetchMatch, doAction, doTerminate, doConfirmTrial,
     showReviewForm, reviewSubmitting, reviewError, submitReview,
     formatDate,
   }

@@ -12,8 +12,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# 建立資料與日誌目錄
-RUN mkdir -p data logs
+# 建立資料與日誌目錄；改為非 root 之前先把 ownership 給應用使用者，
+# 否則 huey sqlite 寫入或 logging file handler 都會被 EACCES。
+RUN useradd -m -u 1000 app \
+    && mkdir -p data logs \
+    && chown -R app:app /app
+USER app
 
 EXPOSE 8000
 

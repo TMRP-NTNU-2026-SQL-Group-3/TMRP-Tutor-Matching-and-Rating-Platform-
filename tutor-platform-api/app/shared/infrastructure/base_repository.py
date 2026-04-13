@@ -78,6 +78,6 @@ class BaseRepository:
             return [], 0
 
         offset = (page - 1) * page_size
-        paged_sql = f"{sql} LIMIT {page_size} OFFSET {offset}"
-        items = self.fetch_all(paged_sql, params)
+        paged_sql = sql + " LIMIT %s OFFSET %s"
+        items = self.fetch_all(paged_sql, tuple(params) + (page_size, offset))
         return items, total

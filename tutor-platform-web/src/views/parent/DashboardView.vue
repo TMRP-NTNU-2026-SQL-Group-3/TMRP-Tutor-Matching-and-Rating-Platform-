@@ -9,7 +9,8 @@
     <!-- Match list -->
     <h2 class="text-lg font-semibold text-gray-900 mb-3">我的配對</h2>
 
-    <div v-if="loading" class="animate-pulse space-y-3">
+    <div v-if="loading" class="animate-pulse space-y-3"
+         role="status" aria-live="polite" aria-label="載入配對列表中">
       <div v-for="n in 3" :key="n" class="bg-white rounded-lg border border-gray-100 p-4 flex items-center justify-between">
         <div>
           <div class="h-5 bg-gray-200 rounded w-24 mb-2"></div>
@@ -17,6 +18,7 @@
         </div>
         <div class="h-6 bg-gray-200 rounded-full w-16"></div>
       </div>
+      <span class="sr-only">載入中...</span>
     </div>
 
     <div v-else-if="matches.length" class="space-y-3">

@@ -5,12 +5,14 @@
     <TutorFilter :subjects="subjects" @search="onFiltersChanged" />
 
     <!-- Results -->
-    <div v-if="loading" class="animate-pulse grid gap-4 md:grid-cols-2">
+    <div v-if="loading" class="animate-pulse grid gap-4 md:grid-cols-2"
+         role="status" aria-live="polite" aria-label="載入老師列表中">
       <div v-for="n in 4" :key="n" class="bg-white rounded-xl border border-gray-100 p-5">
         <div class="h-5 bg-gray-200 rounded w-1/3 mb-3"></div>
         <div class="h-4 bg-gray-200 rounded w-2/3 mb-2"></div>
         <div class="h-4 bg-gray-200 rounded w-1/2"></div>
       </div>
+      <span class="sr-only">載入中...</span>
     </div>
 
     <template v-else-if="tutors.length">
@@ -33,6 +35,9 @@
         <button v-for="p in pageNumbers" :key="p.key" @click="p.num && goToPage(p.num)"
           :disabled="!p.num"
           :aria-current="p.num === page ? 'page' : null"
+          :aria-label="p.num ? `第 ${p.num} 頁` : '省略頁碼'"
+          :aria-hidden="!p.num ? 'true' : null"
+          :tabindex="!p.num ? -1 : null"
           :class="[
             'min-w-[2.25rem] px-3 py-1.5 rounded-lg border text-sm transition-colors',
             !p.num
@@ -103,6 +108,7 @@ async function doSearch(filters = {}, targetPage = 1) {
     if (filters.subject_id != null && filters.subject_id !== '') params.subject_id = filters.subject_id
     if (filters.min_rate != null && filters.min_rate !== '') params.min_rate = filters.min_rate
     if (filters.max_rate != null && filters.max_rate !== '') params.max_rate = filters.max_rate
+    if (filters.min_rating != null && filters.min_rating !== '') params.min_rating = filters.min_rating
     if (filters.school) params.school = filters.school
     params.sort_by = filters.sort_by || 'rating'
     params.page = targetPage

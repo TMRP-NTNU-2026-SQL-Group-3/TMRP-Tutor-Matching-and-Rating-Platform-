@@ -1,8 +1,6 @@
-from app.admin.infrastructure.csv_utils import (
-    coerce_csv_value,
-    quote_columns,
-    validate_columns,
-)
+from psycopg2 import sql
+
+from app.admin.infrastructure.csv_utils import coerce_csv_value, validate_columns
 from app.shared.infrastructure.base_repository import BaseRepository
 
 
@@ -12,28 +10,35 @@ class TableAdminRepository(BaseRepository):
     must be pre-validated against the ALLOWED_TABLES whitelist by the caller."""
 
     def count(self, table: str) -> int:
-        row = self.fetch_one(f"SELECT COUNT(*) AS cnt FROM {table}")
+        stmt = sql.SQL("SELECT COUNT(*) AS cnt FROM {tbl}").format(
+            tbl=sql.Identifier(table)
+        )
+        row = self.fetch_one(stmt)
         return (row and row["cnt"]) or 0
 
     def count_all(self, tables) -> dict:
         return {t: self.count(t) for t in tables}
 
     def delete_all(self, table: str) -> None:
-        self.cursor.execute(f"DELETE FROM {table}")
+        stmt = sql.SQL("DELETE FROM {tbl}").format(tbl=sql.Identifier(table))
+        self.cursor.execute(stmt)
 
     def delete_users_except(self, admin_user_id: int) -> None:
         self.cursor.execute("DELETE FROM users WHERE user_id <> %s", (admin_user_id,))
 
     def select_all(self, table: str) -> list[dict]:
-        return self.fetch_all(f"SELECT * FROM {table}")
+        stmt = sql.SQL("SELECT * FROM {tbl}").format(tbl=sql.Identifier(table))
+        return self.fetch_all(stmt)
 
     def insert_csv_row(self, table: str, columns: list[str], raw_values: list) -> None:
         validate_columns(columns)
-        placeholders = ", ".join(["%s"] * len(columns))
-        col_names = quote_columns(columns)
-        sql = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
+        col_list = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
+        placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in columns)
+        stmt = sql.SQL("INSERT INTO {tbl} ({cols}) VALUES ({vals})").format(
+            tbl=sql.Identifier(table), cols=col_list, vals=placeholders,
+        )
         values = tuple(coerce_csv_value(v) for v in raw_values)
-        self.cursor.execute(sql, values)
+        self.cursor.execute(stmt, values)
 
     def reset_serial_sequences(self, table_names) -> None:
         for table in table_names:
@@ -46,18 +51,26 @@ class TableAdminRepository(BaseRepository):
             for row in self.cursor.fetchall():
                 col_name, seq_name = row[0], row[1]
                 if seq_name:
-                    self.cursor.execute(
-                        f"SELECT setval('{seq_name}', COALESCE((SELECT MAX(\"{col_name}\") FROM {table}), 0) + 1, false)"
+                    stmt = sql.SQL(
+                        "SELECT setval({seq}, COALESCE((SELECT MAX({col}) FROM {tbl}), 0) + 1, false)"
+                    ).format(
+                        seq=sql.Literal(seq_name),
+                        col=sql.Identifier(col_name),
+                        tbl=sql.Identifier(table),
                     )
+                    self.cursor.execute(stmt)
 
     def savepoint(self, name: str = "row_sp") -> None:
-        self.cursor.execute(f"SAVEPOINT {name}")
+        stmt = sql.SQL("SAVEPOINT {sp}").format(sp=sql.Identifier(name))
+        self.cursor.execute(stmt)
 
     def release_savepoint(self, name: str = "row_sp") -> None:
-        self.cursor.execute(f"RELEASE SAVEPOINT {name}")
+        stmt = sql.SQL("RELEASE SAVEPOINT {sp}").format(sp=sql.Identifier(name))
+        self.cursor.execute(stmt)
 
     def rollback_to_savepoint(self, name: str = "row_sp") -> None:
-        self.cursor.execute(f"ROLLBACK TO SAVEPOINT {name}")
+        stmt = sql.SQL("ROLLBACK TO SAVEPOINT {sp}").format(sp=sql.Identifier(name))
+        self.cursor.execute(stmt)
 
     def list_users(self) -> list[dict]:
         return self.fetch_all(

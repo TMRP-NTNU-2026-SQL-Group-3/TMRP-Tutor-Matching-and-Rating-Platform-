@@ -20,10 +20,23 @@ const api = axios.create({
 // that could drop waiters under concurrent 401s.
 let refreshPromise = null
 
+// F-06: fence raised by logout() so a 401 from any request still in flight at
+// logout time cannot kick off a fresh refresh (which would resurrect tokens
+// the user just discarded). Cleared by markLoggedIn() at the next setAuth().
+let loggingOut = false
+
 // Called from auth.logout() so a stale refresh from the previous session
-// cannot resolve into the next user's request stream.
+// cannot resolve into the next user's request stream, and to raise the
+// loggingOut fence (F-06) until the next successful login.
 export function resetRefreshState() {
   refreshPromise = null
+  loggingOut = true
+}
+
+// Called from auth.setAuth() once a new session is established — drops the
+// loggingOut fence so normal refresh-on-401 resumes for the new user.
+export function markLoggedIn() {
+  loggingOut = false
 }
 
 // ── Transport: attach bearer token ──────────────────────────────
@@ -37,6 +50,12 @@ api.interceptors.request.use(config => {
 
 // ── Transport: response unwrap + refresh + retry ────────────────
 async function refreshAccessToken() {
+  // F-06: refuse to start a new refresh while logout is fencing — any 401
+  // arriving in this window must fall through to handleAuthLost rather than
+  // re-establishing the session the user just left.
+  if (loggingOut) {
+    throw new Error('logged out')
+  }
   if (!refreshPromise) {
     refreshPromise = (async () => {
       try {
@@ -57,10 +76,26 @@ async function refreshAccessToken() {
   return refreshPromise
 }
 
+// F-15: envelope unwrap only applies to JSON responses. Blob downloads
+// (CSV export) and upstream HTML error pages must pass through untouched,
+// so check Content-Type before attempting to read {success,data,message}.
+function isJsonResponse(response) {
+  const ctype = response?.headers?.['content-type']
+  if (typeof ctype === 'string') {
+    return ctype.toLowerCase().includes('application/json')
+  }
+  // Fall back to shape-based detection when the header is absent.
+  const body = response?.data
+  return body != null && typeof body === 'object' && !(body instanceof Blob) && 'success' in body
+}
+
 api.interceptors.response.use(
   response => {
+    if (!isJsonResponse(response)) {
+      return response.data
+    }
     const body = response.data
-    if (body === undefined || body === null || typeof body !== 'object' || !('success' in body)) {
+    if (body == null || typeof body !== 'object' || !('success' in body)) {
       return body
     }
     const { success, data, message } = body
@@ -70,6 +105,13 @@ api.interceptors.response.use(
     return data
   },
   async error => {
+    // F-07: caller-initiated cancellation (AbortController.abort()) must not
+    // trigger refresh-on-401 or 5xx retry — there's no caller waiting for the
+    // result anymore. Re-throw as-is so callers can detect via axios.isCancel.
+    if (axios.isCancel(error) || error.name === 'CanceledError' || error.name === 'AbortError') {
+      return Promise.reject(error)
+    }
+
     const originalConfig = error.config
 
     // 401 — attempt refresh, retry once.

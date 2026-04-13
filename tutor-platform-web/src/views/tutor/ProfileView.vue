@@ -57,7 +57,7 @@
       <!-- Subjects -->
       <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
         <h2 class="text-lg font-semibold text-gray-900">授課科目</h2>
-        <div v-for="(item, idx) in subjectList" :key="idx" class="flex items-center gap-3">
+        <div v-for="(item, idx) in subjectList" :key="item._uid" class="flex items-center gap-3">
           <select v-model="item.subject_id"
             :aria-invalid="isDuplicateSubject(item, idx) || null"
             class="flex-1 rounded-lg border px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"
@@ -88,7 +88,7 @@
       <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
         <h2 class="text-lg font-semibold text-gray-900">可用時段</h2>
         <p class="text-xs text-gray-500">家長會看到這些時段以安排課程</p>
-        <div v-for="(slot, idx) in availabilityList" :key="idx" class="flex items-center gap-3 flex-wrap">
+        <div v-for="(slot, idx) in availabilityList" :key="slot._uid" class="flex items-center gap-3 flex-wrap">
           <select v-model.number="slot.day_of_week"
             class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition">
             <option v-for="d in dayOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
@@ -101,7 +101,7 @@
           <button type="button" @click="availabilityList.splice(idx, 1)"
             class="text-red-500 hover:text-red-700 text-sm font-medium transition-colors">移除</button>
         </div>
-        <button type="button" @click="availabilityList.push({ day_of_week: 1, start_time: '19:00', end_time: '21:00' })"
+        <button type="button" @click="addAvailabilityRow"
           class="text-primary-600 hover:text-primary-700 text-sm font-medium transition-colors">+ 新增時段</button>
       </div>
 
@@ -169,8 +169,23 @@ function _hhmm(t) {
   return s.length >= 5 ? s.slice(0, 5) : s
 }
 
+// Stable client-side id for v-for keys on mutable lists. The DB rows don't
+// carry a standalone PK exposed to the frontend (subject rows use a composite
+// key, availability has no id in the response), so we mint one per row.
+let _nextUid = 0
+const mintUid = () => ++_nextUid
+
 let isMounted = true
-onUnmounted(() => { isMounted = false })
+// F-04: track the success-banner timeout so we can clear it if the user
+// unmounts mid-flight (otherwise the callback fires on a dead component).
+let successTimer = null
+onUnmounted(() => {
+  isMounted = false
+  if (successTimer) {
+    clearTimeout(successTimer)
+    successTimer = null
+  }
+})
 
 const form = reactive({
   self_intro: '',
@@ -220,10 +235,20 @@ const hasFreeSubject = computed(() => chosenSubjectIds.value.size < allSubjects.
 
 function addSubjectRow() {
   if (!hasFreeSubject.value) return
-  subjectList.value.push({ subject_id: null, hourly_rate: null })
+  subjectList.value.push({ _uid: mintUid(), subject_id: null, hourly_rate: null })
+}
+
+function addAvailabilityRow() {
+  availabilityList.value.push({
+    _uid: mintUid(), day_of_week: 1, start_time: '19:00', end_time: '21:00',
+  })
 }
 
 async function handleSave() {
+  // F-04: explicit re-entry guard — the disabled button alone leaves a tiny
+  // window where a fast double-click (or Enter-spam) can re-enter before
+  // saving.value flips, firing duplicate PUTs across three endpoints.
+  if (saving.value) return
   error.value = ''
   success.value = ''
   if (hasDuplicateSubjects.value) {
@@ -234,7 +259,9 @@ async function handleSave() {
   try {
     await tutorsApi.updateProfile(form)
 
-    const validSubjects = subjectList.value.filter(s => s.subject_id && s.hourly_rate)
+    const validSubjects = subjectList.value
+      .filter(s => s.subject_id && s.hourly_rate)
+      .map(s => ({ subject_id: s.subject_id, hourly_rate: s.hourly_rate }))
     try {
       await tutorsApi.updateSubjects({ subjects: validSubjects })
     } catch (e) {
@@ -257,8 +284,14 @@ async function handleSave() {
     }
 
     success.value = '個人檔案已更新'
-    // T-WEB-05: 成功訊息 3 秒後自動清除
-    setTimeout(() => { success.value = '' }, 3000)
+    // T-WEB-05: success message auto-clears after 3 s.
+    // F-04: store the handle and clear any in-flight one so an unmount mid-flight
+    // (or a second save firing within 3 s) doesn't leave a dangling timer.
+    if (successTimer) clearTimeout(successTimer)
+    successTimer = setTimeout(() => {
+      success.value = ''
+      successTimer = null
+    }, 3000)
   } catch (e) {
     error.value = e.message
   } finally {
@@ -289,10 +322,12 @@ onMounted(async () => {
 
     allSubjects.value = subjects
     subjectList.value = (detail.subjects || []).map(s => ({
+      _uid: mintUid(),
       subject_id: s.subject_id,
       hourly_rate: s.hourly_rate,
     }))
     availabilityList.value = (detail.availability || []).map(a => ({
+      _uid: mintUid(),
       day_of_week: a.day_of_week,
       start_time: _hhmm(a.start_time),
       end_time: _hhmm(a.end_time),

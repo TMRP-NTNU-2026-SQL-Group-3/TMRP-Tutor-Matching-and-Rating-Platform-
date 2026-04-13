@@ -8,8 +8,8 @@ class ReviewCreate(BaseModel):
     rating_2: int = Field(ge=1, le=5)
     rating_3: int | None = Field(default=None, ge=1, le=5)
     rating_4: int | None = Field(default=None, ge=1, le=5)
-    personality_comment: str | None = Field(default=None)
-    comment: str | None = Field(default=None)
+    personality_comment: str | None = Field(default=None, max_length=5000)
+    comment: str | None = Field(default=None, max_length=5000)
 
     @model_validator(mode="after")
     def _require_all_ratings_for_parent_to_tutor(self):
@@ -26,5 +26,5 @@ class ReviewUpdate(BaseModel):
     rating_2: int | None = Field(default=None, ge=1, le=5)
     rating_3: int | None = Field(default=None, ge=1, le=5)
     rating_4: int | None = Field(default=None, ge=1, le=5)
-    personality_comment: str | None = Field(default=None)
-    comment: str | None = Field(default=None)
+    personality_comment: str | None = Field(default=None, max_length=5000)
+    comment: str | None = Field(default=None, max_length=5000)

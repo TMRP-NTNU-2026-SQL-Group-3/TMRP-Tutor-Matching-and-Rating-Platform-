@@ -1,3 +1,5 @@
+from enum import Enum
+
 from fastapi import APIRouter, Depends, Query
 
 from app.catalog.api.dependencies import get_tutor_repo, get_tutor_service
@@ -11,6 +13,12 @@ from app.shared.api.schemas import ApiResponse
 from app.shared.domain.exceptions import DomainException, NotFoundError
 
 router = APIRouter(prefix="/api/tutors", tags=["tutors"])
+
+
+class SortBy(str, Enum):
+    rating = "rating"
+    rate_asc = "rate_asc"
+    newest = "newest"
 
 
 @router.get("/me", summary="取得自己的老師檔案", description="取得目前登入老師的完整個人檔案，包含科目與可用時段。僅限老師角色。", response_model=ApiResponse)
@@ -33,7 +41,7 @@ def search_tutors(
     max_rate: float = Query(None),
     min_rating: float = Query(None),
     school: str = Query(None),
-    sort_by: str = Query("rating"),
+    sort_by: SortBy = Query(SortBy.rating),
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     user=Depends(get_current_user),
@@ -43,7 +51,7 @@ def search_tutors(
     rows, total = repo.search_with_stats(
         subject_id=subject_id, school=school,
         min_rate=min_rate, max_rate=max_rate, min_rating=min_rating,
-        sort_by=sort_by, page=page, page_size=page_size,
+        sort_by=sort_by.value, page=page, page_size=page_size,
     )
 
     results = [

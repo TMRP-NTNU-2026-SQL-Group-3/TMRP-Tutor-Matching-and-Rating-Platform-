@@ -26,14 +26,16 @@
         </div>
         <div class="flex-1 min-w-0">
           <p class="font-medium text-gray-900 truncate">{{ c.other_name }}</p>
-          <p v-if="c.last_message_at" class="text-xs text-gray-400 mt-0.5">
-            {{ formatRelative(c.last_message_at) }}
+          <p v-if="c.last_message_content" class="text-sm text-gray-600 truncate mt-0.5">
+            {{ formatPreview(c) }}
           </p>
+          <p v-else-if="c.last_message_at" class="text-xs text-gray-400 italic mt-0.5">已建立對話</p>
           <p v-else class="text-xs text-gray-300 mt-0.5 italic">尚無訊息</p>
         </div>
-        <span v-if="c.last_message_at" class="text-xs text-gray-400 shrink-0">
-          {{ formatDate(c.last_message_at) }}
-        </span>
+        <div v-if="c.last_message_at" class="flex flex-col items-end shrink-0 text-xs text-gray-400 gap-0.5">
+          <span>{{ formatRelative(c.last_message_at) }}</span>
+          <span class="text-gray-300">{{ formatDate(c.last_message_at) }}</span>
+        </div>
       </div>
     </div>
 
@@ -46,19 +48,24 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { messagesApi } from '@/api/messages'
+import { useAuthStore } from '@/stores/auth'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
+const auth = useAuthStore()
 const conversations = ref([])
 const loading = ref(false)
 const error = ref('')
 const searchQuery = ref('')
+
+const PREVIEW_MAX = 50
 
 const filteredConversations = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return conversations.value
   return conversations.value.filter(c =>
     (c.other_name || '').toLowerCase().includes(q)
+    || (c.last_message_content || '').toLowerCase().includes(q)
   )
 })
 
@@ -66,6 +73,14 @@ function formatDate(dt) {
   if (!dt) return ''
   const d = new Date(dt)
   return d.toLocaleDateString('zh-TW') + ' ' + d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatPreview(c) {
+  const raw = (c.last_message_content || '').trim()
+  if (!raw) return ''
+  const truncated = raw.length > PREVIEW_MAX ? raw.slice(0, PREVIEW_MAX) + '…' : raw
+  const myId = auth.user?.user_id
+  return c.last_message_sender_id === myId ? `我：${truncated}` : truncated
 }
 
 function formatRelative(dt) {

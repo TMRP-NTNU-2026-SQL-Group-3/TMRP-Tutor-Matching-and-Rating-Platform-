@@ -63,17 +63,44 @@ def create_refresh_token(data: dict) -> str:
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
+def _decode_with_rotation(token: str) -> dict | None:
+    """以目前的密鑰驗 token；若失敗、且設定了 JWT_SECRET_KEY_PREVIOUS，再以舊密鑰嘗試一次。
+
+    回傳成功的 payload 或 None。設計目的：金鑰輪換期間，舊密鑰簽出的尚未過期 token
+    仍能驗證，避免所有使用者一次被踢出。新發行的 token 一律以新密鑰簽。
+    """
+    try:
+        return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+    except JWTError as primary_err:
+        if not settings.jwt_secret_key_previous:
+            logger.warning("JWT decode failed: %s", type(primary_err).__name__)
+            return None
+        try:
+            payload = jwt.decode(
+                token,
+                settings.jwt_secret_key_previous,
+                algorithms=[settings.jwt_algorithm],
+            )
+            logger.info("JWT verified with previous key (rotation grace period)")
+            return payload
+        except JWTError as fallback_err:
+            logger.warning(
+                "JWT decode failed with both keys: primary=%s previous=%s",
+                type(primary_err).__name__,
+                type(fallback_err).__name__,
+            )
+            return None
+
+
 def decode_access_token(token: str) -> dict | None:
     """解碼 JWT access token，拒絕 refresh token，失敗時回傳 None。"""
-    try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-        if payload.get("type") != "access":
-            logger.warning("Rejected non-access token (type=%s)", payload.get("type"))
-            return None
-        return payload
-    except JWTError as e:
-        logger.warning("JWT decode failed: %s", type(e).__name__)
+    payload = _decode_with_rotation(token)
+    if payload is None:
         return None
+    if payload.get("type") != "access":
+        logger.warning("Rejected non-access token (type=%s)", payload.get("type"))
+        return None
+    return payload
 
 
 def _cleanup_expired_cache() -> None:
@@ -182,16 +209,14 @@ def cleanup_expired_blacklist() -> int:
 
 def decode_refresh_token(token: str) -> dict | None:
     """解碼 JWT refresh token，僅接受 type=refresh，並拒絕已使用過的 token。"""
-    try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-        if payload.get("type") != "refresh":
-            logger.warning("Non-refresh token used for refresh endpoint")
-            return None
-        jti = payload.get("jti")
-        if jti and is_refresh_token_blacklisted(jti):
-            logger.warning("Reuse of invalidated refresh token jti=%s", jti)
-            return None
-        return payload
-    except JWTError as e:
-        logger.warning("Refresh token decode failed: %s", type(e).__name__)
+    payload = _decode_with_rotation(token)
+    if payload is None:
         return None
+    if payload.get("type") != "refresh":
+        logger.warning("Non-refresh token used for refresh endpoint")
+        return None
+    jti = payload.get("jti")
+    if jti and is_refresh_token_blacklisted(jti):
+        logger.warning("Reuse of invalidated refresh token jti=%s", jti)
+        return None
+    return payload

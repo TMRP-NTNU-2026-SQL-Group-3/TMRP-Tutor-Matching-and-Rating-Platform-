@@ -35,7 +35,19 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  tutor: { type: Object, required: true },
+  tutor: {
+    type: Object,
+    required: true,
+    // Surface shape mismatches during dev (e.g. API renames) before they
+    // manifest as "$1.hourly_rate is undefined" deep in the template.
+    validator: (t) => {
+      if (t == null || typeof t !== 'object') return false
+      if (t.tutor_id == null) return false
+      if (typeof t.display_name !== 'string') return false
+      if (t.subjects != null && !Array.isArray(t.subjects)) return false
+      return true
+    },
+  },
 })
 
 defineEmits(['select'])

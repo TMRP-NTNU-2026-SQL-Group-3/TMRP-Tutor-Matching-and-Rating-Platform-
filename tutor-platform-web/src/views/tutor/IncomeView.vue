@@ -35,7 +35,7 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
-            <tr v-for="(row, idx) in data.breakdown" :key="idx" class="hover:bg-gray-50 transition-colors">
+            <tr v-for="row in data.breakdown" :key="`${row.student_name}\u0001${row.subject_name}`" class="hover:bg-gray-50 transition-colors">
               <td class="px-4 py-3 text-sm text-gray-900">{{ row.student_name }}</td>
               <td class="px-4 py-3 text-sm text-gray-700">{{ row.subject_name }}</td>
               <td class="px-4 py-3 text-sm text-gray-700 text-right">{{ row.hours }}</td>

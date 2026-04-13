@@ -68,6 +68,11 @@ def update_match_status(
         reason=body.reason,
         user_id=int(user["sub"]),
         is_admin=is_admin(user),
+        contract_terms={
+            "hourly_rate": body.hourly_rate,
+            "sessions_per_week": body.sessions_per_week,
+            "start_date": body.start_date,
+        },
     )
     status_label = MatchStatus(result["new_status"]).label
     return ApiResponse(

@@ -19,7 +19,7 @@ logger = logging.getLogger("app.init_db")
 
 # ──────────────────────────────────────────────
 # PostgreSQL Schema DDL
-# 所有 DEFAULT 直接在 CREATE TABLE 中定義
+# All DEFAULTs are declared inline on each CREATE TABLE.
 # ──────────────────────────────────────────────
 
 SCHEMA_DDL = """
@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS tutors (
     tutor_id            SERIAL PRIMARY KEY,
-    user_id             INTEGER NOT NULL REFERENCES users(user_id),
+    -- 1:1 對應 users 表，刪除 user 時連同 tutor 設定一併移除
+    user_id             INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     university          VARCHAR(50),
     department          VARCHAR(50),
     grade_year          SMALLINT,
@@ -52,7 +53,8 @@ CREATE TABLE IF NOT EXISTS tutors (
 
 CREATE TABLE IF NOT EXISTS students (
     student_id     SERIAL PRIMARY KEY,
-    parent_user_id INTEGER NOT NULL REFERENCES users(user_id),
+    -- 子女屬於家長帳號；家長若被刪則子女資料一併清除
+    parent_user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     name           VARCHAR(50) NOT NULL,
     school         VARCHAR(50),
     grade          VARCHAR(20),
@@ -68,41 +70,49 @@ CREATE TABLE IF NOT EXISTS subjects (
 );
 
 CREATE TABLE IF NOT EXISTS tutor_subjects (
-    tutor_id    INTEGER       NOT NULL REFERENCES tutors(tutor_id),
-    subject_id  INTEGER       NOT NULL REFERENCES subjects(subject_id),
+    -- tutor 被刪 → 教授科目連帶刪除；subject 受 RESTRICT 保護
+    -- （要刪一個科目前，須先確認沒有家教仍掛著該科目）。
+    tutor_id    INTEGER       NOT NULL REFERENCES tutors(tutor_id) ON DELETE CASCADE,
+    subject_id  INTEGER       NOT NULL REFERENCES subjects(subject_id) ON DELETE RESTRICT,
     hourly_rate NUMERIC(12,2) NOT NULL,
     PRIMARY KEY (tutor_id, subject_id)
 );
 
 CREATE TABLE IF NOT EXISTS tutor_availability (
     availability_id SERIAL PRIMARY KEY,
-    tutor_id        INTEGER   NOT NULL REFERENCES tutors(tutor_id),
+    tutor_id        INTEGER   NOT NULL REFERENCES tutors(tutor_id) ON DELETE CASCADE,
     day_of_week     SMALLINT  NOT NULL CHECK (day_of_week >= 0 AND day_of_week <= 6),
     start_time      TIME NOT NULL,
-    end_time        TIME NOT NULL
+    end_time        TIME NOT NULL,
+    CONSTRAINT chk_tutor_availability_time_order CHECK (start_time < end_time)
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
     conversation_id SERIAL PRIMARY KEY,
-    user_a_id       INTEGER     NOT NULL REFERENCES users(user_id),
-    user_b_id       INTEGER     NOT NULL REFERENCES users(user_id),
+    -- 使用者刪除 → 對話一併移除（含 messages，靠 messages.conversation_id 的 CASCADE）
+    user_a_id       INTEGER     NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    user_b_id       INTEGER     NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_message_at TIMESTAMPTZ
+    last_message_at TIMESTAMPTZ,
+    CONSTRAINT chk_conversations_pair_order CHECK (user_a_id < user_b_id)
 );
 
 CREATE TABLE IF NOT EXISTS messages (
     message_id      SERIAL PRIMARY KEY,
-    conversation_id INTEGER     NOT NULL REFERENCES conversations(conversation_id),
-    sender_user_id  INTEGER     NOT NULL REFERENCES users(user_id),
+    conversation_id INTEGER     NOT NULL REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+    -- 使用者一旦刪除，留下的 message 與其對話多半同步消失，這裡也設 CASCADE
+    sender_user_id  INTEGER     NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     content         TEXT        NOT NULL,
     sent_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS matches (
     match_id          SERIAL PRIMARY KEY,
-    tutor_id          INTEGER       NOT NULL REFERENCES tutors(tutor_id),
-    student_id        INTEGER       NOT NULL REFERENCES students(student_id),
-    subject_id        INTEGER       NOT NULL REFERENCES subjects(subject_id),
+    -- matches 是法律與計費相關的紀錄，禁止因刪除 tutor/student 而靜默消失。
+    -- 若有清除需求，必須先處置 matches（例如顯式刪除或 anonymize）。
+    tutor_id          INTEGER       NOT NULL REFERENCES tutors(tutor_id) ON DELETE RESTRICT,
+    student_id        INTEGER       NOT NULL REFERENCES students(student_id) ON DELETE RESTRICT,
+    subject_id        INTEGER       NOT NULL REFERENCES subjects(subject_id) ON DELETE RESTRICT,
     status            VARCHAR(15)   NOT NULL DEFAULT 'pending',
     invite_message    TEXT,
     want_trial        BOOLEAN       DEFAULT FALSE,
@@ -114,7 +124,8 @@ CREATE TABLE IF NOT EXISTS matches (
     trial_price       NUMERIC(12,2),
     trial_count       SMALLINT,
     contract_notes    TEXT,
-    terminated_by     INTEGER       REFERENCES users(user_id),
+    -- terminated_by 只是稽核欄位，使用者刪除時設回 NULL 即可，不需牽動 match
+    terminated_by     INTEGER       REFERENCES users(user_id) ON DELETE SET NULL,
     termination_reason TEXT,
     created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
@@ -122,9 +133,12 @@ CREATE TABLE IF NOT EXISTS matches (
 
 CREATE TABLE IF NOT EXISTS sessions (
     session_id          SERIAL PRIMARY KEY,
-    match_id            INTEGER          NOT NULL REFERENCES matches(match_id),
+    -- 上課紀錄屬於 match：match 被刪 → sessions 一同清除
+    match_id            INTEGER          NOT NULL REFERENCES matches(match_id) ON DELETE CASCADE,
     session_date        TIMESTAMPTZ      NOT NULL,
-    hours               DOUBLE PRECISION NOT NULL,
+    -- 既往使用 DOUBLE PRECISION 會把 0.1 + 0.2 變成 0.30000000000000004，
+    -- 而 hours 直接乘上 hourly_rate 影響家教收入；改為定點小數。
+    hours               NUMERIC(10,2)    NOT NULL CHECK (hours > 0),
     content_summary     TEXT             NOT NULL,
     homework            TEXT,
     student_performance TEXT,
@@ -136,7 +150,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS session_edit_logs (
     log_id     SERIAL PRIMARY KEY,
-    session_id INTEGER     NOT NULL REFERENCES sessions(session_id),
+    session_id INTEGER     NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
     field_name VARCHAR(50) NOT NULL,
     old_value  TEXT,
     new_value  TEXT,
@@ -145,11 +159,21 @@ CREATE TABLE IF NOT EXISTS session_edit_logs (
 
 CREATE TABLE IF NOT EXISTS exams (
     exam_id           SERIAL PRIMARY KEY,
-    student_id        INTEGER          NOT NULL REFERENCES students(student_id),
-    subject_id        INTEGER          NOT NULL REFERENCES subjects(subject_id),
-    added_by_user_id  INTEGER          NOT NULL REFERENCES users(user_id),
+    -- 學生被刪 → 考試紀錄一同移除
+    student_id        INTEGER          NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+    -- 科目刪除受 RESTRICT 保護（與 tutor_subjects 一致）
+    subject_id        INTEGER          NOT NULL REFERENCES subjects(subject_id) ON DELETE RESTRICT,
+    -- 「誰加的」是稽核欄位 + update 權限判斷依據，必須非空。
+    -- 用 RESTRICT 防止直接刪除作者；若真要刪 user，先把該人寫的 exam 處理掉。
+    -- （SET NULL 會讓 list/list-by-tutor 的 INNER JOIN 漏掉匿名化的紀錄，不採用。）
+    added_by_user_id  INTEGER          NOT NULL REFERENCES users(user_id) ON DELETE RESTRICT,
     exam_date         TIMESTAMPTZ      NOT NULL,
-    exam_type         VARCHAR(20)      NOT NULL,
+    -- exam_type 來自前端固定列舉（src/views/tutor/MatchDetailView.vue 的 <select>），
+    -- 以 CHECK 取代 ENUM 以維持 schema 簡單、可遷移；保持與 UI 顯示文字一致
+    -- 才不會在 INSERT 階段違反 constraint。
+    exam_type         VARCHAR(20)      NOT NULL
+        CHECK (exam_type IN ('段考','小考','模擬考','其他')),
+    -- score 仍接受小數但不涉及金流，保留 DOUBLE PRECISION
     score             DOUBLE PRECISION NOT NULL,
     visible_to_parent BOOLEAN          DEFAULT FALSE,
     created_at        TIMESTAMPTZ      NOT NULL DEFAULT NOW()
@@ -157,13 +181,19 @@ CREATE TABLE IF NOT EXISTS exams (
 
 CREATE TABLE IF NOT EXISTS reviews (
     review_id          SERIAL PRIMARY KEY,
-    match_id           INTEGER     NOT NULL REFERENCES matches(match_id),
-    reviewer_user_id   INTEGER     NOT NULL REFERENCES users(user_id),
-    review_type        VARCHAR(20) NOT NULL,
-    rating_1           SMALLINT    NOT NULL,
-    rating_2           SMALLINT    NOT NULL,
-    rating_3           SMALLINT,
-    rating_4           SMALLINT,
+    -- match 一旦消失，所有與之相關的評價都失去依據
+    match_id           INTEGER     NOT NULL REFERENCES matches(match_id) ON DELETE CASCADE,
+    -- 評論者必須非空：list_by_match / list_by_tutor 以 INNER JOIN reviewer
+    -- 取顯示名稱，欄位若 NULL 該筆評價會在前端列表整列消失。
+    -- 用 RESTRICT 強制刪除使用者前必須先處置其評價。
+    reviewer_user_id   INTEGER     NOT NULL REFERENCES users(user_id) ON DELETE RESTRICT,
+    review_type        VARCHAR(20) NOT NULL
+        CHECK (review_type IN ('parent_to_tutor','tutor_to_parent','tutor_to_student')),
+    -- 評分維度 1..5，避免應用層忘了驗證寫入越界值
+    rating_1           SMALLINT    NOT NULL CHECK (rating_1 BETWEEN 1 AND 5),
+    rating_2           SMALLINT    NOT NULL CHECK (rating_2 BETWEEN 1 AND 5),
+    rating_3           SMALLINT             CHECK (rating_3 IS NULL OR rating_3 BETWEEN 1 AND 5),
+    rating_4           SMALLINT             CHECK (rating_4 IS NULL OR rating_4 BETWEEN 1 AND 5),
     personality_comment TEXT,
     comment            TEXT,
     created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -209,6 +239,16 @@ CREATE INDEX IF NOT EXISTS idx_matches_status_updated ON matches (status, update
 CREATE INDEX IF NOT EXISTS idx_rl_bucket_hit_at       ON rate_limit_hits (bucket_key, hit_at);
 CREATE INDEX IF NOT EXISTS idx_rt_blacklist_exp       ON refresh_token_blacklist (expires_at);
 
+-- FK 補強索引：CASCADE/SET NULL 會在父表刪列時掃這些 FK 欄位，沒索引時會 seq scan
+CREATE INDEX IF NOT EXISTS idx_messages_sender        ON messages (sender_user_id);
+CREATE INDEX IF NOT EXISTS idx_exams_added_by         ON exams (added_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_exams_subject          ON exams (subject_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_reviewer       ON reviews (reviewer_user_id);
+-- session_date 常用於日期區間查詢；放在 match_id 後面同時支援單表掃與「該 match 的歷次上課」
+CREATE INDEX IF NOT EXISTS idx_sessions_match_date    ON sessions (match_id, session_date);
+CREATE INDEX IF NOT EXISTS idx_session_edit_logs_sess ON session_edit_logs (session_id);
+CREATE INDEX IF NOT EXISTS idx_matches_terminated_by  ON matches (terminated_by);
+
 -- Derived views: centralise tutor-aggregate SQL that was inlined across
 -- several repositories (catalog, analytics, search). CREATE OR REPLACE so
 -- schema re-runs keep the view in sync.
@@ -242,7 +282,7 @@ GROUP BY tutor_id;
 """
 
 # ──────────────────────────────────────────────
-# 科目種子資料
+# Subject seed data (display names stay in Chinese — user-facing)
 # ──────────────────────────────────────────────
 
 SEED_SUBJECTS: list[tuple[str, str]] = [
@@ -262,24 +302,24 @@ SEED_SUBJECTS: list[tuple[str, str]] = [
 
 
 # ──────────────────────────────────────────────
-# 函式
+# Functions
 # ──────────────────────────────────────────────
 
 
 def create_schema(conn) -> None:
-    """建立全部 13 張資料表、索引與外鍵（IF NOT EXISTS 確保冪等性）。"""
+    """Create all 13 tables, indexes and foreign keys (idempotent via IF NOT EXISTS)."""
     cursor = conn.cursor()
     cursor.execute(SCHEMA_DDL)
     conn.commit()
-    logger.info("  資料表與索引建立完成")
+    logger.info("  Tables and indexes created")
 
 
 def seed_subjects(conn) -> None:
-    """寫入科目種子資料（若已有資料則跳過）。"""
+    """Seed the subjects table; skip if rows already exist."""
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM subjects")
     if cursor.fetchone()[0] > 0:
-        logger.info("  科目資料已存在，跳過種子寫入")
+        logger.info("  Subjects already present; skipping seed")
         return
 
     for name, category in SEED_SUBJECTS:
@@ -288,11 +328,11 @@ def seed_subjects(conn) -> None:
             (name, category),
         )
     conn.commit()
-    logger.info("  寫入 %d 筆科目種子資料", len(SEED_SUBJECTS))
+    logger.info("  Seeded %d subject rows", len(SEED_SUBJECTS))
 
 
 def ensure_admin_user(conn, settings: Settings | None = None) -> None:
-    """確保管理員帳號存在，若不存在則建立。"""
+    """Ensure the admin account exists; create it on first boot."""
     if settings is None:
         settings = _default_settings
 
@@ -303,7 +343,7 @@ def ensure_admin_user(conn, settings: Settings | None = None) -> None:
     )
 
     if cursor.fetchone()[0] > 0:
-        logger.info("  管理員帳號已存在，跳過建立")
+        logger.info("  Admin account already exists; skipping creation")
         return
 
     hashed = hash_password(settings.admin_password)
@@ -314,26 +354,67 @@ def ensure_admin_user(conn, settings: Settings | None = None) -> None:
         (settings.admin_username, hashed, settings.admin_username),
     )
     conn.commit()
-    logger.info("  管理員帳號建立完成: %s", settings.admin_username)
+    logger.info("  Admin account created: %s", settings.admin_username)
+
+
+def verify_bootstrap(conn, settings: Settings | None = None) -> None:
+    """Smoke-test that the database came up in the expected shape.
+
+    Cheaper to fail loud at boot than to discover a missing admin account or an
+    empty subjects table on the first user request. Raises RuntimeError so the
+    lifespan handler in `app.main` aborts startup, matching the existing
+    "refuse to serve in a half-initialized state" policy.
+    """
+    if settings is None:
+        settings = _default_settings
+
+    cursor = conn.cursor()
+
+    # Admin must exist and have role=admin (defends against an operator running
+    # ensure_admin_user with an unprivileged role inserted via raw SQL).
+    cursor.execute(
+        "SELECT role FROM users WHERE username = %s",
+        (settings.admin_username,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise RuntimeError(f"bootstrap check failed: admin user '{settings.admin_username}' missing")
+    if row[0] != "admin":
+        raise RuntimeError(
+            f"bootstrap check failed: user '{settings.admin_username}' has role={row[0]!r}, expected 'admin'"
+        )
+
+    cursor.execute("SELECT COUNT(*) FROM subjects")
+    subject_count = cursor.fetchone()[0]
+    if subject_count < len(SEED_SUBJECTS):
+        raise RuntimeError(
+            f"bootstrap check failed: only {subject_count} subjects seeded "
+            f"(expected at least {len(SEED_SUBJECTS)})"
+        )
+
+    logger.info("  Bootstrap verification passed (admin ok, %d subjects)", subject_count)
 
 
 def initialize_database() -> None:
-    """執行完整的資料庫初始化流程。"""
+    """Run the full database-initialization flow end-to-end."""
     settings = _default_settings
 
-    logger.info("===== 資料庫初始化開始 =====")
+    logger.info("===== Database initialization start =====")
 
     conn = psycopg2.connect(settings.database_url)
     try:
-        logger.info("[1/3] 建立資料表與索引...")
+        logger.info("[1/4] Creating tables and indexes...")
         create_schema(conn)
 
-        logger.info("[2/3] 寫入種子資料...")
+        logger.info("[2/4] Seeding reference data...")
         seed_subjects(conn)
 
-        logger.info("[3/3] 建立管理員帳號...")
+        logger.info("[3/4] Creating admin account...")
         ensure_admin_user(conn, settings)
+
+        logger.info("[4/4] Verifying bootstrap state...")
+        verify_bootstrap(conn, settings)
     finally:
         conn.close()
 
-    logger.info("===== 資料庫初始化完成 =====")
+    logger.info("===== Database initialization complete =====")

@@ -27,6 +27,14 @@ class IMatchRepository(ABC):
     def update_status(self, match_id: int, new_status: str) -> None: ...
 
     @abstractmethod
+    def confirm_trial_with_terms(
+        self, *, match_id: int, new_status: str,
+        hourly_rate: float | None,
+        sessions_per_week: int | None,
+        start_date: object | None,
+    ) -> None: ...
+
+    @abstractmethod
     def set_terminating(self, match_id: int, user_id: int,
                         reason: str, previous_status: str) -> None: ...
 
@@ -46,7 +54,7 @@ class ICatalogQuery(ABC):
     def get_student_owner_for_update(self, student_id: int) -> int | None: ...
 
     @abstractmethod
-    def tutor_exists(self, tutor_id: int) -> bool: ...
+    def lock_tutor_for_update(self, tutor_id: int) -> bool: ...
 
     @abstractmethod
     def tutor_teaches_subject(self, tutor_id: int, subject_id: int) -> bool: ...

@@ -6,7 +6,7 @@ import { useMessageStore } from './message'
 import { useTutorStore } from './tutor'
 import { useToastStore } from './toast'
 import { API_BASE_URL } from '@/api/baseURL'
-import { resetRefreshState } from '@/api'
+import { resetRefreshState, markLoggedIn } from '@/api'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || '')
@@ -39,6 +39,9 @@ export const useAuthStore = defineStore('auth', () => {
       refreshToken.value = refreshTokenValue
       localStorage.setItem('refreshToken', refreshTokenValue)
     }
+    // F-06: drop the loggingOut fence (raised by a previous logout) now that a
+    // fresh session is in place, so 401s on the new user's requests can refresh.
+    markLoggedIn()
   }
 
   function logout() {

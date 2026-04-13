@@ -6,7 +6,8 @@
     leave-active-class="transition duration-150 ease-in"
     leave-from-class="opacity-100 translate-y-0"
     leave-to-class="opacity-0 -translate-y-2">
-    <div v-if="visible" class="bg-gray-50 rounded-xl p-6 space-y-4">
+    <form v-if="visible" @submit.prevent="handleSubmit"
+      class="bg-gray-50 rounded-xl p-6 space-y-4">
       <h3 class="text-lg font-semibold text-gray-900">建立媒合邀請</h3>
       <div class="grid md:grid-cols-2 gap-4">
         <div>
@@ -31,12 +32,12 @@
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">每小時費用 *</label>
-          <input v-model.number="form.hourly_rate" type="number" min="0"
+          <input v-model.number="form.hourly_rate" type="number" required min="1" step="1"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">每週堂數 *</label>
-          <input v-model.number="form.sessions_per_week" type="number" min="1"
+          <input v-model.number="form.sessions_per_week" type="number" required min="1" step="1"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
         </div>
       </div>
@@ -52,21 +53,21 @@
       </div>
       <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
       <div class="flex gap-3">
-        <button @click="handleSubmit" :disabled="submitting"
-          class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
+        <button type="submit" :disabled="submitting || !canSubmit"
+          class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
           {{ submitting ? '送出中...' : '送出邀請' }}
         </button>
-        <button @click="$emit('cancel')"
+        <button type="button" @click="$emit('cancel')"
           class="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium transition-colors">
           取消
         </button>
       </div>
-    </div>
+    </form>
   </Transition>
 </template>
 
 <script setup>
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -84,24 +85,30 @@ const emit = defineEmits(['submit', 'cancel'])
 const form = reactive({
   student_id: null,
   subject_id: null,
-  hourly_rate: 0,
+  hourly_rate: null,
   sessions_per_week: 1,
   want_trial: false,
   invite_message: '',
 })
 
+const canSubmit = computed(() =>
+  form.student_id != null
+  && form.subject_id != null
+  && form.hourly_rate != null && form.hourly_rate > 0
+  && form.sessions_per_week != null && form.sessions_per_week >= 1
+)
+
 function handleSubmit() {
-  // P-WEB-01: 加入 sessions_per_week 和 hourly_rate 完整驗證
-  if (!form.student_id || !form.subject_id) return
-  if (form.hourly_rate == null || form.hourly_rate <= 0) return
-  if (form.sessions_per_week == null || form.sessions_per_week < 1) return
+  // F-08: HTML5 required + canSubmit gate the button, but keep the JS guard
+  // as a defence-in-depth check for programmatic calls / browser quirks.
+  if (!canSubmit.value) return
   emit('submit', { ...form })
 }
 
 function reset() {
   form.student_id = null
   form.subject_id = null
-  form.hourly_rate = 0
+  form.hourly_rate = null
   form.sessions_per_week = 1
   form.want_trial = false
   form.invite_message = ''

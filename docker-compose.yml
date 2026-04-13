@@ -2,24 +2,43 @@ services:
   # ── PostgreSQL ──
   db:
     image: postgres:16-alpine
+    restart: on-failure
     environment:
-      POSTGRES_USER: tmrp
-      POSTGRES_PASSWORD: tmrp
-      POSTGRES_DB: tmrp
+      # Credentials interpolated from the repo-root `.env` file (see
+      # `.env.example`). The `:?…` form aborts `docker compose up` with the
+      # given message if the variable is unset/empty — beats silently coming
+      # up with empty Postgres creds (which would later fail health probes
+      # and waste 90s before reporting back).
+      POSTGRES_USER: ${DB_USER:?DB_USER must be set in repo-root .env (see .env.example)}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in repo-root .env}
+      POSTGRES_DB: ${DB_NAME:?DB_NAME must be set in repo-root .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Bind to loopback only so a misconfigured host firewall does not expose
+      # Postgres to the LAN. In prod this whole `ports:` block should be
+      # removed — inter-container traffic flows over the compose network.
+      - "127.0.0.1:5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tmrp"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
       interval: 5s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
 
   # ── FastAPI 後端 ──
   api:
     build: ./tutor-platform-api
+    restart: on-failure
     env_file: ./tutor-platform-api/.env.docker
+    environment:
+      # DATABASE_URL is composed at deploy time so DB credentials live in a
+      # single source (repo-root `.env`). Overrides any value in env_file.
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
     depends_on:
       db:
         condition: service_healthy
@@ -30,17 +49,26 @@ services:
       - api-logs:/app/logs
     # 顯式定義 healthcheck（覆寫 Dockerfile 中的設定，確保 docker-compose
     # 的 condition: service_healthy 行為可預期）
+    # start_period 拉長至 90s，覆蓋 initialize_database() 首次建表 + seed 的時間。
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 30s
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
 
   # ── Huey 任務佇列 Worker ──
   worker:
     build: ./tutor-platform-api
+    restart: on-failure
     env_file: ./tutor-platform-api/.env.docker
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
     command: huey_consumer app.worker.huey
     depends_on:
       db:
@@ -48,6 +76,23 @@ services:
     volumes:
       - api-data:/app/data
       - api-logs:/app/logs
+    # Worker has no HTTP surface; probe that the data dir is writable.
+    # Avoid probing huey.db directly: SqliteHuey opens the file lazily on
+    # first storage op, so it may not exist for the first few seconds.
+    # If the consumer process itself dies, huey_consumer is the container's
+    # PID 1 — Docker will exit the container and `restart: on-failure` kicks
+    # in, so we don't need a separate liveness probe.
+    healthcheck:
+      test: ["CMD-SHELL", "test -w /app/data || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
 
   # ── Vue 前端（nginx）──
   web:
@@ -59,11 +104,18 @@ services:
         # api:8000。請勿改為 "/api"（會導致路徑變成 /api/api/...）或
         # http://api:8000（瀏覽器無法解析容器主機名）。
         VITE_API_BASE_URL: ""
+    restart: on-failure
     depends_on:
       api:
         condition: service_healthy
     ports:
-      - "80:80"
+      # 容器內以 nginx 非 root 身分監聽 8080，host 對外仍以 80 提供。
+      - "80:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
 
 volumes:
   pgdata:

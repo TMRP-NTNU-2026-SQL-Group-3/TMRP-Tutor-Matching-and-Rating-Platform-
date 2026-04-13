@@ -32,6 +32,9 @@ class TutorService:
             tutor.pop("department", None)
         if not tutor.get("show_grade_year"):
             tutor.pop("grade_year", None)
+        # Active student count leaks roster size; treat as private and only
+        # expose it to the tutor themselves.
+        tutor.pop("active_student_count", None)
         for key in [k for k in tutor if k.startswith("show_")]:
             del tutor[key]
         return tutor

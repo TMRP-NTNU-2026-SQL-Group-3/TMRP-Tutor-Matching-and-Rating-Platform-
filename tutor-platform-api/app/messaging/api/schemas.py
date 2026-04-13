@@ -4,7 +4,7 @@ from app.shared.api.validators import TrimmedStr
 
 
 class MessageSend(BaseModel):
-    content: TrimmedStr = Field(..., description="訊息內容")
+    content: TrimmedStr = Field(..., max_length=4000, description="訊息內容")
 
 
 class ConversationCreate(BaseModel):

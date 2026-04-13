@@ -89,13 +89,12 @@ class PostgresStatsRepository(BaseRepository):
     def student_progress_by_subjects(self, student_id: int, subject_ids: set[int]) -> list[dict]:
         if not subject_ids:
             return []
-        placeholders = ", ".join("%s" for _ in subject_ids)
         return self.fetch_all(
-            f"""SELECT e.exam_id, e.exam_date, e.exam_type, e.score, sub.subject_name
+            """SELECT e.exam_id, e.exam_date, e.exam_type, e.score, sub.subject_name
                 FROM exams e INNER JOIN subjects sub ON e.subject_id = sub.subject_id
-                WHERE e.student_id = %s AND e.subject_id IN ({placeholders})
+                WHERE e.student_id = %s AND e.subject_id = ANY(%s)
                 ORDER BY e.exam_date""",
-            (student_id, *subject_ids),
+            (student_id, list(subject_ids)),
         )
 
     def student_progress(self, student_id: int, subject_id: int | None = None) -> list[dict]:

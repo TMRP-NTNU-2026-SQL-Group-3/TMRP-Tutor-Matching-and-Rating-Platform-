@@ -1,14 +1,17 @@
+import logging
+
 import psycopg2
 from psycopg2 import pool
 
 from app.shared.infrastructure.config import settings
 
-# 應用啟動時建立連線池
+logger = logging.getLogger("app.db")
+
 _pool: pool.ThreadedConnectionPool | None = None
 
 
 def init_pool():
-    """初始化 PostgreSQL 連線池。應在應用啟動時呼叫一次。"""
+    """Initialize the PostgreSQL connection pool. Call once at app startup."""
     global _pool
     _pool = pool.ThreadedConnectionPool(
         minconn=settings.db_pool_min,
@@ -18,7 +21,7 @@ def init_pool():
 
 
 def close_pool():
-    """關閉連線池。應在應用關閉時呼叫。"""
+    """Close the connection pool. Call at app shutdown."""
     global _pool
     if _pool:
         _pool.closeall()
@@ -26,21 +29,23 @@ def close_pool():
 
 
 def _require_pool() -> pool.ThreadedConnectionPool:
-    """取得連線池物件；若尚未初始化則拋出明確錯誤。"""
+    """Return the pool, or raise if init_pool() was never called."""
     if _pool is None:
         raise RuntimeError(
-            "Database pool not initialized. 請先呼叫 init_pool()，"
-            "或確認應用是透過 lifespan 啟動（非單獨匯入模組）。"
+            "Database pool not initialized. Call init_pool() first, or make "
+            "sure the app is launched through its lifespan (not by importing "
+            "modules in isolation)."
         )
     return _pool
 
 
 def get_db():
-    """FastAPI 依賴注入：從連線池取得連線，請求結束歸還。
+    """FastAPI dependency: lease a connection and return it on request end.
 
-    歸還前一律 rollback，確保連線不會帶著未提交或已中止的交易回到連線池，
-    避免下一位使用者收到 InFailedSqlTransaction 錯誤。
-    已 commit 的交易 rollback 為 no-op，不影響正確性。
+    Always rollback before returning so the connection never goes back to the
+    pool with an uncommitted or aborted transaction (which would surface as
+    InFailedSqlTransaction for the next user). Rollback after a successful
+    commit is a no-op and harmless.
     """
     pool_ref = _require_pool()
     conn = pool_ref.getconn()
@@ -50,21 +55,22 @@ def get_db():
         try:
             conn.rollback()
         except Exception:
-            pass
+            logger.exception("Rollback failed while returning connection to pool")
         pool_ref.putconn(conn)
 
 
 def get_connection():
-    """背景任務用：從連線池取得連線。呼叫者需自行呼叫 release_connection() 歸還。"""
+    """Background-task helper: lease a connection. The caller must call
+    release_connection() to return it to the pool."""
     return _require_pool().getconn()
 
 
 def release_connection(conn):
-    """歸還連線至連線池。歸還前一律 rollback，與 get_db() 行為一致。"""
+    """Return a connection to the pool. Rolls back first, mirroring get_db()."""
     try:
         conn.rollback()
     except Exception:
-        pass
+        logger.exception("Rollback failed while releasing background-task connection")
     _require_pool().putconn(conn)
 
 
@@ -78,9 +84,9 @@ if __name__ == "__main__":
         setup_logger()
         try:
             initialize_database()
-            print("[成功] 資料庫初始化完成")
+            print("[OK] Database initialization complete")
         except Exception as e:
-            print(f"[錯誤] 資料庫初始化失敗: {e}")
+            print(f"[ERROR] Database initialization failed: {e}")
             sys.exit(1)
     else:
         print("Usage: python -m app.shared.infrastructure.database --init")

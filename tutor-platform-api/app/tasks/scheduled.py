@@ -13,8 +13,9 @@ logger = logging.getLogger("app.tasks.scheduled")
 @huey.periodic_task(crontab(hour="3", minute="0"))
 @huey.lock_task("check-expired-reviews")
 def check_expired_reviews():
-    """每日凌晨 3 點將超過 review_lock_days 天編輯期限的評價設為鎖定。"""
-    logger.info("開始檢查過期評價")
+    """Daily at 03:00, lock reviews older than `review_lock_days` so they
+    can no longer be edited by their author."""
+    logger.info("Start checking expired reviews")
     conn = get_connection()
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(days=settings.review_lock_days)
@@ -26,15 +27,27 @@ def check_expired_reviews():
         )
         count = cursor.rowcount
         conn.commit()
-        logger.info("已鎖定 %d 筆過期評價", count)
+        logger.info("Locked %d expired reviews", count)
     finally:
         release_connection(conn)
 
 
-# Bug #11: refresh_token_blacklist 表的過期條目每日清理一次，避免無限增長
+# Bug #11: GC the refresh_token_blacklist table once a day so it does not
+# grow unbounded.
 @huey.periodic_task(crontab(hour="3", minute="30"))
 @huey.lock_task("cleanup-refresh-token-blacklist")
 def cleanup_refresh_token_blacklist():
     from app.shared.infrastructure.security import cleanup_expired_blacklist
     deleted = cleanup_expired_blacklist()
-    logger.info("已清除 %d 筆過期 refresh token 黑名單", deleted)
+    logger.info("Removed %d expired refresh-token blacklist rows", deleted)
+
+
+# rate_limit_hits grows fast under load. The request path triggers
+# `_cleanup_expired` opportunistically, but quiet periods can leave it
+# stale for a long time, so schedule a guaranteed daily sweep here.
+@huey.periodic_task(crontab(hour="3", minute="45"))
+@huey.lock_task("cleanup-rate-limit-hits")
+def cleanup_rate_limit_hits():
+    from app.middleware.rate_limit import _cleanup_expired
+    deleted = _cleanup_expired()
+    logger.info("Removed %d expired rate-limit rows", deleted)

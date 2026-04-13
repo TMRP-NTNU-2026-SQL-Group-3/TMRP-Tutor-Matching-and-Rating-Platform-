@@ -1,11 +1,13 @@
 <template>
   <div class="flex flex-col h-[calc(100dvh_-_var(--nav-height,3.5rem)_-_var(--main-py,1.5rem)_*_2)] min-h-[60vh]">
-    <PageHeader title="聊天" />
+    <PageHeader title="聊天" show-back />
 
-    <div v-if="loading" class="flex-1 bg-gray-50 rounded-xl p-4 animate-pulse space-y-3">
+    <div v-if="loading" class="flex-1 bg-gray-50 rounded-xl p-4 animate-pulse space-y-3"
+         role="status" aria-live="polite" aria-label="載入訊息中">
       <div v-for="n in 5" :key="n" :class="n % 2 === 0 ? 'flex justify-end' : 'flex justify-start'">
         <div class="bg-gray-200 rounded-2xl h-10 w-48"></div>
       </div>
+      <span class="sr-only">載入中...</span>
     </div>
 
     <template v-else>
@@ -204,9 +206,13 @@ if (typeof document !== 'undefined') {
 
 onUnmounted(() => {
   stopPolling()
-  fetchId++  // 防止 onUnmounted 後仍有 in-flight 請求改 messages
+  // F-05: detach the visibility listener BEFORE bumping fetchId. If we bumped
+  // first, a visibilitychange firing in this tiny window would call
+  // fetchMessages() with the new fetchId, so its result would pass the
+  // currentFetchId === fetchId guard and overwrite messages on a dead component.
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', onVisibilityChange)
   }
+  fetchId++  // discard any in-flight responses started before unmount
 })
 </script>

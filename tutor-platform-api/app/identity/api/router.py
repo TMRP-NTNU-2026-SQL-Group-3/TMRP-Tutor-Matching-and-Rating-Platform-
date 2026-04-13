@@ -4,6 +4,7 @@ from app.identity.api.dependencies import get_auth_service, get_current_user, ge
 from app.identity.api.schemas import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
 from app.identity.domain.services import AuthService
 from app.shared.api.schemas import ApiResponse
+from app.shared.domain.exceptions import DomainException
 from app.shared.infrastructure.database_tx import transaction
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -49,8 +50,14 @@ def refresh(body: RefreshRequest, service: AuthService = Depends(get_auth_servic
 def logout(body: RefreshRequest, user=Depends(get_current_user)):
     from app.shared.infrastructure.security import decode_refresh_token, invalidate_refresh_token
     payload = decode_refresh_token(body.refresh_token)
-    if payload and (jti := payload.get("jti")):
-        invalidate_refresh_token(jti)
+    # Refuse mismatched / malformed refresh tokens so attackers cannot burn
+    # another user's JTI via a forged /logout call.
+    if not payload or str(payload.get("sub")) != str(user["sub"]):
+        raise DomainException("Invalid refresh token", status_code=400)
+    jti = payload.get("jti")
+    if not jti:
+        raise DomainException("Invalid refresh token", status_code=400)
+    invalidate_refresh_token(jti)
     return ApiResponse(success=True, message="已登出")
 
 

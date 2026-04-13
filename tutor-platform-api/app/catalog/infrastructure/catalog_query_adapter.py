@@ -16,8 +16,14 @@ class CatalogQueryAdapter(BaseRepository, ICatalogQuery):
         )
         return row["parent_user_id"] if row else None
 
-    def tutor_exists(self, tutor_id: int) -> bool:
-        row = self.fetch_one("SELECT 1 FROM tutors WHERE tutor_id = %s", (tutor_id,))
+    def lock_tutor_for_update(self, tutor_id: int) -> bool:
+        """Acquire a row-level lock on the tutor. Required before reading the
+        capacity counts so two concurrent create_match calls cannot both pass
+        the (active < max_students) check."""
+        row = self.fetch_one(
+            "SELECT 1 FROM tutors WHERE tutor_id = %s FOR UPDATE",
+            (tutor_id,),
+        )
         return row is not None
 
     def tutor_teaches_subject(self, tutor_id: int, subject_id: int) -> bool:

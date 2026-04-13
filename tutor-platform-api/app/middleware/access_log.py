@@ -5,6 +5,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger("app.access")
 
+# Long User-Agent strings (Electron, mobile WebViews, headless tools) trivially
+# fingerprint clients and inflate log rows. 120 chars keeps the browser/version
+# prefix that's actually useful for debugging while dropping the long suffixes.
+_USER_AGENT_MAX_CHARS = 120
+
+
+def _truncate_user_agent(ua: str) -> str:
+    if len(ua) <= _USER_AGENT_MAX_CHARS:
+        return ua
+    return ua[:_USER_AGENT_MAX_CHARS] + "…"
+
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
     """記錄每個請求的方法、路徑、狀態碼與耗時。"""
@@ -23,7 +34,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
                 "status": response.status_code,
                 "duration_ms": round(duration_ms, 1),
                 "client_ip": request.client.host,
-                "user_agent": request.headers.get("user-agent", "-"),
+                "user_agent": _truncate_user_agent(request.headers.get("user-agent", "-")),
             },
         )
         return response

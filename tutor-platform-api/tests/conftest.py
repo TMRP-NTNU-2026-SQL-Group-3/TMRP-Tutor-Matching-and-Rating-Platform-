@@ -23,6 +23,10 @@ _lifespan_patchers = [
     patch("app.init_db.create_schema", return_value=None),
     patch("app.init_db.seed_subjects", return_value=None),
     patch("app.init_db.ensure_admin_user", return_value=None),
+    # Bootstrap verification opens its own cursor and would receive MagicMock
+    # values that fail the role/seed assertions; not relevant under the test
+    # harness which never seeds a real DB.
+    patch("app.init_db.verify_bootstrap", return_value=None),
     # Rate-limit middleware hits Postgres on every request; short-circuit it.
     patch("app.middleware.rate_limit._check_and_record", return_value=True),
     patch("app.middleware.rate_limit._cleanup_expired", return_value=0),

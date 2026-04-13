@@ -109,7 +109,46 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
             (new_status, match_id),
         )
 
+    def confirm_trial_with_terms(
+        self, *, match_id: int, new_status: str,
+        hourly_rate: float | None,
+        sessions_per_week: int | None,
+        start_date: object | None,
+    ) -> None:
+        # Used by the trial → active confirmation flow (Spec Module D). Only
+        # fields the user actually provided are written, so callers can edit
+        # any subset of the contract terms.
+        if new_status not in self.VALID_STATUSES:
+            raise ValueError(f"Invalid status: {new_status}")
+        sets = ["status = %s", "updated_at = NOW()"]
+        params: list = [new_status]
+        if hourly_rate is not None:
+            sets.append("hourly_rate = %s")
+            params.append(hourly_rate)
+        if sessions_per_week is not None:
+            sets.append("sessions_per_week = %s")
+            params.append(sessions_per_week)
+        if start_date is not None:
+            sets.append("start_date = %s")
+            params.append(start_date)
+        params.append(match_id)
+        self.execute(
+            f"UPDATE matches SET {', '.join(sets)} WHERE match_id = %s",
+            tuple(params),
+        )
+
+    # Hard ceiling on the combined "{previous_status}|{reason}" payload that
+    # `clear_termination` later reverses by splitting on "|". A bad-actor
+    # reason would otherwise stuff the column past any UI display limit and
+    # — if the underlying column is later narrowed from TEXT — silently
+    # truncate to a value the splitter cannot recover.
+    _MAX_TERMINATION_REASON_CHARS = 1000
+
     def set_terminating(self, match_id, user_id, reason, previous_status) -> None:
+        if reason is not None and len(reason) > self._MAX_TERMINATION_REASON_CHARS:
+            raise ValueError(
+                f"termination reason exceeds {self._MAX_TERMINATION_REASON_CHARS} chars"
+            )
         combined_reason = f"{previous_status}|{reason}" if reason else previous_status
         self.execute(
             """UPDATE matches SET status = 'terminating', terminated_by = %s,

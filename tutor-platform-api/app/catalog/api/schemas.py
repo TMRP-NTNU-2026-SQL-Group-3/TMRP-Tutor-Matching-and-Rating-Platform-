@@ -4,10 +4,10 @@ from app.shared.api.validators import OptionalStr, TrimmedStr
 
 
 class TutorProfileUpdate(BaseModel):
-    self_intro: str | None = Field(default=None, description="自我介紹")
-    teaching_experience: str | None = Field(default=None, description="教學經驗")
-    university: str | None = Field(default=None, description="就讀大學")
-    department: str | None = Field(default=None, description="就讀科系")
+    self_intro: str | None = Field(default=None, max_length=4000, description="自我介紹")
+    teaching_experience: str | None = Field(default=None, max_length=4000, description="教學經驗")
+    university: str | None = Field(default=None, max_length=200, description="就讀大學")
+    department: str | None = Field(default=None, max_length=200, description="就讀科系")
     grade_year: int | None = Field(default=None, description="年級")
     max_students: int | None = Field(default=None, description="最大收學生數")
     show_university: bool | None = Field(default=None, description="是否公開大學資訊")
