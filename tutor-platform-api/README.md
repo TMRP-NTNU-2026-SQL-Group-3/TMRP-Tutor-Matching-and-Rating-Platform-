@@ -116,7 +116,7 @@ Loaded by pydantic-settings from `.env` (local) or `.env.docker` (container).
 | `DB_POOL_MAX` | `10` | Maximum pool size |
 | `JWT_SECRET_KEY` | **required** | HMAC secret for signing JWTs. `change-me-in-production` is rejected at startup. |
 | `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
-| `JWT_EXPIRE_MINUTES` | `15` | Access token TTL (paired with refresh-token flow) |
+| `JWT_EXPIRE_MINUTES` | `5` | Access token TTL in minutes (paired with refresh-token flow; capped at 15) |
 | `ADMIN_USERNAME` | `admin` | Super-admin login |
 | `ADMIN_PASSWORD` | **required** | Super-admin password. `admin123` is rejected at startup. |
 | `REVIEW_LOCK_DAYS` | `7` | Days after which a review locks |

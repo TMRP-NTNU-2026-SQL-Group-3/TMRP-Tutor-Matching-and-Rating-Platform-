@@ -1,0 +1,21 @@
+# Gitleaks config for TMRP.
+#
+# Baseline from gitleaks v8 default rules, with project-specific allowlists
+# for files that legitimately contain placeholder strings (the audit report
+# itself discusses leaked secret shapes, and .env example files use obvious
+# placeholders that gitleaks would otherwise flag).
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''docs/security-and-bug-audit-2026-04-13\.md''',
+  '''.*\.env\.example$''',
+]
+regexes = [
+  '''PLEASE_REPLACE_WITH_STRONG_PASSWORD''',
+  '''change-me-in-production''',
+  '''change-me''',
+]

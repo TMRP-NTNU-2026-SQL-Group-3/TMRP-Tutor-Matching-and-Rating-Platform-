@@ -14,7 +14,11 @@ class Settings(BaseSettings):
     # 留空表示沒有過渡期。長度限制亦為 32 字元（沿用同強度），允許留白以表示停用。
     jwt_secret_key_previous: str = ""
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 15  # short-lived access token (paired with refresh token)
+    # M-01: default lowered from 15 to 5 minutes. Access tokens live in
+    # localStorage (pending migration to HttpOnly cookies), so the access-
+    # token TTL is the main bound on an XSS-stolen credential. Shorter TTL
+    # means a refresh flow round-trip more often — acceptable at this scale.
+    jwt_expire_minutes: int = 5
 
     # Super-admin seeded on startup — password required via env.
     admin_username: str = "admin"

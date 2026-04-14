@@ -23,8 +23,16 @@ export const adminApi = {
   exportAll() {
     return api.post('/api/admin/export-all', null, { responseType: 'blob' })
   },
-  resetDatabase() {
-    return api.post('/api/admin/reset?confirm=true')
+  // H-04: two-step reset. Caller is expected to prompt the admin for their
+  // password between step 1 and step 2 — never cache or auto-fill it.
+  requestReset() {
+    return api.post('/api/admin/reset/request')
+  },
+  confirmReset(resetToken, password) {
+    return api.post('/api/admin/reset/confirm', {
+      reset_token: resetToken,
+      password,
+    })
   },
   getSystemStatus() {
     return api.get('/api/admin/system-status')

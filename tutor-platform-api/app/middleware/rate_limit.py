@@ -8,25 +8,65 @@ from starlette.responses import JSONResponse
 
 logger = logging.getLogger("app.rate_limit")
 
-# 每個路徑的速率限制：(最大請求數, 時間窗口秒數)
+# Per-path rate limit: (max requests, window seconds).
 RATE_LIMITS: dict[str, tuple[int, int]] = {
     "/api/auth/login": (10, 60),
     "/api/auth/register": (5, 60),
-    "/api/admin/reset": (3, 3600),        # 3 次/小時
-    "/api/admin/import-all": (5, 86400),  # 5 次/天
-    "/api/admin/seed": (5, 3600),         # 5 次/小時
+    # L-01: dedicated cap for refresh. Without this, refresh falls back to the
+    # `default` (60/min) bucket, which lets a stolen refresh token mint a new
+    # access token once per second and bypass the login bucket entirely. The
+    # RateLimitMiddleware records the hit before the handler runs, so failed
+    # refresh attempts (invalid/revoked token) are also counted.
+    "/api/auth/refresh": (20, 60),
+    # H-04: reset is now a two-step flow; apply rate limits to both stages.
+    # The confirm step is the destructive one, so it gets a tighter budget.
+    "/api/admin/reset/request": (5, 3600),  # 5/hour
+    "/api/admin/reset/confirm": (3, 3600),  # 3/hour
+    "/api/admin/import-all": (5, 86400),    # 5/day
+    "/api/admin/seed": (5, 3600),           # 5/hour
     "default": (60, 60),
 }
+
+# M-06: Paths that must fail CLOSED if the rate-limit DB is unreachable.
+# Rationale: on these endpoints a fail-open posture turns a DB outage into
+# an open door for credential stuffing / account enumeration / destructive
+# admin actions. For all other endpoints we keep fail-open so a rate-limit
+# outage cannot take the whole product down.
+FAIL_CLOSED_PATHS: frozenset[str] = frozenset({
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/admin/reset/request",
+    "/api/admin/reset/confirm",
+    "/api/admin/import-all",
+    "/api/admin/seed",
+})
 
 
 _CLEANUP_INTERVAL = 300  # 每 5 分鐘清理一次過期紀錄
 
 
-def _check_and_record(bucket_key: str, max_attempts: int, window_seconds: int) -> bool:
-    """同步的 DB 查詢 + 寫入；回傳是否允許此次請求。
+def check_and_record_bucket(
+    bucket_key: str,
+    max_attempts: int,
+    window_seconds: int,
+    *,
+    fail_closed: bool = False,
+) -> bool:
+    """Synchronous count-and-insert; returns whether this request is allowed.
 
-    Bug #12: 用 PostgreSQL 持久化計數，多 worker 部署時共享同一份計數，
-    避免攻擊者繞過 in-memory 的單 process 限流。
+    Bug #12: persisted in PostgreSQL so multi-worker deployments share a
+    single counter — prevents attackers from slipping under per-process
+    in-memory limits.
+
+    Public helper used both by ``RateLimitMiddleware`` (per path+IP bucket) and
+    by endpoints that need an additional dimension — e.g. ``/api/auth/login``
+    applies a per-username bucket so a distributed-IP brute force cannot stay
+    under the per-IP cap indefinitely (H-03).
+
+    M-06: ``fail_closed`` controls the failure mode when the counter DB is
+    unreachable. Default False (fail-open) keeps the site usable when
+    rate-limiting degrades. Callers guarding authentication or destructive
+    admin actions pass True so an outage can't remove the brake.
     """
     from app.shared.infrastructure.database import _require_pool
     pool_ref = _require_pool()
@@ -53,7 +93,12 @@ def _check_and_record(bucket_key: str, max_attempts: int, window_seconds: int) -
             conn.rollback()
         except Exception:
             pass
-        # DB 故障時 fail-open（避免限流故障導致整站停擺），但記錄錯誤供調查
+        if fail_closed:
+            logger.exception(
+                "Rate limit DB error for bucket=%s; failing CLOSED (sensitive path)",
+                bucket_key,
+            )
+            return False
         logger.exception("Rate limit DB error for bucket=%s; failing open", bucket_key)
         return True
     finally:
@@ -116,8 +161,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         await self._maybe_cleanup(now)
 
-        # 把同步的 psycopg2 呼叫丟到 thread pool，避免阻塞 event loop
-        allowed = await asyncio.to_thread(_check_and_record, bucket_key, max_attempts, window)
+        # Offload the synchronous psycopg2 call to the thread pool so we
+        # don't block the event loop.
+        fail_closed = path in FAIL_CLOSED_PATHS
+        allowed = await asyncio.to_thread(
+            check_and_record_bucket,
+            bucket_key,
+            max_attempts,
+            window,
+            fail_closed=fail_closed,
+        )
 
         if not allowed:
             return JSONResponse(

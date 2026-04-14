@@ -2,16 +2,20 @@ import logging
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from app.admin.api.dependencies import get_admin_import_service, get_admin_repo
 from app.admin.application.import_service import AdminImportService, MAX_UPLOAD_SIZE
 from app.admin.domain.tables import ALLOWED_TABLES, validate_table
 from app.admin.infrastructure.table_admin_repo import TableAdminRepository
-from app.identity.api.dependencies import require_role
+from app.identity.api.dependencies import get_db, require_role
 from app.shared.api.schemas import ApiResponse
-from app.shared.domain.exceptions import DomainException
+from app.shared.infrastructure.security import (
+    create_reset_confirmation_token,
+    decode_reset_confirmation_token,
+    verify_password,
+)
 
 logger = logging.getLogger("app.admin")
 
@@ -71,18 +75,94 @@ def export_csv(
     return FileResponse(path=str(path), filename=safe_filename, media_type="text/csv")
 
 
-@router.post("/reset", summary="清空資料庫", response_model=ApiResponse)
-def reset_database(
-    confirm: bool = Query(...),
+# H-04: destructive DB wipe is gated by a two-step flow.
+#
+#   Step 1  POST /api/admin/reset/request  →  issue a short-lived reset token
+#                                             bound to the caller's user_id
+#   Step 2  POST /api/admin/reset/confirm  →  require the reset token + the
+#                                             admin's plaintext password,
+#                                             auto-export a backup ZIP, then
+#                                             perform the reset.
+#
+# This turns a single stolen access token into an insufficient credential for
+# the nuclear "wipe everything" operation, and the auto-backup provides a
+# recovery path even if a legitimate admin makes a mistake.
+
+@router.post("/reset/request", summary="請求清空資料庫 (Step 1 of 2)", response_model=ApiResponse)
+def request_reset(request: Request, user=Depends(require_role("admin"))):
+    token = create_reset_confirmation_token(user_id=int(user["sub"]))
+    logger.warning(
+        "Admin reset requested by user_id=%s ip=%s jti=%s",
+        user.get("sub"),
+        request.client.host if request.client else "unknown",
+        user.get("jti"),
+    )
+    return ApiResponse(
+        success=True,
+        data={"reset_token": token, "expires_in": 300},
+        message="請於 5 分鐘內以密碼確認此操作",
+    )
+
+
+@router.post("/reset/confirm", summary="確認清空資料庫 (Step 2 of 2)", response_model=ApiResponse)
+def confirm_reset(
+    request: Request,
+    reset_token: str = Body(..., embed=True),
+    password: str = Body(..., embed=True),
     user=Depends(require_role("admin")),
     service: AdminImportService = Depends(get_admin_import_service),
+    conn=Depends(get_db),
 ):
-    if not confirm:
-        raise DomainException("請傳入 confirm=true 以確認清空資料庫")
-    logger.warning("Admin user_id=%s 執行清空資料庫", user.get("sub"))
+    payload = decode_reset_confirmation_token(reset_token)
+    if not payload or payload.get("sub") != str(user["sub"]):
+        logger.warning(
+            "Admin reset confirm: invalid/mismatched reset token user_id=%s ip=%s",
+            user.get("sub"),
+            request.client.host if request.client else "unknown",
+        )
+        raise HTTPException(status_code=401, detail="Reset token 無效或已過期")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT password_hash FROM users WHERE user_id = %s",
+            (int(user["sub"]),),
+        )
+        row = cur.fetchone()
+    if not row or not verify_password(password, row[0]):
+        logger.warning(
+            "Admin reset confirm: password re-verification FAILED user_id=%s ip=%s",
+            user.get("sub"),
+            request.client.host if request.client else "unknown",
+        )
+        raise HTTPException(status_code=401, detail="密碼驗證失敗")
+
+    backup_dir = Path("data/backups")
+    try:
+        backup_path = service.export_all_tables_to_zip(
+            export_dir=backup_dir,
+            zip_name=f"pre-reset-{payload['jti']}.zip",
+        )
+    except Exception:
+        # An empty DB has nothing to export; fall through without a backup
+        # rather than blocking a legitimate reset. Still log so the audit
+        # trail shows the attempt.
+        logger.warning("Pre-reset backup skipped (export failed)")
+        backup_path = None
+
+    logger.warning(
+        "Admin reset CONFIRMED user_id=%s ip=%s jti=%s backup=%s",
+        user.get("sub"),
+        request.client.host if request.client else "unknown",
+        user.get("jti"),
+        backup_path,
+    )
     deleted = service.reset_database(admin_user_id=int(user["sub"]))
     total = sum(deleted.values())
-    return ApiResponse(success=True, data=deleted, message=f"已刪除 {total} 筆資料，Admin 帳號已保留")
+    return ApiResponse(
+        success=True,
+        data={"deleted": deleted, "backup": str(backup_path) if backup_path else None},
+        message=f"已刪除 {total} 筆資料，Admin 帳號已保留",
+    )
 
 
 @router.get("/system-status", summary="系統狀態", response_model=ApiResponse)
@@ -138,6 +218,7 @@ def import_all(
 
 @router.get("/tasks/{task_id}", summary="查詢背景任務", response_model=ApiResponse)
 def get_task_status(task_id: str, user=Depends(require_role("admin"))):
+    import json
     from app.worker import huey as huey_instance
     try:
         raw = huey_instance.storage.peek_data(task_id)
@@ -148,18 +229,28 @@ def get_task_status(task_id: str, user=Depends(require_role("admin"))):
         return ApiResponse(success=True, data={"task_id": task_id, "status": "pending"})
     if raw is huey_instance.EmptyData:
         return ApiResponse(success=True, data={"task_id": task_id, "status": "pending"})
+    # H-02: task payloads are JSON (see app.shared.infrastructure.huey_json_serializer).
+    # Refuse to fall back to pickle — deserializing untrusted storage bytes as
+    # pickle is a remote-code-execution primitive (CWE-502).
     try:
-        import json
-        result = json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        try:
-            import pickle
-            result = pickle.loads(raw)
-        except (pickle.UnpicklingError, EOFError, AttributeError, ImportError) as e:
-            logger.warning("Cannot deserialize task result task_id=%s: %s", task_id, e)
-            result = None
-    if isinstance(result, Exception):
-        return ApiResponse(success=True, data={"task_id": task_id, "status": "failed", "error": str(result)})
+        result = json.loads(raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        logger.error("Non-JSON task payload task_id=%s: %s", task_id, e)
+        return ApiResponse(
+            success=False, data={"task_id": task_id, "status": "corrupted"},
+            message="Task result is not valid JSON",
+        )
+    if isinstance(result, dict) and result.get("__huey_error__"):
+        meta = result.get("metadata") or {}
+        return ApiResponse(
+            success=True,
+            data={"task_id": task_id, "status": "failed", "error": meta.get("error", "unknown error")},
+        )
+    if isinstance(result, dict) and result.get("__exception__"):
+        return ApiResponse(
+            success=True,
+            data={"task_id": task_id, "status": "failed", "error": result.get("message", "")},
+        )
     return ApiResponse(success=True, data={"task_id": task_id, "status": "completed", "result": result})
 
 

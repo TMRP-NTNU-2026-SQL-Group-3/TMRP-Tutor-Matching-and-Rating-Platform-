@@ -28,7 +28,7 @@ _lifespan_patchers = [
     # harness which never seeds a real DB.
     patch("app.init_db.verify_bootstrap", return_value=None),
     # Rate-limit middleware hits Postgres on every request; short-circuit it.
-    patch("app.middleware.rate_limit._check_and_record", return_value=True),
+    patch("app.middleware.rate_limit.check_and_record_bucket", return_value=True),
     patch("app.middleware.rate_limit._cleanup_expired", return_value=0),
 ]
 for p in _lifespan_patchers:

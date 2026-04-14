@@ -1,11 +1,20 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.identity.api.dependencies import get_auth_service, get_current_user, get_db
 from app.identity.api.schemas import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
 from app.identity.domain.services import AuthService
+from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
 from app.shared.domain.exceptions import DomainException
 from app.shared.infrastructure.database_tx import transaction
+
+# H-03: per-username rate limit in addition to the per-IP limit applied by
+# RateLimitMiddleware. An attacker using a distributed IP pool can stay under
+# the per-IP cap while still hammering a single account; this closes that gap.
+# Applied uniformly regardless of whether the username exists so the limit
+# itself cannot be used as an account-enumeration oracle.
+_LOGIN_USER_MAX_ATTEMPTS = 5
+_LOGIN_USER_WINDOW_SECONDS = 900  # 15 minutes
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -29,8 +38,39 @@ def register(
 
 
 @router.post("/login", summary="使用者登入", description="驗證帳號密碼後核發 JWT Token，回傳使用者基本資訊。", response_model=ApiResponse[TokenResponse])
-def login(body: LoginRequest, service: AuthService = Depends(get_auth_service)):
-    result = service.login(username=body.username, password=body.password)
+def login(
+    body: LoginRequest,
+    request: Request,
+    service: AuthService = Depends(get_auth_service),
+):
+    # Account-level bucket is checked before password verification so the cost
+    # of bcrypt cannot be used to amplify a distributed brute-force attack.
+    # The generic 429 message is identical for existing and unknown usernames
+    # to avoid leaking account existence.
+    user_bucket = f"login_user|{body.username.lower()}"
+    # M-06: sensitive — fail closed if the rate-limit DB is unreachable,
+    # so a counter outage cannot remove the per-account brake that defends
+    # against distributed-IP credential stuffing.
+    if not check_and_record_bucket(
+        user_bucket,
+        _LOGIN_USER_MAX_ATTEMPTS,
+        _LOGIN_USER_WINDOW_SECONDS,
+        fail_closed=True,
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="此帳號嘗試次數過多，請稍後再試",
+        )
+    # L-03: forward client context to the audit log. request.client is None
+    # for unit-test transports, so guard with a None default.
+    source_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    result = service.login(
+        username=body.username,
+        password=body.password,
+        source_ip=source_ip,
+        user_agent=user_agent,
+    )
     return ApiResponse(
         success=True,
         data=TokenResponse(**result),

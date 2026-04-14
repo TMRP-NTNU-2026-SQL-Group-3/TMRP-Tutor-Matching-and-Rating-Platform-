@@ -1,21 +1,29 @@
 import logging
 import threading
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt
 
 from app.shared.infrastructure.config import settings
 
+JWTError = jwt.PyJWTError
+
 logger = logging.getLogger("app.security")
 
-# Bug #11: 已使用的 refresh token JTI 黑名單已遷移至 PostgreSQL
-# (refresh_token_blacklist 表)，多 worker 部署下共享狀態。
-# 仍保留 in-memory 快取以減少資料庫查詢；DB 為唯一真相，快取僅為效能優化。
-_blacklist_cache: dict[str, float] = {}
+# Bug #11: The used refresh token JTI blacklist has been moved to PostgreSQL
+# (refresh_token_blacklist table) so multi-worker deployments share state.
+# An in-memory cache remains to reduce DB queries; DB is the source of truth,
+# the cache is purely an optimisation.
+# M-03: OrderedDict-backed LRU. The previous dict + linear expired-sweep could
+# stay pinned at max size when a burst of logouts produced >N non-expired
+# entries, turning every subsequent insert into an O(N) scan that freed
+# nothing. LRU eviction caps work at O(1) per insert regardless of expiry.
+_blacklist_cache: "OrderedDict[str, float]" = OrderedDict()
 _jti_lock = threading.Lock()
-_REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 3600  # 7 天，與 refresh token 效期一致
+_REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 3600  # matches refresh token lifetime
 _CACHE_MAX_SIZE = 1000
 
 
@@ -103,14 +111,6 @@ def decode_access_token(token: str) -> dict | None:
     return payload
 
 
-def _cleanup_expired_cache() -> None:
-    """清除快取中已過期的 JTI 條目（需在持有 _jti_lock 時呼叫）。"""
-    now = datetime.now(timezone.utc).timestamp()
-    expired = [jti for jti, exp in _blacklist_cache.items() if now >= exp]
-    for jti in expired:
-        del _blacklist_cache[jti]
-
-
 def invalidate_refresh_token(jti: str) -> None:
     """將 refresh token 的 JTI 加入黑名單。先寫入 DB（共享真相），再更新本機快取。
 
@@ -140,8 +140,9 @@ def invalidate_refresh_token(jti: str) -> None:
 
     with _jti_lock:
         _blacklist_cache[jti] = expires_at_ts
-        if len(_blacklist_cache) > _CACHE_MAX_SIZE:
-            _cleanup_expired_cache()
+        _blacklist_cache.move_to_end(jti)
+        while len(_blacklist_cache) > _CACHE_MAX_SIZE:
+            _blacklist_cache.popitem(last=False)
 
 
 def is_refresh_token_blacklisted(jti: str) -> bool:
@@ -154,6 +155,7 @@ def is_refresh_token_blacklisted(jti: str) -> bool:
             if now_ts >= expiry:
                 del _blacklist_cache[jti]
             else:
+                _blacklist_cache.move_to_end(jti)
                 return True
 
     # 快取未命中：查 DB（多 worker 共享真相）
@@ -181,9 +183,12 @@ def is_refresh_token_blacklisted(jti: str) -> bool:
     if row is None:
         return False
 
-    # 寫入快取以加速後續查詢
+    # Populate the cache to accelerate subsequent checks.
     with _jti_lock:
         _blacklist_cache[jti] = float(row[0])
+        _blacklist_cache.move_to_end(jti)
+        while len(_blacklist_cache) > _CACHE_MAX_SIZE:
+            _blacklist_cache.popitem(last=False)
     return True
 
 
@@ -205,6 +210,37 @@ def cleanup_expired_blacklist() -> int:
         raise
     finally:
         pool_ref.putconn(conn)
+
+
+def create_reset_confirmation_token(user_id: int, ttl_minutes: int = 5) -> str:
+    """Short-lived token that binds a subsequent destructive admin action
+    (e.g. ``/api/admin/reset/confirm``) to a specific admin user.
+
+    Defence in depth beyond the regular access token: even if an access token
+    is stolen, a reset requires the attacker to obtain this freshly-issued,
+    user-bound, short-TTL token AND the admin's plaintext password.
+    """
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "type": "reset",
+        "exp": now + timedelta(minutes=ttl_minutes),
+        "iat": now,
+        "jti": str(uuid.uuid4()),
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def decode_reset_confirmation_token(token: str) -> dict | None:
+    """Return the payload only if the token is a valid, unexpired reset token.
+    Returns None otherwise — callers MUST NOT proceed on None."""
+    payload = _decode_with_rotation(token)
+    if payload is None:
+        return None
+    if payload.get("type") != "reset":
+        logger.warning("Non-reset token supplied to reset confirmation endpoint")
+        return None
+    return payload
 
 
 def decode_refresh_token(token: str) -> dict | None:

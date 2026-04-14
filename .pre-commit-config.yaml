@@ -1,0 +1,24 @@
+# Pre-commit hooks for TMRP.
+#
+# C-01 mitigation: gitleaks blocks any commit whose staged content matches
+# secret-shaped patterns (JWT keys, AWS access keys, private keys, etc).
+# Install locally with:   pip install pre-commit && pre-commit install
+#
+# This is a *write-side* control only. It does NOT clean existing git history.
+# Secrets already present in history (see docs/security-and-bug-audit-2026-04-13.md
+# finding C-01) must be rotated and, if the repo is ever to be made public,
+# scrubbed separately with git-filter-repo or BFG.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: end-of-file-fixer
+      - id: trailing-whitespace

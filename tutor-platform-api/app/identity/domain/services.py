@@ -1,3 +1,5 @@
+import logging
+
 from app.shared.infrastructure.security import (
     create_access_token,
     create_refresh_token,
@@ -16,6 +18,12 @@ from .exceptions import (
 )
 from .ports import IUserRepository
 
+# L-03: dedicated audit channel so "who logged in from where and when" can be
+# reconstructed after the fact. Child of the "app" logger so it inherits the
+# rotating JSON file handler set up in setup_logger(). Never log the submitted
+# password or issued tokens — the log file is not a credential store.
+_audit_logger = logging.getLogger("app.audit")
+
 
 class AuthService:
     """純業務邏輯：註冊、登入、token 管理。"""
@@ -30,11 +38,14 @@ class AuthService:
         if role not in ("parent", "tutor"):
             raise InvalidRoleError()
 
-        hashed = hash_password(password)
-
+        # M-02: Check duplicates before hashing, but burn an equivalent bcrypt
+        # cost on the duplicate path so a timing observer can't distinguish
+        # "username taken" from "new user created" and enumerate accounts.
         if self._repo.find_by_username(username):
+            hash_password("dummy_for_timing_consistency")
             raise DuplicateUsernameError()
 
+        hashed = hash_password(password)
         return self._repo.register_user(
             username=username,
             password_hash=hashed,
@@ -44,11 +55,26 @@ class AuthService:
             email=email,
         )
 
-    def login(self, *, username: str, password: str) -> dict:
+    def login(
+        self,
+        *,
+        username: str,
+        password: str,
+        source_ip: str | None = None,
+        user_agent: str | None = None,
+    ) -> dict:
         user = self._repo.find_by_username(username)
         if not user or not verify_password(password, user["password_hash"]):
+            _audit_logger.warning(
+                "login_failed username=%s ip=%s ua=%s",
+                username, source_ip, user_agent,
+            )
             raise InvalidCredentialsError()
 
+        _audit_logger.info(
+            "login_success user_id=%s username=%s ip=%s ua=%s",
+            user["user_id"], username, source_ip, user_agent,
+        )
         token_data = {"sub": str(user["user_id"]), "role": user["role"]}
         return {
             "access_token": create_access_token(token_data),

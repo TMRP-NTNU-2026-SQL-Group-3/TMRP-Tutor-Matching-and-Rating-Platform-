@@ -269,19 +269,30 @@ async function handleSeed() {
 }
 
 async function handleReset() {
-  // Destructive: require explicit double confirmation before wiping everything.
+  // H-04: two-step destructive confirmation. Step 1 obtains a short-lived
+  // reset token bound to this admin user; step 2 re-verifies the admin's
+  // password and triggers an automatic backup before wiping.
   if (!window.confirm('確定要清空資料庫嗎？此操作會刪除所有資料（Admin 帳號會保留），無法復原。')) return
   const typed = window.prompt('請輸入「RESET」以確認執行清空資料庫')
   if (typed !== 'RESET') {
     toast.info('已取消清空資料庫')
     return
   }
+  const password = window.prompt('請再次輸入 Admin 密碼以完成二次驗證')
+  if (!password) {
+    toast.info('已取消清空資料庫')
+    return
+  }
   resetting.value = true
   clearResults()
   try {
-    const result = await adminApi.resetDatabase()
-    const total = Object.values(result || {}).reduce((a, v) => a + (Number(v) || 0), 0)
-    resetResult.value = `已清空 ${total} 筆資料`
+    const { reset_token } = await adminApi.requestReset()
+    const result = await adminApi.confirmReset(reset_token, password)
+    const deleted = result?.deleted || {}
+    const total = Object.values(deleted).reduce((a, v) => a + (Number(v) || 0), 0)
+    resetResult.value = result?.backup
+      ? `已清空 ${total} 筆資料；備份：${result.backup}`
+      : `已清空 ${total} 筆資料`
     toast.success('資料庫已清空')
     await Promise.all([fetchUsers(), fetchSystemStatus()])
   } catch (e) {

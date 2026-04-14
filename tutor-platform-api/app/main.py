@@ -178,7 +178,12 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
-    allow_credentials=True,
+    # L-04: authentication is Bearer-token in the Authorization header, not
+    # cookies. Leaving allow_credentials=True here activated the stricter
+    # "credentialed" CORS mode for no functional reason and forbade the
+    # wildcard-origin safety net. If we migrate to HttpOnly cookie auth
+    # (M-01), flip this back to True and add CSRF protection at the same time.
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
