@@ -38,9 +38,16 @@ def seed_data(
 ):
     logger.warning("Admin user_id=%s 執行假資料生成", user.get("sub"))
     from seed.generator import run_seed
-    result = run_seed(repo.conn)
+    # B8: run_seed no longer commits internally. Own the transaction here so
+    # a mid-run failure rolls everything back instead of leaving partial rows.
+    try:
+        result = run_seed(repo.conn)
+    except Exception:
+        repo.conn.rollback()
+        raise
     if result.get("skipped"):
         return ApiResponse(success=True, data=result, message=result.get("message", "已跳過"))
+    repo.conn.commit()
     total = sum(v for v in result.values() if isinstance(v, int))
     return ApiResponse(success=True, data=result, message=f"已產生 {total} 筆假資料")
 

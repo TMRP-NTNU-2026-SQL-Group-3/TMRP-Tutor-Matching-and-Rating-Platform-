@@ -11,7 +11,7 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">日期 *</label>
-          <input v-model="form.session_date" type="date"
+          <input v-model="form.session_date" type="date" :max="today"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
         </div>
         <div>
@@ -61,7 +61,7 @@
 </template>
 
 <script setup>
-import { reactive } from 'vue'
+import { reactive, computed } from 'vue'
 
 defineProps({
   visible: { type: Boolean, default: false },
@@ -70,6 +70,15 @@ defineProps({
 })
 
 const emit = defineEmits(['submit', 'cancel'])
+
+// Clamp the date picker to today so tutors can't log future sessions.
+const today = computed(() => {
+  const d = new Date()
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+})
 
 const form = reactive({
   session_date: '',

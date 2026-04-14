@@ -70,11 +70,25 @@ class AdminImportService:
         if len(rows) > MAX_IMPORT_ROWS_PER_TABLE:
             raise DomainException(f"超過單表匯入上限 {MAX_IMPORT_ROWS_PER_TABLE} 筆")
         columns = list(rows[0].keys())
+        self._assert_columns_in_schema(table_name, columns)
         with self._uow.begin():
             for row in rows:
                 self._repo.insert_csv_row(table_name, columns, [row[c] for c in columns])
             self._repo.reset_serial_sequences([table_name])
         return len(rows)
+
+    def _assert_columns_in_schema(self, table_name: str, columns: list[str]) -> None:
+        """B9: reject CSV headers referencing columns the target table does
+        not have. The identifier regex in `insert_csv_row` only proves the
+        name is syntactically safe to splice; it does not prove the column
+        exists. Without this check, an unknown column reaches psycopg2 and
+        surfaces a schema-leaking error back to the admin UI."""
+        existing = self._repo.get_schema_columns(table_name)
+        unknown = [c for c in columns if c not in existing]
+        if unknown:
+            raise DomainException(
+                f"CSV 標頭包含 {table_name} 不存在的欄位：{', '.join(unknown)}"
+            )
 
     def import_zip(self, *, zip_bytes: bytes, admin_user_id: int, clear_first: bool) -> dict:
         """Import a ZIP containing one CSV per whitelisted table.
@@ -116,6 +130,11 @@ class AdminImportService:
                     errors[table] = [f"超過單表匯入上限 {MAX_IMPORT_ROWS_PER_TABLE} 筆"]
                     continue
                 columns = list(rows[0].keys())
+                try:
+                    self._assert_columns_in_schema(table, columns)
+                except DomainException as e:
+                    errors[table] = [str(e)]
+                    continue
                 inserted = 0
                 table_errors: list[str] = []
                 for i, row in enumerate(rows, 1):

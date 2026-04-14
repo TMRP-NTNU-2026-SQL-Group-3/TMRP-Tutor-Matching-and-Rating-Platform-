@@ -6,10 +6,12 @@ gating (tutor-only endpoints) remains at the router via `require_role`.
 """
 
 from app.matching.domain.value_objects import MatchStatus
+from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.domain.exceptions import (
     DomainException,
     NotFoundError,
     PermissionDeniedError,
+    TooManyRequestsError,
 )
 from app.shared.domain.ports import IUnitOfWork
 from app.teaching.domain.exceptions import MatchNotActiveError, SessionNotFoundError
@@ -17,6 +19,13 @@ from app.teaching.domain.ports import ISessionRepository
 
 
 _ACTIVE_SESSION_STATUSES = {MatchStatus.ACTIVE.value, MatchStatus.TRIAL.value}
+
+# B6: Path-based rate-limiting in the middleware can't distinguish "60
+# session logs for one match in a minute" from "60 across 60 different
+# matches". Add a per-match+tutor service-layer bucket so a misbehaving
+# or runaway client can't flood a single match's log with notes.
+_SESSION_CREATE_LIMIT = 10
+_SESSION_CREATE_WINDOW = 60
 
 
 def _as_str(value) -> str:
@@ -38,6 +47,12 @@ class SessionAppService:
             raise PermissionDeniedError("只有此配對的老師可以新增上課日誌")
         if match["status"] not in _ACTIVE_SESSION_STATUSES:
             raise MatchNotActiveError()
+        # Keyed on match+tutor so the bucket survives IP changes (mobile
+        # networks, roaming) but still isolates different matches from
+        # each other.
+        bucket = f"session:create|match={match_id}|tutor={tutor_user_id}"
+        if not check_and_record_bucket(bucket, _SESSION_CREATE_LIMIT, _SESSION_CREATE_WINDOW):
+            raise TooManyRequestsError("此配對的上課日誌新增頻率過高，請稍後再試")
         return self._repo.create(match_id=match_id, **fields)
 
     def list_for_match(self, *, match_id: int, user_id: int, is_admin: bool) -> list[dict]:

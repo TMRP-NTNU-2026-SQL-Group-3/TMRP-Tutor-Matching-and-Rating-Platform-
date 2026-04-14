@@ -74,6 +74,15 @@ def check_and_record_bucket(
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
         with conn.cursor() as cur:
+            # B3: The previous count-then-insert was racy — two concurrent
+            # requests could each SELECT below the limit before either's
+            # INSERT landed, letting both through. We serialize the
+            # check+insert per bucket with a transaction-scoped advisory
+            # lock keyed on hashtext(bucket_key); that way distinct buckets
+            # still run in parallel, but a single bucket is effectively
+            # single-threaded for the duration of this short critical
+            # section. The lock is released automatically on COMMIT/ROLLBACK.
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (bucket_key,))
             cur.execute(
                 "SELECT COUNT(*) FROM rate_limit_hits WHERE bucket_key = %s AND hit_at >= %s",
                 (bucket_key, cutoff),

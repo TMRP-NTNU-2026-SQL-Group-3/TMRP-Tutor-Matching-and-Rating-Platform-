@@ -131,10 +131,17 @@ class TestMatchStatusTransitions:
         """Helper: patch PostgresMatchRepository and send PATCH request."""
         with (
             patch(_MATCH_REPO_PATH) as MockRepo,
-            patch(_CATALOG_PATH),
+            patch(_CATALOG_PATH) as MockCatalog,
         ):
             repo = MockRepo.return_value
             repo.find_by_id.return_value = match_entity
+            # B1: the paused→active resume path now re-checks capacity via
+            # the catalog. Default the mock to "has capacity" so tests that
+            # don't explicitly care about capacity keep passing.
+            catalog = MockCatalog.return_value
+            catalog.lock_tutor_for_update.return_value = True
+            catalog.get_active_student_count.return_value = 0
+            catalog.get_max_students.return_value = 5
             body = {"action": action}
             if reason:
                 body["reason"] = reason

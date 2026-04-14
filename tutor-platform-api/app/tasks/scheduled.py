@@ -11,11 +11,11 @@ logger = logging.getLogger("app.tasks.scheduled")
 
 
 @huey.periodic_task(crontab(hour="3", minute="0"))
-@huey.lock_task("check-expired-reviews")
-def check_expired_reviews():
+@huey.lock_task("lock-expired-reviews")
+def lock_expired_reviews():
     """Daily at 03:00, lock reviews older than `review_lock_days` so they
     can no longer be edited by their author."""
-    logger.info("Start checking expired reviews")
+    logger.info("Start locking expired reviews")
     conn = get_connection()
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(days=settings.review_lock_days)

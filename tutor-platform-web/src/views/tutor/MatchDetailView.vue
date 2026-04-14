@@ -436,10 +436,18 @@ async function submitSession(formData) {
       match_id: match.value.match_id,
       ...formData,
     })
-    showSessionForm.value = false
-    sessionFormRef.value?.reset()
-    toast.success('上課日誌已新增')
-    await fetchMatch()
+    // Only close the form once the refetch confirms the new session is in the
+    // list. fetchMatch swallows its own errors (sets error.value + toasts) and
+    // returns false on failure, so if we closed unconditionally the user could
+    // see the form vanish without their entry appearing anywhere.
+    const refreshed = await fetchMatch()
+    if (refreshed) {
+      showSessionForm.value = false
+      sessionFormRef.value?.reset()
+      toast.success('上課日誌已新增')
+    } else {
+      toast.success('上課日誌已新增，但列表更新失敗，請手動重新整理')
+    }
   } catch (e) {
     sessionError.value = e.message
     toast.error(e.message)

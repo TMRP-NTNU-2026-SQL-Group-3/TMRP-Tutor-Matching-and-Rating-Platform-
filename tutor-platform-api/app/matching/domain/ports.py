@@ -45,6 +45,13 @@ class IMatchRepository(ABC):
     def check_duplicate_active(self, tutor_id: int,
                                student_id: int, subject_id: int) -> bool: ...
 
+    @abstractmethod
+    def record_admin_transition(
+        self, *, match_id: int, actor_user_id: int,
+        action: str, old_status: str, new_status: str,
+        reason: str | None,
+    ) -> None: ...
+
 
 class ICatalogQuery(ABC):
     @abstractmethod

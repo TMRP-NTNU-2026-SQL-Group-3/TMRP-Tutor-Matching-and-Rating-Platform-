@@ -9,6 +9,18 @@ class TableAdminRepository(BaseRepository):
     deletes, CSV-shaped inserts, and serial-sequence resets. All table names
     must be pre-validated against the ALLOWED_TABLES whitelist by the caller."""
 
+    def get_schema_columns(self, table: str) -> set[str]:
+        """Return the set of column names defined on `table` in the current
+        database. Used by B9 to reject CSV headers that reference columns the
+        target table does not have, before the INSERT would surface a raw
+        psycopg2 error that leaks schema detail to the admin UI."""
+        rows = self.fetch_all(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = %s",
+            (table,),
+        )
+        return {r["column_name"] for r in rows}
+
     def count(self, table: str) -> int:
         stmt = sql.SQL("SELECT COUNT(*) AS cnt FROM {tbl}").format(
             tbl=sql.Identifier(table)

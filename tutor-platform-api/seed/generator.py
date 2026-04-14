@@ -1,8 +1,13 @@
 """
-假資料產生器
+Seed data generator.
 
-呼叫 run_seed(conn) 即可填入完整的展示用假資料。
-若偵測到資料庫已有非管理員的使用者，會跳過以避免重複寫入。
+Call `run_seed(conn)` to populate demo fixtures. If the database already
+contains non-admin users, the seed is skipped to avoid duplicates.
+
+The function stages every INSERT inside the caller's transaction and returns
+without committing; the caller (see `app.tasks.seed_tasks.generate_seed_data`)
+is responsible for committing on success or rolling back on failure so a
+mid-run error cannot leave the database in a half-seeded state.
 """
 
 import logging
@@ -62,7 +67,7 @@ def run_seed(conn) -> dict:
     counts = {}
 
     # ══════════════════════════════════════════
-    # 1. Users（3 parents + 3 tutors）
+    # 1. Users (3 parents + 3 tutors)
     # ══════════════════════════════════════════
     parent_data = [
         ("parent_wang", "parent", "王美玲", "0912-345-678", "wang.meiling@example.com"),
@@ -96,9 +101,8 @@ def run_seed(conn) -> dict:
         )
         tutor_user_ids.append(uid)
 
-    conn.commit()
     counts["users"] = 6
-    logger.info("  建立 6 位使用者")
+    logger.info("  6 users staged")
 
     # ══════════════════════════════════════════
     # 2. Tutors
@@ -149,9 +153,8 @@ def run_seed(conn) -> dict:
         )
         tutor_ids.append(tid)
 
-    conn.commit()
     counts["tutors"] = 3
-    logger.info("  建立 3 位家教檔案")
+    logger.info("  3 tutor profiles staged")
 
     # ══════════════════════════════════════════
     # 3. Students（每位家長 1-2 位學生）
@@ -175,9 +178,8 @@ def run_seed(conn) -> dict:
         )
         student_ids.append(sid)
 
-    conn.commit()
     counts["students"] = len(student_data)
-    logger.info("  建立 %d 位學生", len(student_data))
+    logger.info("  %d students staged", len(student_data))
 
     # ══════════════════════════════════════════
     # 4. 查詢科目 ID
@@ -211,9 +213,8 @@ def run_seed(conn) -> dict:
         )
         ts_count += 1
 
-    conn.commit()
     counts["tutor_subjects"] = ts_count
-    logger.info("  建立 %d 筆家教科目", ts_count)
+    logger.info("  %d tutor-subject rows staged", ts_count)
 
     # ══════════════════════════════════════════
     # 6. Tutor_Availability
@@ -242,9 +243,8 @@ def run_seed(conn) -> dict:
         )
         avail_count += 1
 
-    conn.commit()
     counts["tutor_availability"] = avail_count
-    logger.info("  建立 %d 筆可用時段", avail_count)
+    logger.info("  %d availability slots staged", avail_count)
 
     # ══════════════════════════════════════════
     # 7. Conversations & Messages
@@ -304,10 +304,9 @@ def run_seed(conn) -> dict:
             (last_msg_time, conv_id),
         )
 
-    conn.commit()
     counts["conversations"] = conv_count
     counts["messages"] = msg_count
-    logger.info("  建立 %d 個對話、%d 則訊息", conv_count, msg_count)
+    logger.info("  %d conversations / %d messages staged", conv_count, msg_count)
 
     # ══════════════════════════════════════════
     # 8. Matches
@@ -395,9 +394,8 @@ def run_seed(conn) -> dict:
         )
         match_ids.append(mid)
 
-    conn.commit()
     counts["matches"] = len(match_specs)
-    logger.info("  建立 %d 筆配對", len(match_specs))
+    logger.info("  %d matches staged", len(match_specs))
 
     # ══════════════════════════════════════════
     # 9. Sessions（為 active / trial / ended 的配對建立上課紀錄）
@@ -508,9 +506,8 @@ def run_seed(conn) -> dict:
         )
         session_count += 1
 
-    conn.commit()
     counts["sessions"] = session_count
-    logger.info("  建立 %d 筆上課紀錄", session_count)
+    logger.info("  %d session rows staged", session_count)
 
     # ══════════════════════════════════════════
     # 10. Exams
@@ -560,9 +557,8 @@ def run_seed(conn) -> dict:
         )
         exam_count += 1
 
-    conn.commit()
     counts["exams"] = exam_count
-    logger.info("  建立 %d 筆考試紀錄", exam_count)
+    logger.info("  %d exam rows staged", exam_count)
 
     # ══════════════════════════════════════════
     # 11. Reviews
@@ -623,9 +619,8 @@ def run_seed(conn) -> dict:
         )
         review_count += 1
 
-    conn.commit()
     counts["reviews"] = review_count
-    logger.info("  建立 %d 筆評價", review_count)
+    logger.info("  %d review rows staged", review_count)
 
-    logger.info("假資料寫入完成：%s", counts)
+    logger.info("Seed data staged: %s", counts)
     return counts

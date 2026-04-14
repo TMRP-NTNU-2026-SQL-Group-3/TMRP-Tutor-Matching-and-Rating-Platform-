@@ -46,13 +46,27 @@ def import_csv_task(table_name: str, csv_content: str, request_id: str | None = 
         for col in columns:
             if not validate_column_name(col):
                 return {"table": table_name, "error": f"Invalid column name: {col!r}"}
+
+        # B9: validate column names against the live schema — the regex above
+        # only proves the identifier is syntactically safe; an unknown column
+        # would otherwise surface a psycopg2 error leaking schema detail.
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = %s",
+            (table_name,),
+        )
+        existing_cols = {r[0] for r in cursor.fetchall()}
+        unknown = [c for c in columns if c not in existing_cols]
+        if unknown:
+            return {"table": table_name, "error": f"Unknown column(s): {', '.join(unknown)}"}
+
         col_list = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
         placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in columns)
         insert_stmt = sql.SQL("INSERT INTO {tbl} ({cols}) VALUES ({vals})").format(
             tbl=sql.Identifier(table_name), cols=col_list, vals=placeholders,
         )
 
-        cursor = conn.cursor()
         try:
             for row in rows:
                 values = tuple(coerce_csv_value(row[c]) for c in columns)

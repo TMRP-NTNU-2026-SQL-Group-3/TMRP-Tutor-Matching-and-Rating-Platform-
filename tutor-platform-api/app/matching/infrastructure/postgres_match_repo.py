@@ -173,3 +173,20 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
             (tutor_id, student_id, subject_id),
         )
         return row["cnt"] > 0 if row else False
+
+    def record_admin_transition(
+        self, *, match_id: int, actor_user_id: int,
+        action: str, old_status: str, new_status: str,
+        reason: str | None,
+    ) -> None:
+        """B10: persist an audit row for an admin-initiated match transition.
+        Written through `execute`, which participates in the caller's tx when
+        one is open, so the audit is committed atomically with the status
+        flip (or rolled back together on failure)."""
+        self.execute(
+            """INSERT INTO audit_log
+                (actor_user_id, action, resource_type, resource_id,
+                 old_value, new_value, reason)
+               VALUES (%s, %s, 'match', %s, %s, %s, %s)""",
+            (actor_user_id, action, match_id, old_status, new_status, reason),
+        )

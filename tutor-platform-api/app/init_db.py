@@ -124,9 +124,17 @@ CREATE TABLE IF NOT EXISTS matches (
     trial_price       NUMERIC(12,2),
     trial_count       SMALLINT,
     contract_notes    TEXT,
-    -- terminated_by 只是稽核欄位，使用者刪除時設回 NULL 即可，不需牽動 match
-    terminated_by     INTEGER       REFERENCES users(user_id) ON DELETE SET NULL,
+    -- D3: terminated_by is an audit field. Previously ON DELETE SET NULL,
+    -- which silently erased who terminated the match when the acting user
+    -- was deleted. RESTRICT forces the admin to explicitly reassign or
+    -- anonymize the audit trail before removing such a user.
+    terminated_by     INTEGER       REFERENCES users(user_id) ON DELETE RESTRICT,
     termination_reason TEXT,
+    -- D4: Denormalized parent owner to avoid JOIN through students on every
+    -- parent-scoped query. Maintained by trg_matches_set_parent (BEFORE
+    -- INSERT/UPDATE OF student_id) and trg_students_propagate_parent
+    -- (AFTER UPDATE OF students.parent_user_id).
+    parent_user_id    INTEGER       REFERENCES users(user_id) ON DELETE RESTRICT,
     created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
@@ -214,6 +222,23 @@ CREATE TABLE IF NOT EXISTS rate_limit_hits (
     hit_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+-- B10: Admin actions (currently just match state transitions) write here so
+-- privileged state changes remain reconstructable even after the underlying
+-- row has moved on. actor_user_id uses ON DELETE SET NULL to keep the audit
+-- trail intact if the admin account is later removed; resource_id is a soft
+-- reference only (no FK) because the referenced row may itself be deleted.
+CREATE TABLE IF NOT EXISTS audit_log (
+    audit_id       BIGSERIAL   PRIMARY KEY,
+    actor_user_id  INTEGER     REFERENCES users(user_id) ON DELETE SET NULL,
+    action         VARCHAR(50) NOT NULL,
+    resource_type  VARCHAR(50) NOT NULL,
+    resource_id    INTEGER,
+    old_value      TEXT,
+    new_value      TEXT,
+    reason         TEXT,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- 唯一索引
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username     ON users (username);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subjects_name      ON subjects (subject_name);
@@ -238,6 +263,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_created       ON sessions (created_at);
 CREATE INDEX IF NOT EXISTS idx_matches_status_updated ON matches (status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_rl_bucket_hit_at       ON rate_limit_hits (bucket_key, hit_at);
 CREATE INDEX IF NOT EXISTS idx_rt_blacklist_exp       ON refresh_token_blacklist (expires_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_resource     ON audit_log (resource_type, resource_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor        ON audit_log (actor_user_id, created_at);
 
 -- FK 補強索引：CASCADE/SET NULL 會在父表刪列時掃這些 FK 欄位，沒索引時會 seq scan
 CREATE INDEX IF NOT EXISTS idx_messages_sender        ON messages (sender_user_id);
@@ -249,10 +276,33 @@ CREATE INDEX IF NOT EXISTS idx_sessions_match_date    ON sessions (match_id, ses
 CREATE INDEX IF NOT EXISTS idx_session_edit_logs_sess ON session_edit_logs (session_id);
 CREATE INDEX IF NOT EXISTS idx_matches_terminated_by  ON matches (terminated_by);
 
--- Derived views: centralise tutor-aggregate SQL that was inlined across
--- several repositories (catalog, analytics, search). CREATE OR REPLACE so
--- schema re-runs keep the view in sync.
-CREATE OR REPLACE VIEW v_tutor_ratings AS
+-- D1: analytics group exams by student and sort chronologically; DESC on
+-- exam_date lets "most recent N exams per student" use an index-only path
+-- instead of scanning and sorting the full table.
+CREATE INDEX IF NOT EXISTS idx_exams_student_date    ON exams (student_id, exam_date DESC);
+-- D2: parent-scoped session lists filter on match_id and visible_to_parent
+-- together; INCLUDE (session_date) enables index-only scans for the common
+-- "session list with dates" response shape without widening the key.
+CREATE INDEX IF NOT EXISTS idx_sessions_match_visible ON sessions (match_id, visible_to_parent) INCLUDE (session_date);
+-- D4: supports parent-scoped match lookups via the denormalized column.
+CREATE INDEX IF NOT EXISTS idx_matches_parent         ON matches (parent_user_id);
+
+-- B11: v_tutor_ratings used to be a regular VIEW, so every tutor page
+-- re-scanned the full reviews table. Materialising it turns reads into a
+-- single-row lookup; the refresh trigger below keeps it current on
+-- review write. If an older deployment still has the non-materialised
+-- VIEW, drop it before recreating as a materialised view.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_views
+        WHERE schemaname = current_schema() AND viewname = 'v_tutor_ratings'
+    ) THEN
+        DROP VIEW v_tutor_ratings;
+    END IF;
+END $$;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS v_tutor_ratings AS
 SELECT m.tutor_id,
        AVG(r.rating_1) AS avg_r1,
        AVG(r.rating_2) AS avg_r2,
@@ -274,11 +324,105 @@ INNER JOIN matches m ON r.match_id = m.match_id
 WHERE r.review_type = 'parent_to_tutor'
 GROUP BY m.tutor_id;
 
+-- Unique index required so REFRESH MATERIALIZED VIEW CONCURRENTLY can run
+-- without blocking concurrent readers.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_tutor_ratings_tutor
+    ON v_tutor_ratings (tutor_id);
+
 CREATE OR REPLACE VIEW v_tutor_active_students AS
 SELECT tutor_id, COUNT(*) AS active_count
 FROM matches
 WHERE status IN ('active', 'trial')
 GROUP BY tutor_id;
+
+-- B11: Statement-level trigger refreshes the materialised view after any
+-- write to reviews. CONCURRENTLY keeps reads unblocked; statement scope
+-- means a multi-row batch refreshes once, not per row.
+CREATE OR REPLACE FUNCTION fn_refresh_tutor_ratings() RETURNS TRIGGER AS $fn$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY v_tutor_ratings;
+    RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_reviews_refresh_ratings ON reviews;
+CREATE TRIGGER trg_reviews_refresh_ratings
+    AFTER INSERT OR UPDATE OR DELETE ON reviews
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION fn_refresh_tutor_ratings();
+
+-- D4: keep matches.parent_user_id in sync with the owning student. The
+-- BEFORE trigger populates it on INSERT or whenever student_id moves;
+-- the AFTER trigger on students fans a parent-ownership change out to
+-- every existing match for that student.
+CREATE OR REPLACE FUNCTION fn_match_set_parent_user() RETURNS TRIGGER AS $fn$
+BEGIN
+    SELECT s.parent_user_id
+      INTO NEW.parent_user_id
+      FROM students s
+     WHERE s.student_id = NEW.student_id;
+    RETURN NEW;
+END;
+$fn$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_matches_set_parent ON matches;
+CREATE TRIGGER trg_matches_set_parent
+    BEFORE INSERT OR UPDATE OF student_id ON matches
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_match_set_parent_user();
+
+CREATE OR REPLACE FUNCTION fn_students_propagate_parent() RETURNS TRIGGER AS $fn$
+BEGIN
+    IF OLD.parent_user_id IS DISTINCT FROM NEW.parent_user_id THEN
+        UPDATE matches
+           SET parent_user_id = NEW.parent_user_id
+         WHERE student_id = NEW.student_id;
+    END IF;
+    RETURN NEW;
+END;
+$fn$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_students_propagate_parent ON students;
+CREATE TRIGGER trg_students_propagate_parent
+    AFTER UPDATE OF parent_user_id ON students
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_students_propagate_parent();
+
+-- Migration block for databases created before these fixes shipped.
+-- CREATE TABLE IF NOT EXISTS does not rewrite existing tables, so any
+-- schema change on `matches` needs an explicit ALTER guarded with
+-- information_schema / pg_constraint lookups to stay idempotent.
+DO $$
+DECLARE
+    con_action CHAR;
+BEGIN
+    -- D3: tighten terminated_by from SET NULL to RESTRICT if an older
+    -- deployment still has the permissive FK.
+    SELECT confdeltype INTO con_action
+      FROM pg_constraint
+     WHERE conrelid = 'matches'::regclass
+       AND conname  = 'matches_terminated_by_fkey';
+    IF con_action IS NOT NULL AND con_action <> 'r' THEN
+        ALTER TABLE matches DROP CONSTRAINT matches_terminated_by_fkey;
+        ALTER TABLE matches
+            ADD CONSTRAINT matches_terminated_by_fkey
+            FOREIGN KEY (terminated_by) REFERENCES users(user_id)
+            ON DELETE RESTRICT;
+    END IF;
+END $$;
+
+-- D4: add the denormalised column for older databases, then backfill
+-- from the owning student. The BEFORE trigger uses UPDATE OF student_id,
+-- so this direct UPDATE will not recurse through it.
+ALTER TABLE matches
+    ADD COLUMN IF NOT EXISTS parent_user_id INTEGER
+    REFERENCES users(user_id) ON DELETE RESTRICT;
+
+UPDATE matches m
+   SET parent_user_id = s.parent_user_id
+  FROM students s
+ WHERE s.student_id = m.student_id
+   AND m.parent_user_id IS NULL;
 """
 
 # ──────────────────────────────────────────────

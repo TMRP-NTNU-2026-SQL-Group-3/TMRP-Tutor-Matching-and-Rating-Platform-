@@ -55,7 +55,7 @@ export function useMatchDetail() {
       error.value = '配對編號格式錯誤'
       loading.value = false
       toast.error('配對編號格式錯誤')
-      return
+      return false
     }
 
     // 首次載入才顯示 skeleton，後續重新整理不閃爍
@@ -63,18 +63,18 @@ export function useMatchDetail() {
     error.value = ''
     try {
       const detail = await matchesApi.getDetail(matchId, { signal })
-      if (currentFetchId !== _fetchId) return  // 已有更新的請求，丟棄此結果
+      if (currentFetchId !== _fetchId) return false  // 已有更新的請求，丟棄此結果
       match.value = detail
       const [sessData, reviewData] = await Promise.all([
         sessionsApi.list({ match_id: matchId }, { signal }),
         reviewsApi.list({ match_id: matchId }, { signal }),
       ])
-      if (currentFetchId !== _fetchId) return
+      if (currentFetchId !== _fetchId) return false
       sessions.value = sessData
       reviews.value = reviewData
       if (match.value.student_id) {
         const examData = await examsApi.list({ student_id: match.value.student_id }, { signal })
-        if (currentFetchId !== _fetchId) return
+        if (currentFetchId !== _fetchId) return false
         // The exams API returns every exam for the student (across tutors/subjects).
         // Restrict to this match's subject so the trend chart and "本配對考試紀錄"
         // panel don't leak data from other matches.
@@ -83,12 +83,14 @@ export function useMatchDetail() {
           ? examData.filter(e => e.subject_id === subjectId)
           : examData
       }
+      return true
     } catch (e) {
       // Aborted requests already get discarded by the fetchId guard above; this
       // catches the rejection that abort() throws from inside the await chain.
-      if (currentFetchId !== _fetchId) return
+      if (currentFetchId !== _fetchId) return false
       error.value = e.message
       toast.error('載入配對資料失敗')
+      return false
     } finally {
       if (currentFetchId === _fetchId) {
         loading.value = false

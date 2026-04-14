@@ -116,6 +116,7 @@ class MatchAppService:
             raise MatchPermissionDeniedError("無權操作此配對")
 
         action = Action(action_str)
+        old_status = match.status
 
         new_status = state_machine.resolve_transition(
             current=match.status,
@@ -131,9 +132,14 @@ class MatchAppService:
         if action == Action.TERMINATE:
             if not reason:
                 raise InvalidTransitionError("終止配對需要提供原因")
-            self._match_repo.set_terminating(
-                match_id, user_id, reason, match.status.value
-            )
+            with self._uow.begin():
+                self._match_repo.set_terminating(
+                    match_id, user_id, reason, match.status.value
+                )
+                self._audit_admin_transition(
+                    match_id, user_id, is_admin, action,
+                    old_status.value, MatchStatus.TERMINATING.value, reason,
+                )
             new_status = MatchStatus.TERMINATING
 
         elif action == Action.DISAGREE_TERMINATE:
@@ -144,6 +150,10 @@ class MatchAppService:
                 prev = fresh.previous_status_before_terminating
                 self._match_repo.clear_termination(match_id, prev)
                 new_status = MatchStatus(prev)
+                self._audit_admin_transition(
+                    match_id, user_id, is_admin, action,
+                    old_status.value, new_status.value, reason,
+                )
         elif action == Action.CONFIRM_TRIAL and self._has_contract_terms(contract_terms):
             # Spec Module D: trial → active is the parties' formal contract
             # confirmation, so persist any edited terms in the same tx as the
@@ -156,14 +166,64 @@ class MatchAppService:
                     sessions_per_week=contract_terms.get("sessions_per_week"),
                     start_date=contract_terms.get("start_date"),
                 )
+                self._audit_admin_transition(
+                    match_id, user_id, is_admin, action,
+                    old_status.value, new_status.value, reason,
+                )
+        elif action == Action.RESUME:
+            # B1: paused → active re-enters the tutor's active roster. Without
+            # re-checking capacity here, a tutor at max_students could pause
+            # one match and have a second resume concurrently, exceeding the
+            # cap. Mirror the create_match gate: lock the tutor row, then
+            # read-and-compare under the same tx that flips the status.
+            with self._uow.begin():
+                if not self._catalog.lock_tutor_for_update(match.tutor_id):
+                    raise TutorNotFoundError()
+                active = self._catalog.get_active_student_count(match.tutor_id)
+                max_s = self._catalog.get_max_students(match.tutor_id)
+                if active >= max_s:
+                    raise CapacityExceededError()
+                self._match_repo.update_status(match_id, new_status.value)
+                self._audit_admin_transition(
+                    match_id, user_id, is_admin, action,
+                    old_status.value, new_status.value, reason,
+                )
         else:
-            self._match_repo.update_status(match_id, new_status.value)
+            with self._uow.begin():
+                self._match_repo.update_status(match_id, new_status.value)
+                self._audit_admin_transition(
+                    match_id, user_id, is_admin, action,
+                    old_status.value, new_status.value, reason,
+                )
 
         return {
             "match_id": match_id,
             "new_status": new_status.value,
             "status_label": new_status.label,
         }
+
+    def _audit_admin_transition(
+        self, match_id: int, user_id: int, is_admin: bool,
+        action: Action, old_status: str, new_status: str,
+        reason: str | None,
+    ) -> None:
+        """B10: record admin-initiated match state changes to audit_log.
+
+        Only runs when the caller holds admin role: regular tutor/parent
+        transitions already leave a trace on the match row itself
+        (`terminated_by`, `updated_at`, contract fields) and are out of scope
+        for this audit table. Called inside the same UoW as the status write
+        so the two rows commit or roll back together."""
+        if not is_admin:
+            return
+        self._match_repo.record_admin_transition(
+            match_id=match_id,
+            actor_user_id=user_id,
+            action=action.value,
+            old_status=old_status,
+            new_status=new_status,
+            reason=reason,
+        )
 
     @staticmethod
     def _has_contract_terms(terms: dict | None) -> bool:

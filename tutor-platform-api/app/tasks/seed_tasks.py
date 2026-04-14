@@ -8,21 +8,34 @@ logger = logging.getLogger("app.tasks.seed_tasks")
 
 @huey.task(retries=3, retry_delay=10)
 def generate_seed_data() -> dict:
-    """非同步生成假資料。"""
-    logger.info("開始生成假資料")
+    """Generate demo fixtures asynchronously.
+
+    B8: the previous implementation committed after each staging block inside
+    `run_seed`, so a mid-run failure could leave the database half-seeded.
+    `run_seed` now stages all inserts without committing; this task owns the
+    transaction boundary — a single commit on success, rollback on any
+    exception before propagating for Huey retry.
+    """
+    logger.info("Seed task started")
     conn = get_connection()
     try:
         from seed.generator import run_seed
 
-        result = run_seed(conn)
+        try:
+            result = run_seed(conn)
+        except Exception:
+            conn.rollback()
+            logger.exception("Seed generation failed; rolled back")
+            raise
+
         if result.get("skipped"):
-            logger.info("假資料生成已跳過: %s", result.get("message"))
-        else:
-            total = sum(v for v in result.values() if isinstance(v, int))
-            logger.info("已生成 %d 筆假資料", total)
+            # run_seed short-circuited before any INSERT; nothing to commit.
+            logger.info("Seed skipped: %s", result.get("message"))
+            return result
+
+        conn.commit()
+        total = sum(v for v in result.values() if isinstance(v, int))
+        logger.info("Seed committed (%d rows)", total)
         return result
-    except Exception:
-        logger.exception("假資料生成失敗")
-        raise
     finally:
         release_connection(conn)

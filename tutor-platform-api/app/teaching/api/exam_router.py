@@ -1,12 +1,25 @@
 from fastapi import APIRouter, Depends, Query
 
 from app.identity.api.dependencies import get_current_user, get_db, is_admin
+from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
-from app.shared.domain.exceptions import DomainException, NotFoundError, PermissionDeniedError
+from app.shared.domain.exceptions import (
+    DomainException,
+    NotFoundError,
+    PermissionDeniedError,
+    TooManyRequestsError,
+)
 from app.teaching.api.schemas import ExamCreate, ExamUpdate
 from app.teaching.infrastructure.postgres_exam_repo import PostgresExamRepository
 
 router = APIRouter(prefix="/api/exams", tags=["exams"])
+
+# B6: Per-student+author bucket. Even with the global /api/exams path
+# limit, a single student's record could be flooded by one user making
+# many small creates; this caps how fast any one user can add exams for
+# any one student.
+_EXAM_CREATE_LIMIT = 20
+_EXAM_CREATE_WINDOW = 60
 
 
 @router.post("", summary="新增考試紀錄", response_model=ApiResponse)
@@ -23,6 +36,9 @@ def create_exam(body: ExamCreate, user=Depends(get_current_user), conn=Depends(g
     is_tutor = role == "tutor" and bool(repo.get_active_match_for_tutor(body.student_id, user_id))
     if not is_parent and not is_tutor:
         raise PermissionDeniedError("無權為此學生新增考試紀錄")
+    bucket = f"exam:create|student={body.student_id}|user={user_id}"
+    if not check_and_record_bucket(bucket, _EXAM_CREATE_LIMIT, _EXAM_CREATE_WINDOW):
+        raise TooManyRequestsError("此學生的考試紀錄新增頻率過高，請稍後再試")
     exam_id = repo.create(
         student_id=body.student_id, subject_id=body.subject_id,
         added_by_user_id=user_id, exam_date=body.exam_date,

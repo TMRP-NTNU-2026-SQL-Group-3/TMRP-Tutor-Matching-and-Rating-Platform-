@@ -22,7 +22,7 @@ class PostgresMessageRepository(BaseRepository, IMessageRepository):
                    SELECT m.content, m.sender_user_id
                    FROM messages m
                    WHERE m.conversation_id = c.conversation_id
-                   ORDER BY m.message_id DESC
+                   ORDER BY m.sent_at DESC, m.message_id DESC
                    LIMIT 1
                ) lm ON TRUE
                WHERE c.user_a_id = %s OR c.user_b_id = %s
@@ -81,11 +81,17 @@ class PostgresMessageRepository(BaseRepository, IMessageRepository):
         params.append(limit)
         where_sql = " AND ".join(clauses)
         rows = self.fetch_all(
+            # B4: Chronological order must key on sent_at — auto-increment
+            # message_id is not a reliable proxy (gaps from rollbacks and
+            # out-of-order commits can invert creation order). message_id
+            # DESC stays as a deterministic tiebreaker when two rows share
+            # the exact same sent_at, and still matches the cursor semantics
+            # of `before_id` above.
             f"""SELECT msg.message_id, msg.sender_user_id, msg.content, msg.sent_at,
                        u.display_name AS sender_name
                 FROM messages msg INNER JOIN users u ON msg.sender_user_id = u.user_id
                 WHERE {where_sql}
-                ORDER BY msg.message_id DESC
+                ORDER BY msg.sent_at DESC, msg.message_id DESC
                 LIMIT %s""",
             tuple(params),
         )

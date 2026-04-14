@@ -1,3 +1,5 @@
+from psycopg2 import sql as psql
+
 from app.catalog.domain.ports import ITutorRepository
 from app.shared.api.constants import DEFAULT_PAGE_SIZE
 from app.shared.infrastructure.base_repository import BaseRepository
@@ -8,7 +10,10 @@ from app.shared.infrastructure.database_tx import transaction
 class PostgresTutorRepository(BaseRepository, ITutorRepository):
 
     def search(self, subject_id: int | None = None, school: str | None = None) -> list[dict]:
-        sql = """
+        # B5: All dynamic SQL goes through psycopg2.sql.Composable so adding
+        # a new filter later cannot accidentally reintroduce string
+        # interpolation for an attacker-controlled value.
+        base = psql.SQL("""
             SELECT t.tutor_id, t.user_id, t.university, t.department,
                    t.grade_year, t.self_intro, t.max_students,
                    t.show_university, t.show_department, t.show_grade_year,
@@ -16,22 +21,28 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
                    u.display_name
             FROM tutors t
             INNER JOIN users u ON t.user_id = u.user_id
-        """
-        conditions = []
-        params = []
+        """)
+        conditions: list[psql.Composable] = []
+        params: list = []
         if subject_id is not None:
-            conditions.append(
-                "t.tutor_id IN (SELECT ts.tutor_id FROM tutor_subjects ts WHERE ts.subject_id = %s)"
-            )
+            conditions.append(psql.SQL(
+                "t.tutor_id IN (SELECT ts.tutor_id FROM tutor_subjects ts WHERE ts.subject_id = {})"
+            ).format(psql.Placeholder()))
             params.append(subject_id)
         if school:
             escaped = school.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            conditions.append("t.university LIKE %s ESCAPE '\\'")
+            conditions.append(psql.SQL(
+                "t.university LIKE {} ESCAPE '\\'"
+            ).format(psql.Placeholder()))
             params.append(f"%{escaped}%")
+
+        parts: list[psql.Composable] = [base]
         if conditions:
-            sql += " WHERE " + " AND ".join(conditions)
-        sql += " ORDER BY t.tutor_id DESC"
-        return self.fetch_all(sql, tuple(params))
+            parts.append(psql.SQL(" WHERE "))
+            parts.append(psql.SQL(" AND ").join(conditions))
+        parts.append(psql.SQL(" ORDER BY t.tutor_id DESC"))
+        query = psql.Composed(parts).as_string(self.conn)
+        return self.fetch_all(query, tuple(params))
 
     def search_with_stats(
         self,
@@ -46,45 +57,56 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
     ) -> tuple[list[dict], int]:
         # Single-pass query: subjects/avg_rate/avg_rating/active_count are aggregated
         # in subqueries instead of issuing N+3 round-trips per tutor.
-        order_clause = {
+        # B5: sort_by is whitelisted via a fixed dict, so it is safe to
+        # embed as a literal SQL fragment. Everything else is composed via
+        # psycopg2.sql.
+        order_clause = psql.SQL({
             "rate_asc": "avg_rate ASC NULLS LAST, tutor_id DESC",
             "newest": "tutor_id DESC",
-        }.get(sort_by, "avg_rating DESC NULLS LAST, tutor_id DESC")
+        }.get(sort_by, "avg_rating DESC NULLS LAST, tutor_id DESC"))
 
-        conditions = []
+        conditions: list[psql.Composable] = []
         params: list = []
         if subject_id is not None:
-            conditions.append(
-                "t.tutor_id IN (SELECT ts.tutor_id FROM tutor_subjects ts WHERE ts.subject_id = %s)"
-            )
+            conditions.append(psql.SQL(
+                "t.tutor_id IN (SELECT ts.tutor_id FROM tutor_subjects ts WHERE ts.subject_id = {})"
+            ).format(psql.Placeholder()))
             params.append(subject_id)
         if school:
             escaped = school.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            conditions.append("t.university LIKE %s ESCAPE '\\'")
+            conditions.append(psql.SQL(
+                "t.university LIKE {} ESCAPE '\\'"
+            ).format(psql.Placeholder()))
             params.append(f"%{escaped}%")
-        where_sql = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+        where_sql = (
+            psql.SQL(" WHERE ") + psql.SQL(" AND ").join(conditions)
+            if conditions else psql.SQL("")
+        )
 
         # Filters reference the inner query's output aliases (avg_rate,
         # avg_rating) rather than the subquery aliases, because `filter_sql`
         # is applied to the outer `SELECT * FROM (base_sql) f` wrapper.
-        having_parts = []
+        having_parts: list[psql.Composable] = []
         having_params: list = []
         if min_rate is not None:
-            having_parts.append("f.avg_rate >= %s")
+            having_parts.append(psql.SQL("f.avg_rate >= {}").format(psql.Placeholder()))
             having_params.append(min_rate)
         if max_rate is not None:
-            having_parts.append("f.avg_rate <= %s")
+            having_parts.append(psql.SQL("f.avg_rate <= {}").format(psql.Placeholder()))
             having_params.append(max_rate)
         if min_rating is not None:
-            having_parts.append("f.avg_rating >= %s")
+            having_parts.append(psql.SQL("f.avg_rating >= {}").format(psql.Placeholder()))
             having_params.append(min_rating)
-        filter_sql = (" AND " + " AND ".join(having_parts)) if having_parts else ""
+        filter_sql = (
+            psql.SQL(" AND ") + psql.SQL(" AND ").join(having_parts)
+            if having_parts else psql.SQL("")
+        )
 
         # Rating / active-count aggregations come from v_tutor_ratings and
         # v_tutor_active_students (see init_db.py). Keeping them in the DB
         # prevents the same N-level subqueries from being re-inlined here
         # or in analytics.
-        base_sql = f"""
+        base_sql = psql.SQL("""
             SELECT t.tutor_id, t.user_id, t.university, t.department,
                    t.grade_year, t.self_intro, t.max_students,
                    t.show_university, t.show_department, t.show_grade_year,
@@ -113,16 +135,26 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
             LEFT JOIN v_tutor_ratings r_agg ON r_agg.tutor_id = t.tutor_id
             LEFT JOIN v_tutor_active_students a_agg ON a_agg.tutor_id = t.tutor_id
             {where_sql}
-        """
+        """).format(where_sql=where_sql)
 
-        filtered_sql = f"SELECT * FROM ({base_sql}) f WHERE 1=1{filter_sql}"
-        count_sql = f"SELECT COUNT(*) AS cnt FROM ({filtered_sql}) c"
-        count_row = self.fetch_one(count_sql, tuple(params + having_params))
+        filtered_sql = psql.SQL("SELECT * FROM ({base}) f WHERE 1=1{filter}").format(
+            base=base_sql, filter=filter_sql,
+        )
+        count_sql = psql.SQL("SELECT COUNT(*) AS cnt FROM ({inner}) c").format(inner=filtered_sql)
+        count_row = self.fetch_one(count_sql.as_string(self.conn), tuple(params + having_params))
         total = count_row["cnt"] if count_row else 0
 
-        page_sql = f"{filtered_sql} ORDER BY {order_clause} LIMIT %s OFFSET %s"
+        page_sql = psql.SQL("{inner} ORDER BY {order} LIMIT {lim} OFFSET {off}").format(
+            inner=filtered_sql,
+            order=order_clause,
+            lim=psql.Placeholder(),
+            off=psql.Placeholder(),
+        )
         offset = (page - 1) * page_size
-        rows = self.fetch_all(page_sql, tuple(params + having_params + [page_size, offset]))
+        rows = self.fetch_all(
+            page_sql.as_string(self.conn),
+            tuple(params + having_params + [page_size, offset]),
+        )
         return rows, total
 
     def find_by_id(self, tutor_id: int) -> dict | None:

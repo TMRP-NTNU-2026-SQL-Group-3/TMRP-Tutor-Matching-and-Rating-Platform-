@@ -21,3 +21,8 @@ class PermissionDeniedError(DomainException):
 class ConflictError(DomainException):
     def __init__(self, message: str = "資源狀態衝突"):
         super().__init__(message, 409)
+
+
+class TooManyRequestsError(DomainException):
+    def __init__(self, message: str = "請求過於頻繁，請稍後再試"):
+        super().__init__(message, 429)
