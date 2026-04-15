@@ -64,7 +64,8 @@ For first-time setup alongside the backend, use the root `start.bat` or `docker 
 | Script | What it does |
 |--------|--------------|
 | `npm run dev` | Vite dev server with HMR on port 5273 |
-| `npm run build` | Production build into `dist/` |
+| `npm run lint` | Runs `scripts/check-no-v-html.mjs` to fail the build if `v-html` creeps into a template (XSS guard) |
+| `npm run build` | Production build into `dist/`. Auto-runs `lint` first via `prebuild`. |
 | `npm run preview` | Serve the production build locally (sanity check before deploy) |
 
 ---
@@ -99,14 +100,18 @@ This is intentional. Every frontend API call already includes the `/api/` prefix
 
 ```
 tutor-platform-web/
-├── Dockerfile                  # Multi-stage: Vite build → Nginx static serve
-├── nginx.conf                  # /api/* → api:8000, SPA fallback, asset caching
-├── vite.config.js              # Port 5273, @ alias, vendor/charts manual chunks
+├── Dockerfile                  # Multi-stage: Vite build → nginx-unprivileged static serve
+├── nginx.conf                  # /api/* → api:8000, SPA fallback, asset caching,
+│                               # edge rate limit (20 r/s, burst 40), global security headers + CSP
+├── vite.config.js              # Port 5273, @ alias, vendor/charts manual chunks, sourcemap off
 ├── index.html
 ├── package.json
+├── scripts/
+│   └── check-no-v-html.mjs     # Pre-build lint: fail if any template uses v-html
 └── src/
     ├── main.js                 # App bootstrap: Pinia, router, global styles
     ├── App.vue
+    ├── constants.js            # Shared enums (roles, match status values, labels, ...)
     ├── style.css               # Tailwind entry
     │
     ├── router/
@@ -122,6 +127,7 @@ tutor-platform-web/
     ├── api/                    # Axios service layer (one file per resource)
     │   ├── index.js            # Axios instance: baseURL, auth interceptor, error mapping
     │   ├── baseURL.js          # API_BASE_URL resolver (see Environment Variables)
+    │   ├── authHandler.js      # Shared 401 / refresh-token handler reused by the interceptor
     │   ├── auth.js
     │   ├── tutors.js
     │   ├── students.js
@@ -224,13 +230,16 @@ const { data } = await searchTutors({ subject: 'math', minRating: 4 })
 - `assets/` — hashed JS/CSS bundles. `manualChunks` splits `vendor` (vue, router, pinia, axios) and `charts` (chart.js, vue-chartjs) into separate files for better caching.
 - Source maps are **disabled** in production (`vite.config.js`: `build.sourcemap: false`).
 
-The production `Dockerfile` is a two-stage build: a Node image runs `npm run build`, then the `dist/` folder is copied into an Nginx image. Nginx serves the SPA and proxies `/api/*` and `/health` to the `api` container.
+The production `Dockerfile` is a two-stage build: a Node image runs `npm run build`, then the `dist/` folder is copied into an `nginx-unprivileged` image that listens on **8080** (non-root nginx cannot bind <1024). `docker-compose.yml` maps host `80 → 8080` so the site is still served at `http://localhost/`. Nginx serves the SPA and proxies `/api/*` and `/health` to the `api` container.
 
 Relevant bits of `nginx.conf`:
 
+- `limit_req_zone $binary_remote_addr zone=api_edge:10m rate=20r/s;` — edge-layer rate limit applied to `/api/*` with `burst=40 nodelay`; this is the first gate before FastAPI's `RateLimitMiddleware`.
 - `location /api/ { proxy_pass http://api:8000; }` — note: **no trailing slash** on the proxy target, so the `/api/` prefix is preserved when reaching the backend. Changing this to `http://api:8000/` would strip the prefix and every endpoint would 404.
 - `location / { try_files $uri $uri/ /index.html; }` — SPA fallback for client-side routing.
+- `location = /index.html` — explicit `no-store` so clients always fetch a fresh entry document (prevents loading a stale index that references hashed assets that no longer exist).
 - `location /assets/ { expires 1y; }` — long cache for hashed bundles.
+- Global security headers (CSP, HSTS, X-Frame-Options, ...) are re-declared in every `location` that sets any header, because nginx's `add_header` does not inherit across `location` blocks once the block sets even a single header.
 
 ---
 
@@ -240,13 +249,16 @@ Relevant bits of `nginx.conf`:
 The backend isn't running. Start it with `start.bat` in `../tutor-platform-api/`, or `docker compose up`.
 
 **CORS error in the browser console**
-The API's `CORS_ORIGINS` doesn't include the frontend origin. For local dev, set `CORS_ORIGINS=http://localhost:5273` in `../tutor-platform-api/.env`.
+The API's `CORS_ORIGINS` doesn't include the frontend origin. For local dev, set `CORS_ORIGINS=http://localhost:5273` in `../tutor-platform-api/.env` (the shipped `.env.example` already uses 5273, but `Settings`'s built-in default is 5173 — watch for this mismatch if you copy defaults straight from `config.py`).
 
 **Pages 404 after refresh in production**
 Nginx SPA fallback isn't configured. The shipped `nginx.conf` handles this with `try_files ... /index.html`. If you're serving the bundle through a different server, add an equivalent fallback.
 
 **`/api/api/auth/login` in network tab**
 `VITE_API_BASE_URL` was set to `/api`. The frontend already includes `/api/` in every path — the base URL should be empty (Docker) or a full origin (dev). See [the empty-baseURL pattern](#the-empty-baseurl-pattern).
+
+**Swagger UI at `/docs` returns 404 in production**
+Intentional. The API sets `DEBUG=false` by default, which suppresses `/docs`, `/redoc`, and `/openapi.json` so the route inventory is not exposed to anonymous scanners. Set `DEBUG=true` in `tutor-platform-api/.env.docker` to re-enable it.
 
 **Charts don't render**
 `chart.js` is split into its own chunk via `manualChunks`. Confirm the `charts-*.js` bundle is being served (check Network tab). If Nginx is returning 404 for hashed assets, the `dist/` copy step in the Dockerfile didn't pick up the latest build — rebuild the image with `docker compose build --no-cache web`.

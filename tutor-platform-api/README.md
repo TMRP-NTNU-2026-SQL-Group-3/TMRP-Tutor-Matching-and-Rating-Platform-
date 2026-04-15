@@ -68,7 +68,9 @@ The container's healthcheck (`GET /health`) only passes after:
 3. the subject seeds are in place,
 4. the admin account exists.
 
-`docker-compose.yml` sets `start_period: 30s` so dependent services (web) wait until the API is actually ready.
+`docker-compose.yml` sets `start_period: 90s` so dependent services (web) wait until the API is actually ready (covers the first cold-start DDL + seed run).
+
+> `DATABASE_URL` for the container is composed by `docker-compose.yml` from the repo-root `.env` (`DB_USER`, `DB_PASSWORD`, `DB_NAME`) so the same credentials serve both Postgres and the API. Do **not** set `DATABASE_URL` in `.env.docker` — compose will override it, and a stale value there is confusing.
 
 ---
 
@@ -111,22 +113,27 @@ Loaded by pydantic-settings from `.env` (local) or `.env.docker` (container).
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DATABASE_URL` | `postgresql://tmrp:tmrp@localhost:5432/tmrp` | PostgreSQL connection string |
+| `DATABASE_URL` | **required** | PostgreSQL connection string (no default — must be set). In compose, built from the repo-root `.env`. |
 | `DB_POOL_MIN` | `2` | Minimum size of the psycopg2 connection pool |
 | `DB_POOL_MAX` | `10` | Maximum pool size |
-| `JWT_SECRET_KEY` | **required** | HMAC secret for signing JWTs. `change-me-in-production` is rejected at startup. |
+| `JWT_SECRET_KEY` | **required**, >= 32 chars | HMAC secret for signing JWTs. Placeholder values (`change-me`, `change-me-in-production`) are rejected at startup. |
+| `JWT_SECRET_KEY_PREVIOUS` | `""` | Optional prior key for rotation windows. If set, verification accepts tokens signed by either key. Must be >= 32 chars and differ from the current key. |
 | `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
-| `JWT_EXPIRE_MINUTES` | `5` | Access token TTL in minutes (paired with refresh-token flow; capped at 15) |
+| `JWT_EXPIRE_MINUTES` | `5` | Access token TTL in minutes. Hard-capped at 15 by a lifespan check because access tokens are not revoked on logout. |
 | `ADMIN_USERNAME` | `admin` | Super-admin login |
-| `ADMIN_PASSWORD` | **required** | Super-admin password. `admin123` is rejected at startup. |
+| `ADMIN_PASSWORD` | **required**, >= 8 chars | Super-admin password. Known placeholders (`admin`, `admin123`, `password`) are rejected at startup. |
 | `REVIEW_LOCK_DAYS` | `7` | Days after which a review locks |
+| `ADMIN_MAX_UPLOAD_BYTES` | `52428800` | Upper bound on admin CSV/ZIP import size (50 MB) |
+| `ADMIN_MAX_IMPORT_ROWS_PER_TABLE` | `50000` | Row cap per table for admin imports |
+| `MAX_REQUEST_BODY_BYTES` | `52428800` | Global HTTP body cap enforced by `BodySizeLimitMiddleware` (50 MB, matches the admin upload cap) |
 | `HUEY_DB_PATH` | `data/huey.db` | SQLite file backing the huey queue |
 | `LOG_FILE` | `logs/app.log` | Rotating log file path |
 | `LOG_LEVEL` | `INFO` | Log level |
 | `LOG_FORMAT` | `json` | `json` or `text` |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated list of allowed origins |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated list of allowed origins. For local Vite dev override to `http://localhost:5273` (Vite port is 5273 in this project). |
+| `DEBUG` | `false` | When `false`, FastAPI suppresses `/docs`, `/redoc`, and `/openapi.json`. |
 
-> **Security:** `Settings.validate_security_defaults` fails fast if either `JWT_SECRET_KEY` or `ADMIN_PASSWORD` is still at its placeholder value. This is intentional — the server refuses to boot rather than silently running with insecure defaults.
+> **Security:** the `Settings` model validator fails fast on placeholder secrets, short keys, and a `JWT_SECRET_KEY_PREVIOUS` that equals the current key. The server refuses to boot rather than silently running with insecure defaults.
 
 ---
 
@@ -136,53 +143,49 @@ Loaded by pydantic-settings from `.env` (local) or `.env.docker` (container).
 tutor-platform-api/
 ├── Dockerfile
 ├── requirements.txt
-├── start.bat                   # Local one-click launcher
+├── start.bat                   # Local one-click launcher (Windows)
 ├── .env.example                # Local template
 ├── .env.docker.example         # Container template
 │
 ├── app/
-│   ├── main.py                 # FastAPI app: lifespan, middleware, routers
-│   ├── init_db.py              # Schema DDL + subject seeds + admin bootstrap
+│   ├── main.py                 # FastAPI app: lifespan, middleware, routers, exception handlers
+│   ├── init_db.py              # Schema DDL + subject seeds + admin bootstrap + verification
 │   ├── worker.py               # huey instance
-│   ├── config.py               # (legacy) — active settings live in shared/infrastructure/config.py
-│   ├── database.py             # (legacy) connection helpers
-│   ├── database_tx.py          # Transaction helpers
-│   ├── dependencies.py         # FastAPI Depends(): current_user, role checks, DB cursor
-│   ├── exceptions.py           # (legacy) — DomainException now in shared/domain
 │   │
-│   ├── shared/                 # Shared kernel
-│   │   ├── domain/             # IDs, errors, protocols
-│   │   ├── infrastructure/     # config, database pool, logger, security (hashing, JWT)
-│   │   └── api/                # health_router, common response shape
+│   ├── shared/                 # Shared kernel (cross-context)
+│   │   ├── api/                # health_router, common response envelope, schemas, validators
+│   │   ├── domain/             # DomainException, ID types, repository ports
+│   │   └── infrastructure/     # config (Settings), database pool, database_tx,
+│   │                           # base_repository, postgres_unit_of_work, logger,
+│   │                           # security (bcrypt + JWT), huey_json_serializer,
+│   │                           # column_validation
 │   │
 │   ├── identity/               # Bounded Context: auth / users
-│   │   ├── api/                # auth_router: /api/auth/*
+│   │   ├── api/                # /api/auth/* router + schemas + dependencies
 │   │   ├── domain/             # User entity, role value objects
 │   │   └── infrastructure/     # PostgresUserRepository
 │   │
-│   ├── catalog/                # BC: tutors, students, subjects
+│   ├── catalog/                # BC: tutors, students, subjects (api/, domain/, infrastructure/)
 │   ├── matching/               # BC: matches, status machine, contracts
 │   │   ├── api/
-│   │   ├── application/        # CreateMatchUseCase etc.
+│   │   ├── application/        # Use cases (CreateMatch, transition handlers, ...)
 │   │   ├── domain/             # Match aggregate, status transitions
 │   │   └── infrastructure/
-│   ├── teaching/               # BC: sessions, exams, edit logs
-│   ├── review/                 # BC: three-way ratings, 7-day lock
-│   ├── messaging/              # BC: conversations, messages
-│   ├── analytics/              # BC: income / expense aggregations
-│   ├── admin/                  # BC: CSV ops, seed, task status
+│   ├── teaching/               # BC: sessions, exams, edit logs (api/, application/, domain/, infrastructure/)
+│   ├── review/                 # BC: three-way ratings, 7-day lock (api/, domain/, infrastructure/)
+│   ├── messaging/              # BC: conversations, messages (api/, application/, domain/, infrastructure/)
+│   ├── analytics/              # BC: income / expense aggregations (api/, application/, infrastructure/)
+│   ├── admin/                  # BC: CSV ops, seed, task status (api/, application/, domain/, infrastructure/)
 │   │
 │   ├── middleware/
 │   │   ├── request_id.py       # X-Request-ID in/out
+│   │   ├── body_size_limit.py  # Reject oversized request bodies before handlers read them
 │   │   ├── security_headers.py # CSP, HSTS, X-Frame-Options, ...
 │   │   ├── access_log.py       # Structured request/response logs
-│   │   └── rate_limit.py       # DB-backed token bucket
+│   │   └── rate_limit.py       # DB-backed token bucket (rate_limit_hits)
 │   │
-│   ├── routers/                # (legacy flat routers — being migrated into BCs)
-│   ├── repositories/           # (legacy repos)
-│   ├── models/                 # (legacy DTOs)
-│   ├── tasks/                  # huey tasks (import_export, scheduled, seed, stats)
-│   └── utils/                  # csv_handler, columns, logger, security helpers
+│   ├── tasks/                  # huey tasks: import_export, scheduled, seed_tasks, stats_tasks
+│   └── utils/                  # csv_handler, logger, security helpers
 │
 ├── seed/
 │   ├── generator.py            # Fake data builder (users, tutors, matches, sessions, ...)
@@ -193,10 +196,11 @@ tutor-platform-api/
 │   └── ...                     # Persistent volume in Docker
 │
 ├── logs/                       # Rotating log files
-└── tests/
+└── tests/                      # pytest integration tests (conftest.py, test_auth,
+                                # test_matches, test_match_state_machine, test_sessions, test_reviews)
 ```
 
-> **Note on the legacy/DDD split.** The project is mid-migration: new features go into the `app/<context>/` Bounded Contexts, while the flat `routers/`, `repositories/`, and `models/` layout is the fallback for code that hasn't been refactored yet. The target structure is defined in `../docs/ddd-migration-spec.md`. External API paths are stable throughout the migration.
+> **DDD layout.** All HTTP routing, data access, and domain rules now live under `app/<context>/` Bounded Contexts plus the `app/shared/` kernel. Legacy flat layouts (`app/routers/`, `app/repositories/`, `app/models/`, top-level `config.py` / `database.py` / `exceptions.py`) have been removed. External API paths are unchanged.
 
 ---
 
@@ -207,11 +211,14 @@ Middleware is registered in `app/main.py` in this order. Starlette wraps middlew
 ```
 Browser
   │
-  ▼ CORSMiddleware                 (outermost — handles preflight, attaches CORS headers)
-  ▼ RequestIDMiddleware            (assigns X-Request-ID)
-  ▼ SecurityHeadersMiddleware      (adds CSP, HSTS, ...)
+  ▼ CORSMiddleware                 (outermost — handles preflight, attaches CORS headers;
+  │                                 allow_credentials=False — auth is Bearer token, not cookies)
+  ▼ RequestIDMiddleware            (assigns X-Request-ID; value threaded into logs + 500 bodies)
+  ▼ BodySizeLimitMiddleware        (rejects payloads over MAX_REQUEST_BODY_BYTES;
+  │                                 inside RequestID so the rejection log carries request_id)
+  ▼ SecurityHeadersMiddleware      (adds CSP, HSTS, X-Frame-Options, ...)
   ▼ AccessLogMiddleware            (structured log with request_id + timing)
-  ▼ RateLimitMiddleware            (innermost — uses rate_limit_hits table)
+  ▼ RateLimitMiddleware            (innermost — uses rate_limit_hits table, shared across workers)
   ▼ Router
      └─ Dependency injection: current_user, role guard, DB cursor
         └─ Application service / Use case
@@ -233,7 +240,7 @@ Exception handlers (also in `main.py`):
 
 ## API Endpoints
 
-All paths are prefixed with `/api` except `/health`. Full Pydantic schemas are visible in Swagger at `/docs`.
+All paths are prefixed with `/api` except `/health`. Full Pydantic schemas are visible in Swagger at `/docs` when `DEBUG=true` — in the default hardened mode (`DEBUG=false`), `/docs`, `/redoc`, and `/openapi.json` all return 404 to avoid leaking the route inventory.
 
 | Prefix | Module | Bounded Context |
 |--------|--------|-----------------|
@@ -298,8 +305,9 @@ Bootstrap flow (called from `app.main.lifespan`):
 
 1. `init_pool()` — open the psycopg2 connection pool using `DATABASE_URL`.
 2. `create_schema(conn)` — run the `SCHEMA_DDL` string. Every `CREATE TABLE` and `CREATE INDEX` uses `IF NOT EXISTS`.
-3. `seed_subjects(conn)` — insert the 12 subject rows if `subjects` is empty.
+3. `seed_subjects(conn)` — insert the subject rows if `subjects` is empty.
 4. `ensure_admin_user(conn, settings)` — insert the super-admin if no account with `ADMIN_USERNAME` exists.
+5. `verify_bootstrap(conn, settings)` — sanity-check that the schema, seeds, and admin account all made it in.
 
 If any step fails, the lifespan hook re-raises and the server refuses to serve requests — a half-initialised state would be worse than a crash loop.
 
@@ -345,7 +353,7 @@ pytest
 
 The `tests/` folder contains integration tests that hit a real PostgreSQL database. Configure the test database via the same `DATABASE_URL` variable (use a separate database — tests are destructive).
 
-Per the DDD migration plan, new domain logic should get pure unit tests that don't need FastAPI or the database. See `../docs/ddd-migration-spec.md` §10 for the target testing strategy.
+Existing coverage includes `test_auth.py`, `test_matches.py`, `test_match_state_machine.py`, `test_sessions.py`, and `test_reviews.py`. New domain logic added under `app/<context>/domain/` should get pure unit tests that don't need FastAPI or the database; keep integration tests for API-level behaviour and DB constraints.
 
 ---
 
