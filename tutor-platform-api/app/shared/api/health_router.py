@@ -1,43 +1,26 @@
 import logging
-from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from app.shared.infrastructure.database import get_db
-from app.shared.infrastructure.security import decode_access_token
 
 logger = logging.getLogger("app.health")
 router = APIRouter(tags=["health"])
 
 
-def _get_optional_user(request: Request) -> Optional[dict]:
-    """嘗試從 Authorization header 解析使用者，失敗時回傳 None（不阻擋請求）。"""
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return decode_access_token(auth[7:])
-    return None
-
-
-@router.get("/health", summary="健康檢查", description="檢查 API 狀態。已認證的管理員可查看資料庫連線詳情。")
-def health_check(request: Request, conn=Depends(get_db)):
-    user = _get_optional_user(request)
-    is_admin = user and user.get("role") == "admin"
-
+@router.get("/health", summary="健康檢查", description="檢查 API 與資料庫連線狀態。")
+def health_check(conn=Depends(get_db)):
+    # Return a uniform shape regardless of caller so the response cannot be
+    # used to infer whether the caller is an admin.  Admin-only details
+    # (database connectivity) are gated behind a separate admin endpoint.
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM users")
+        cursor.execute("SELECT 1")
         cursor.fetchone()
-        if is_admin:
-            return {"status": "healthy", "database": "connected"}
         return {"status": "ok"}
     except Exception:
         logger.exception("Health check failed")
-        if is_admin:
-            return JSONResponse(
-                status_code=503,
-                content={"status": "unhealthy", "database": "disconnected"},
-            )
         return JSONResponse(
             status_code=503,
             content={"status": "error"},

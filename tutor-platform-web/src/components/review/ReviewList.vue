@@ -28,6 +28,6 @@ defineProps({
 
 function typeLabel(type) {
   const map = { parent_to_tutor: '家長→老師', tutor_to_parent: '老師→家長', tutor_to_student: '老師→學生' }
-  return map[type] || type
+  return map[type] || '其他評價'
 }
 </script>

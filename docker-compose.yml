@@ -1,16 +1,19 @@
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+
 services:
   # ── PostgreSQL ──
   db:
     image: postgres:16-alpine
     restart: on-failure
+    secrets:
+      - db_password
     environment:
-      # Credentials interpolated from the repo-root `.env` file (see
-      # `.env.example`). The `:?…` form aborts `docker compose up` with the
-      # given message if the variable is unset/empty — beats silently coming
-      # up with empty Postgres creds (which would later fail health probes
-      # and waste 90s before reporting back).
+      # SEC-H04: password is read from Docker secret file, not env var.
+      # The postgres image reads POSTGRES_PASSWORD_FILE at startup.
       POSTGRES_USER: ${DB_USER:?DB_USER must be set in repo-root .env (see .env.example)}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in repo-root .env}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
       POSTGRES_DB: ${DB_NAME:?DB_NAME must be set in repo-root .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -34,11 +37,15 @@ services:
   api:
     build: ./tutor-platform-api
     restart: on-failure
+    secrets:
+      - db_password
     env_file: ./tutor-platform-api/.env.docker
     environment:
-      # DATABASE_URL is composed at deploy time so DB credentials live in a
-      # single source (repo-root `.env`). Overrides any value in env_file.
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      # SEC-H04: docker-entrypoint.sh reads /run/secrets/db_password and
+      # constructs DATABASE_URL at runtime — password never appears in env.
+      DB_USER: ${DB_USER:?DB_USER must be set in repo-root .env}
+      DB_HOST: db
+      DB_NAME: ${DB_NAME:?DB_NAME must be set in repo-root .env}
     depends_on:
       db:
         condition: service_healthy
@@ -66,9 +73,13 @@ services:
   worker:
     build: ./tutor-platform-api
     restart: on-failure
+    secrets:
+      - db_password
     env_file: ./tutor-platform-api/.env.docker
     environment:
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      DB_USER: ${DB_USER:?DB_USER must be set in repo-root .env}
+      DB_HOST: db
+      DB_NAME: ${DB_NAME:?DB_NAME must be set in repo-root .env}
     command: huey_consumer app.worker.huey
     depends_on:
       db:

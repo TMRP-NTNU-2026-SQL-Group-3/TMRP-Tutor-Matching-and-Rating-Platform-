@@ -110,7 +110,7 @@ export function useMatchDetail() {
       await fetchMatch()
     } catch (e) {
       error.value = e.message
-      toast.error(e.message)
+      toast.error('操作失敗：' + e.message)
     } finally {
       actionLoading.value = false
     }
@@ -127,7 +127,7 @@ export function useMatchDetail() {
       await fetchMatch()
     } catch (e) {
       error.value = e.message
-      toast.error(e.message)
+      toast.error('合約確認失敗：' + e.message)
     } finally {
       actionLoading.value = false
     }
@@ -144,7 +144,7 @@ export function useMatchDetail() {
       await fetchMatch()
     } catch (e) {
       error.value = e.message
-      toast.error(e.message)
+      toast.error('終止申請失敗：' + e.message)
     } finally {
       actionLoading.value = false
     }
@@ -169,7 +169,7 @@ export function useMatchDetail() {
       await fetchMatch()
     } catch (e) {
       reviewError.value = e.message
-      toast.error(e.message)
+      toast.error('評價提交失敗：' + e.message)
     } finally {
       reviewSubmitting.value = false
     }

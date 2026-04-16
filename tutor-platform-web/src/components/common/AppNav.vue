@@ -67,11 +67,13 @@
 <script setup>
 import { ref, computed } from 'vue'
 
+const VALID_ROLES = ['parent', 'tutor', 'admin']
+
 const props = defineProps({
   auth: {
     type: Object,
     required: true,
-    // 預期：{ role: string, user: { display_name: string } }
+    validator: (v) => v && VALID_ROLES.includes(v.role),
   },
 })
 

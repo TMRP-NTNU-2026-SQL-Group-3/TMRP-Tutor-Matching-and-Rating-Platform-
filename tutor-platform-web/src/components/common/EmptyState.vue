@@ -9,7 +9,7 @@
 
 <script setup>
 defineProps({
-  icon: { type: String, default: '---' },
+  icon: { type: String, default: '📭' },
   message: { type: String, required: true },
 })
 </script>

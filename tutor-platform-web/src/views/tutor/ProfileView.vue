@@ -28,28 +28,16 @@
             <label class="block text-sm font-medium text-gray-700 mb-1">大學</label>
             <input v-model="form.university" type="text"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
-            <label class="flex items-center gap-2 mt-2 text-sm text-gray-600">
-              <input v-model="form.show_university" type="checkbox"
-                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" /> 公開
-            </label>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">科系</label>
             <input v-model="form.department" type="text"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
-            <label class="flex items-center gap-2 mt-2 text-sm text-gray-600">
-              <input v-model="form.show_department" type="checkbox"
-                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" /> 公開
-            </label>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">年級</label>
             <input v-model.number="form.grade_year" type="number" min="1" max="10"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
-            <label class="flex items-center gap-2 mt-2 text-sm text-gray-600">
-              <input v-model="form.show_grade_year" type="checkbox"
-                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" /> 公開
-            </label>
           </div>
         </div>
       </div>
@@ -113,18 +101,64 @@
           <input v-model.number="form.max_students" type="number" min="1" max="50"
             class="w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
         </div>
-        <div class="space-y-2">
-          <label class="flex items-center gap-2 text-sm text-gray-600">
+      </div>
+
+      <!-- Visibility Settings -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-gray-900">公開欄位設定</h2>
+            <p class="text-xs text-gray-500 mt-1">控制哪些個人資料對家長公開顯示</p>
+          </div>
+          <button type="button" @click="handleSaveVisibility" :disabled="savingVisibility"
+            class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
+            {{ savingVisibility ? '儲存中...' : '儲存公開設定' }}
+          </button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
+            <input v-model="form.show_university" type="checkbox"
+              class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+            <div>
+              <span class="text-sm font-medium text-gray-700">大學</span>
+              <p class="text-xs text-gray-400">{{ form.university || '未填寫' }}</p>
+            </div>
+          </label>
+          <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
+            <input v-model="form.show_department" type="checkbox"
+              class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+            <div>
+              <span class="text-sm font-medium text-gray-700">科系</span>
+              <p class="text-xs text-gray-400">{{ form.department || '未填寫' }}</p>
+            </div>
+          </label>
+          <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
+            <input v-model="form.show_grade_year" type="checkbox"
+              class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+            <div>
+              <span class="text-sm font-medium text-gray-700">年級</span>
+              <p class="text-xs text-gray-400">{{ form.grade_year ? `${form.grade_year} 年級` : '未填寫' }}</p>
+            </div>
+          </label>
+          <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
             <input v-model="form.show_hourly_rate" type="checkbox"
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-            公開時薪
+            <div>
+              <span class="text-sm font-medium text-gray-700">時薪</span>
+              <p class="text-xs text-gray-400">各科目的時薪費率</p>
+            </div>
           </label>
-          <label class="flex items-center gap-2 text-sm text-gray-600">
+          <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
             <input v-model="form.show_subjects" type="checkbox"
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-            公開授課科目
+            <div>
+              <span class="text-sm font-medium text-gray-700">授課科目</span>
+              <p class="text-xs text-gray-400">教授的科目列表</p>
+            </div>
           </label>
         </div>
+        <p v-if="visibilitySuccess" role="status" class="text-sm text-green-700 bg-green-50 rounded-lg p-3">{{ visibilitySuccess }}</p>
+        <p v-if="visibilityError" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ visibilityError }}</p>
       </div>
 
       <!-- Messages -->
@@ -152,6 +186,9 @@ const success = ref('')
 const allSubjects = ref([])
 const subjectList = ref([])
 const availabilityList = ref([])
+const savingVisibility = ref(false)
+const visibilitySuccess = ref('')
+const visibilityError = ref('')
 
 const dayOptions = [
   { value: 0, label: '週日' },
@@ -179,11 +216,16 @@ let isMounted = true
 // F-04: track the success-banner timeout so we can clear it if the user
 // unmounts mid-flight (otherwise the callback fires on a dead component).
 let successTimer = null
+let visibilityTimer = null
 onUnmounted(() => {
   isMounted = false
   if (successTimer) {
     clearTimeout(successTimer)
     successTimer = null
+  }
+  if (visibilityTimer) {
+    clearTimeout(visibilityTimer)
+    visibilityTimer = null
   }
 })
 
@@ -244,6 +286,32 @@ function addAvailabilityRow() {
   })
 }
 
+async function handleSaveVisibility() {
+  if (savingVisibility.value) return
+  visibilityError.value = ''
+  visibilitySuccess.value = ''
+  savingVisibility.value = true
+  try {
+    await tutorsApi.updateVisibility({
+      show_university: form.show_university,
+      show_department: form.show_department,
+      show_grade_year: form.show_grade_year,
+      show_hourly_rate: form.show_hourly_rate,
+      show_subjects: form.show_subjects,
+    })
+    visibilitySuccess.value = '公開設定已更新'
+    if (visibilityTimer) clearTimeout(visibilityTimer)
+    visibilityTimer = setTimeout(() => {
+      visibilitySuccess.value = ''
+      visibilityTimer = null
+    }, 3000)
+  } catch (e) {
+    visibilityError.value = e.message
+  } finally {
+    savingVisibility.value = false
+  }
+}
+
 async function handleSave() {
   // F-04: explicit re-entry guard — the disabled button alone leaves a tiny
   // window where a fast double-click (or Enter-spam) can re-enter before
@@ -259,14 +327,15 @@ async function handleSave() {
   try {
     await tutorsApi.updateProfile(form)
 
+    const errors = []
+
     const validSubjects = subjectList.value
       .filter(s => s.subject_id && s.hourly_rate)
       .map(s => ({ subject_id: s.subject_id, hourly_rate: s.hourly_rate }))
     try {
       await tutorsApi.updateSubjects({ subjects: validSubjects })
     } catch (e) {
-      error.value = '基本資料已儲存，但科目設定失敗：' + e.message
-      return
+      errors.push('科目設定失敗：' + e.message)
     }
 
     const validSlots = availabilityList.value
@@ -279,11 +348,14 @@ async function handleSave() {
     try {
       await tutorsApi.updateAvailability({ slots: validSlots })
     } catch (e) {
-      error.value = '基本資料已儲存，但時段設定失敗：' + e.message
-      return
+      errors.push('時段設定失敗：' + e.message)
     }
 
-    success.value = '個人檔案已更新'
+    if (errors.length) {
+      error.value = '基本資料已儲存，但' + errors.join('；')
+    } else {
+      success.value = '個人檔案已更新'
+    }
     // T-WEB-05: success message auto-clears after 3 s.
     // F-04: store the handle and clear any in-flight one so an unmount mid-flight
     // (or a second save firing within 3 s) doesn't leave a dangling timer.

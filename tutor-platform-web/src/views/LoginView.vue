@@ -77,11 +77,13 @@ async function handleLogin() {
     } else {
       localStorage.removeItem(REMEMBERED_USERNAME_KEY)
     }
-    auth.setAuth(data.access_token, {
+    // SEC-C02: tokens are delivered via HttpOnly cookies by the server;
+    // we only store non-sensitive user info in the frontend.
+    auth.setAuth({
       user_id: data.user_id,
       role: data.role,
       display_name: data.display_name
-    }, data.refresh_token)
+    })
     // P-BIZ-03: 使用對照表處理角色路由，未知角色顯示錯誤
     const roleRoutes = { admin: '/admin', tutor: '/tutor', parent: '/parent' }
     const target = roleRoutes[data.role]

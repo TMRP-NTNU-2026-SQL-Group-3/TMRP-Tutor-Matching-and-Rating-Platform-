@@ -16,7 +16,7 @@ class ReviewCreate(BaseModel):
         # parent_to_tutor feeds the public 4-axis tutor average; missing axes would
         # skew AVG() in get_avg_rating, so all four ratings are mandatory there.
         if self.review_type == "parent_to_tutor":
-            if self.rating_3 is None or self.rating_4 is None:
+            if any(r is None for r in (self.rating_1, self.rating_2, self.rating_3, self.rating_4)):
                 raise ValueError("家長評老師需要填寫全部 4 項評分")
         return self
 

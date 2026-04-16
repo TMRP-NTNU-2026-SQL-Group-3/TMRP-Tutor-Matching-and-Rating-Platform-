@@ -12,5 +12,8 @@ export const messagesApi = {
   },
   sendMessage(conversationId, content) {
     return api.post(`/api/messages/conversations/${conversationId}`, { content })
+  },
+  search(query) {
+    return api.get('/api/messages/search', { params: { q: query } })
   }
 }

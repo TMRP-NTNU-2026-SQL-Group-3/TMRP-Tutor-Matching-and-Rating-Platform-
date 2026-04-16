@@ -74,3 +74,7 @@ class PostgresSessionRepository(BaseRepository, ISessionRepository):
             "SELECT * FROM session_edit_logs WHERE session_id = %s ORDER BY edited_at DESC",
             (session_id,),
         )
+
+    def delete(self, session_id: int) -> None:
+        # session_edit_logs has ON DELETE CASCADE from sessions
+        self.execute("DELETE FROM sessions WHERE session_id = %s", (session_id,))

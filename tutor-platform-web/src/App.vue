@@ -27,14 +27,15 @@ import ToastNotification from '@/components/common/ToastNotification.vue'
 const router = useRouter()
 const auth = useAuthStore()
 
-// F3: 每次頁面載入時驗證已儲存的 token 是否仍有效
-// 先標記為驗證中，驗證完成後再放行，避免 protected views 提前渲染
+// F3: on every page load, verify the session is still valid by calling /me.
+// SEC-C02: the HttpOnly cookie is sent automatically — we only check whether
+// localStorage still has user info (indicating a prior session).
 const validating = ref(true)
 onMounted(async () => {
-  if (auth.token) {
+  if (auth.isLoggedIn) {
     try {
       const user = await authApi.getMe()
-      auth.setAuth(auth.token, user)
+      auth.setAuth(user)
     } catch {
       auth.logout()
       router.push('/login')

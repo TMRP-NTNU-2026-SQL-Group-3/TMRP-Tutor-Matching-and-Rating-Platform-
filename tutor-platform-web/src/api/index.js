@@ -2,8 +2,6 @@ import axios from 'axios'
 import { API_BASE_URL } from './baseURL'
 import {
   applyRefreshedAuth,
-  getAccessToken,
-  getRefreshToken,
   handleAuthLost,
 } from './authHandler'
 
@@ -13,6 +11,8 @@ export { API_BASE_URL }
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
+  // SEC-C02: send HttpOnly cookies on every request.
+  withCredentials: true,
 })
 
 // P-BIZ-02 / Bug #18: single in-flight refresh, shared via one Promise rather
@@ -25,12 +25,20 @@ let refreshPromise = null
 // the user just discarded). Cleared by markLoggedIn() at the next setAuth().
 let loggingOut = false
 
+// SEC-H03: shared AbortController — every outgoing request gets its signal so
+// logout() can cancel all in-flight requests, preventing a late 401 response
+// from triggering a token refresh that would resurrect the old session.
+let inflightController = new AbortController()
+
 // Called from auth.logout() so a stale refresh from the previous session
 // cannot resolve into the next user's request stream, and to raise the
 // loggingOut fence (F-06) until the next successful login.
 export function resetRefreshState() {
   refreshPromise = null
   loggingOut = true
+  // Abort every request still in flight from the previous session.
+  inflightController.abort()
+  inflightController = new AbortController()
 }
 
 // Called from auth.setAuth() once a new session is established — drops the
@@ -39,11 +47,14 @@ export function markLoggedIn() {
   loggingOut = false
 }
 
-// ── Transport: attach bearer token ──────────────────────────────
+// ── Transport: attach abort signal ─────────────────────────────
+// SEC-C02: Authorization header is no longer needed — HttpOnly cookies are
+// sent automatically by the browser via withCredentials.
 api.interceptors.request.use(config => {
-  const token = getAccessToken()
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  // SEC-H03: attach the shared abort signal so logout() can cancel all
+  // pending requests. Callers that supply their own signal are unaffected.
+  if (!config.signal) {
+    config.signal = inflightController.signal
   }
   return config
 })
@@ -59,16 +70,16 @@ async function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       try {
+        // SEC-C02: refresh_token is sent automatically via HttpOnly cookie.
+        // The server sets fresh cookies in the response; we only need the
+        // user-info payload to keep the store in sync.
         const res = await axios.post(
           `${api.defaults.baseURL}/api/auth/refresh`,
-          { refresh_token: getRefreshToken() }
+          null,
+          { withCredentials: true },
         )
         applyRefreshedAuth(res.data.data)
-        return res.data.data.access_token
       } finally {
-        // Release after the current microtask so all synchronous waiters
-        // have already attached their `.then` before the next request
-        // decides whether to start a fresh refresh cycle.
         setTimeout(() => { refreshPromise = null }, 0)
       }
     })()
@@ -115,20 +126,19 @@ api.interceptors.response.use(
     const originalConfig = error.config
 
     // 401 — attempt refresh, retry once.
+    // SEC-C02: refresh_token is in an HttpOnly cookie (not readable by JS).
+    // Always attempt refresh on 401; if the cookie is absent/expired the
+    // server will reject and we fall through to handleAuthLost().
     if (error.response?.status === 401 && !originalConfig._retry) {
-      if (getRefreshToken()) {
-        originalConfig._retry = true
-        try {
-          const newToken = await refreshAccessToken()
-          originalConfig.headers.Authorization = `Bearer ${newToken}`
-          return api.request(originalConfig)
-        } catch (refreshError) {
-          handleAuthLost()
-          return Promise.reject(refreshError)
-        }
+      originalConfig._retry = true
+      try {
+        await refreshAccessToken()
+        // Retry with fresh cookies (set by the refresh response).
+        return api.request(originalConfig)
+      } catch (refreshError) {
+        handleAuthLost()
+        return Promise.reject(refreshError)
       }
-      handleAuthLost()
-      return Promise.reject(error)
     }
 
     // 5xx / network — exponential backoff, up to 2 retries.

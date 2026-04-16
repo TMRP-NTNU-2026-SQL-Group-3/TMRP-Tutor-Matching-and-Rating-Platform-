@@ -63,6 +63,19 @@ def list_exams(student_id: int = Query(...), user=Depends(get_current_user), con
     return ApiResponse(success=True, data=exams)
 
 
+@router.delete("/{exam_id}", summary="刪除考試紀錄", response_model=ApiResponse)
+def delete_exam(exam_id: int, user=Depends(get_current_user), conn=Depends(get_db)):
+    repo = PostgresExamRepository(conn)
+    user_id = int(user["sub"])
+    exam = repo.get_by_id(exam_id)
+    if not exam:
+        raise NotFoundError("找不到此考試紀錄")
+    if exam["added_by_user_id"] != user_id:
+        raise PermissionDeniedError("只有原新增者可以刪除考試紀錄")
+    repo.delete(exam_id)
+    return ApiResponse(success=True, message="考試紀錄已刪除")
+
+
 @router.put("/{exam_id}", summary="修改考試紀錄", response_model=ApiResponse)
 def update_exam(exam_id: int, body: ExamUpdate, user=Depends(get_current_user), conn=Depends(get_db)):
     repo = PostgresExamRepository(conn)

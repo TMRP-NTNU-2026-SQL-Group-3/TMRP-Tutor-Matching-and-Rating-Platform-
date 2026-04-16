@@ -39,6 +39,9 @@ class PostgresExamRepository(BaseRepository, IExamRepository):
     def update(self, exam_id: int, updates: dict) -> None:
         self.safe_update("exams", "exam_id", exam_id, updates, self.ALLOWED_COLUMNS)
 
+    def delete(self, exam_id: int) -> None:
+        self.execute("DELETE FROM exams WHERE exam_id = %s", (exam_id,))
+
     def list_by_student(self, student_id: int, parent_only: bool = False) -> list[dict]:
         if parent_only:
             return self.fetch_all(

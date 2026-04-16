@@ -118,14 +118,23 @@ class TestActorPermissions:
 
 
 class TestDisagreeTermination:
-    def test_disagree_returns_none_sentinel(self):
-        # None signals "clear terminated_by; revert to pre-TERMINATING state".
-        # The caller (MatchAppService) is responsible for choosing ACTIVE/PAUSED.
+    def test_disagree_stays_in_terminating(self):
+        # The state machine returns TERMINATING (no-op on the status column).
+        # MatchAppService overrides this to revert to the pre-TERMINATING
+        # state via previous_status_before_terminating.
         result = _call(
             MatchStatus.TERMINATING, Action.DISAGREE_TERMINATE,
             actor_is_parent=True, actor_user_id=1, terminated_by=2,
         )
-        assert result is None
+        assert result == MatchStatus.TERMINATING
+
+    def test_disagree_requires_terminated_by(self):
+        # If terminated_by was never set, OTHER_PARTY validation must reject.
+        with pytest.raises(InvalidTransitionError):
+            _call(
+                MatchStatus.TERMINATING, Action.DISAGREE_TERMINATE,
+                actor_is_parent=True, actor_user_id=1, terminated_by=None,
+            )
 
     def test_initiator_cannot_disagree_own_termination(self):
         with pytest.raises(MatchPermissionDeniedError):

@@ -7,9 +7,20 @@ Column validation lives in `column_validation` — do not re-add it here.
 
 import logging
 
+from psycopg2 import sql as psql
+
 from app.shared.infrastructure.column_validation import validate_columns
+from app.shared.infrastructure.database_tx import _is_in_tx
 
 logger = logging.getLogger("app")
+
+
+def escape_like(value: str) -> str:
+    """Escape LIKE wildcard characters so *value* is matched literally.
+
+    Must be paired with ``ESCAPE '\\'`` in the SQL clause.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class BaseRepository:
@@ -18,8 +29,12 @@ class BaseRepository:
         self.cursor = conn.cursor()
 
     def close(self):
+        # DB-L02: Intentionally broad catch — cursor cleanup must not mask
+        # the original exception that caused the caller to close the repo.
+        # Log + swallow so the connection can still be returned to the pool.
         try:
-            self.cursor.close()
+            if self.cursor and not self.cursor.closed:
+                self.cursor.close()
         except Exception:
             logger.exception("Failed to close cursor")
 
@@ -27,14 +42,16 @@ class BaseRepository:
                     allowed_columns: set, extra_set: str = "") -> None:
         """Parameterised UPDATE with mandatory column whitelist."""
         validate_columns(list(updates.keys()), allowed_columns)
-        set_clause = ", ".join(f"{col} = %s" for col in updates)
+        set_parts = [psql.SQL("{} = %s").format(psql.Identifier(col)) for col in updates]
         if extra_set:
-            set_clause += ", " + extra_set
-        values = list(updates.values()) + [id_val]
-        self.execute(
-            f"UPDATE {table} SET {set_clause} WHERE {id_col} = %s",
-            values,
+            set_parts.append(psql.SQL(extra_set))
+        query = psql.SQL("UPDATE {} SET {} WHERE {} = %s").format(
+            psql.Identifier(table),
+            psql.SQL(", ").join(set_parts),
+            psql.Identifier(id_col),
         )
+        values = list(updates.values()) + [id_val]
+        self.execute(query.as_string(self.conn), values)
 
     def fetch_one(self, sql: str, params: tuple = ()) -> dict | None:
         self.cursor.execute(sql, params)
@@ -51,7 +68,7 @@ class BaseRepository:
         return [dict(zip(columns, row)) for row in rows]
 
     def _in_transaction(self) -> bool:
-        return getattr(self.conn, '_in_tx', False)
+        return _is_in_tx(self.conn)
 
     def execute(self, sql: str, params: tuple = ()) -> None:
         """INSERT / UPDATE / DELETE. Commits unless inside an outer transaction."""

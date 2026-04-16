@@ -9,5 +9,8 @@ export const examsApi = {
   },
   update(examId, data) {
     return api.put(`/api/exams/${examId}`, data)
+  },
+  delete(examId) {
+    return api.delete(`/api/exams/${examId}`)
   }
 }

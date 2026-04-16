@@ -183,6 +183,9 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
         Written through `execute`, which participates in the caller's tx when
         one is open, so the audit is committed atomically with the status
         flip (or rolled back together on failure)."""
+        # DB-L04: resource_id is a soft reference (no FK) — the referenced
+        # row (here: match_id) may be deleted independently. Consuming code
+        # must tolerate dangling resource_id values when joining back.
         self.execute(
             """INSERT INTO audit_log
                 (actor_user_id, action, resource_type, resource_id,

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 
 
@@ -59,8 +60,8 @@ class Contract:
     sessions_per_week: int
     want_trial: bool
     invite_message: str | None = None
-    start_date: object = None          # datetime | None
-    end_date: object = None            # datetime | None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
     penalty_amount: float | None = None
     trial_price: float | None = None
     trial_count: int | None = None

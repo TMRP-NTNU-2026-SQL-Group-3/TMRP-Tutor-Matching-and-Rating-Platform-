@@ -74,21 +74,22 @@ def list_reviews(match_id: int = Query(...), user=Depends(get_current_user), con
 def update_review(review_id: int, body: ReviewUpdate, user=Depends(get_current_user), conn=Depends(get_db)):
     repo = PostgresReviewRepository(conn)
     user_id = int(user["sub"])
-    review = repo.get_for_update(review_id)
-    if not review:
-        raise ReviewNotFoundError()
-    if review["reviewer_user_id"] != user_id:
-        raise NotReviewOwnerError()
-    if review["is_locked"]:
-        raise ReviewLockedError()
-    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.review_lock_days)
-    created_at = review["created_at"]
-    if hasattr(created_at, "tzinfo") and created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
-    if created_at < cutoff:
-        raise ReviewLockedError()
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         return ApiResponse(success=True, data={}, message="無需更新的欄位")
-    repo.update(review_id, updates)
+    with transaction(conn):
+        review = repo.get_for_update(review_id)
+        if not review:
+            raise ReviewNotFoundError()
+        if review["reviewer_user_id"] != user_id:
+            raise NotReviewOwnerError()
+        if review["is_locked"]:
+            raise ReviewLockedError()
+        cutoff = datetime.now(timezone.utc) - timedelta(days=settings.review_lock_days)
+        created_at = review["created_at"]
+        if hasattr(created_at, "tzinfo") and created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if created_at < cutoff:
+            raise ReviewLockedError()
+        repo.update(review_id, updates)
     return ApiResponse(success=True, data={"review_id": review_id}, message="評價已更新")

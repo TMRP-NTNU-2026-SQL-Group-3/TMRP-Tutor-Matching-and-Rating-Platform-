@@ -168,8 +168,8 @@ async function handleSend() {
 function startPolling() {
   stopPolling()
   pollTimer = setInterval(() => {
-    // Bug #21: 分頁不可見時暫停輪詢，省頻寬與後端負載
     if (typeof document !== 'undefined' && document.hidden) return
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return
     fetchMessages()
   }, 5000)
 }

@@ -1,33 +1,54 @@
+import threading
 from contextlib import contextmanager
+
+# DB-L03: Track transaction state in a thread-safe dict keyed by
+# connection id, instead of monkey-patching `_in_tx` onto the
+# connection object. This avoids AttributeError on connection
+# wrappers / proxies that use __slots__ or restrict attribute assignment.
+_tx_state: dict[int, bool] = {}
+_tx_lock = threading.Lock()
+
+
+def _is_in_tx(conn) -> bool:
+    return _tx_state.get(id(conn), False)
+
+
+def _set_in_tx(conn, value: bool) -> None:
+    with _tx_lock:
+        if value:
+            _tx_state[id(conn)] = True
+        else:
+            _tx_state.pop(id(conn), None)
 
 
 @contextmanager
 def transaction(conn):
-    """
-    交易管理上下文管理器。
+    """Transaction context manager.
 
     Usage:
         with transaction(conn):
             repo.create(...)
             repo.update(...)
 
-    成功時自動 commit，例外時自動 rollback。
-    支援巢狀呼叫——若已在交易中，僅穿透 yield，由最外層負責 commit/rollback。
+    Auto-commits on success, auto-rollbacks on exception.
+    Supports nesting — if already inside a transaction, yields through
+    without commit/rollback; the outermost layer owns the lifecycle.
 
-    使用連線物件的 _in_tx 屬性追蹤交易狀態，取代舊版的全域 set + id(conn)，
-    避免 ThreadedConnectionPool 下多執行緒的競態條件。
+    Transaction state is tracked in a thread-safe dict keyed by
+    ``id(conn)`` so arbitrary attribute assignment on the connection
+    object is not required.
 
-    Bug #9：用 try/finally 結構分離「巢狀穿透」與「外層提交」邏輯，
-    避免維護者誤刪 return 而導致在巢狀情境下重複 commit/rollback。
+    Bug #9: try/finally separates "nested pass-through" from "outer
+    commit" logic so an accidental return deletion does not cause
+    duplicate commit/rollback in nested scenarios.
     """
-    is_outermost = not getattr(conn, '_in_tx', False)
+    is_outermost = not _is_in_tx(conn)
 
     if not is_outermost:
-        # 已在外層交易中，僅穿透 yield；不在此處 commit/rollback
         yield conn
         return
 
-    conn._in_tx = True
+    _set_in_tx(conn, True)
     try:
         try:
             yield conn
@@ -37,4 +58,4 @@ def transaction(conn):
         else:
             conn.commit()
     finally:
-        conn._in_tx = False
+        _set_in_tx(conn, False)

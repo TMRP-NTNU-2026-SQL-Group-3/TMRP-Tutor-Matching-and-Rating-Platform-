@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 
-class IMessageRepository(ABC):
+class IConversationRepository(ABC):
     @abstractmethod
     def find_conversations_for_user(self, user_id: int) -> list[dict]: ...
 
@@ -11,6 +11,8 @@ class IMessageRepository(ABC):
     @abstractmethod
     def user_is_participant(self, conversation_id: int, user_id: int) -> bool: ...
 
+
+class IMessageRepository(ABC):
     @abstractmethod
     def get_messages(self, conversation_id: int, *, limit: int, before_id: int | None = None) -> list[dict]: ...
 

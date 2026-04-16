@@ -114,8 +114,19 @@ def check_and_record_bucket(
         pool_ref.putconn(conn)
 
 
+async def run_periodic_cleanup(interval: int = _CLEANUP_INTERVAL) -> None:
+    """Background task that cleans expired rate-limit records on a fixed
+    schedule, independent of request traffic."""
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await asyncio.to_thread(_cleanup_expired)
+        except Exception:
+            logger.exception("Periodic rate-limit cleanup failed")
+
+
 def _cleanup_expired() -> int:
-    """清除超過最長視窗的紀錄。"""
+    """Delete rate-limit records older than the longest configured window."""
     from app.shared.infrastructure.database import _require_pool
     max_window = max(w for _, w in RATE_LIMITS.values())
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_window)

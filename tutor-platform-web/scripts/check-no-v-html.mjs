@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('../src', import.meta.url))
 const V_HTML_RE = /\bv-html\b/
+const INNER_HTML_RE = /\.(innerHTML|outerHTML)\s*[+]?=/
 const OPT_OUT_RE = /eslint-disable-line\s+no-v-html/
 
 async function walk(dir) {
@@ -23,7 +24,7 @@ async function walk(dir) {
     const full = join(dir, entry.name)
     if (entry.isDirectory()) {
       files.push(...await walk(full))
-    } else if (entry.isFile() && entry.name.endsWith('.vue')) {
+    } else if (entry.isFile() && /\.(vue|js|ts)$/.test(entry.name)) {
       files.push(full)
     }
   }
@@ -34,16 +35,16 @@ const violations = []
 for (const file of await walk(ROOT)) {
   const lines = (await readFile(file, 'utf8')).split('\n')
   lines.forEach((line, idx) => {
-    if (V_HTML_RE.test(line) && !OPT_OUT_RE.test(line)) {
+    if ((V_HTML_RE.test(line) || INNER_HTML_RE.test(line)) && !OPT_OUT_RE.test(line)) {
       violations.push(`${relative(process.cwd(), file)}:${idx + 1}  ${line.trim()}`)
     }
   })
 }
 
 if (violations.length) {
-  console.error('[lint] v-html is forbidden on user-sourced bindings (F-17):')
+  console.error('[lint] v-html / innerHTML is forbidden on user-sourced bindings (F-17):')
   for (const v of violations) console.error('  ' + v)
   console.error('\nUse text interpolation ({{ ... }}) instead, or add `// eslint-disable-line no-v-html` if the content is proven-safe.')
   process.exit(1)
 }
-console.log('[lint] no v-html violations')
+console.log('[lint] no v-html / innerHTML violations')

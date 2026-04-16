@@ -274,7 +274,7 @@ const canReview = computed(() => {
   const alreadyReviewed = reviews.value.some(
     r => r.reviewer_user_id === userId.value && r.review_type === 'parent_to_tutor'
   )
-  // T-API-05: 配合後端修改，移除 terminating 狀態
+  // Reviews are only allowed in active/paused/ended states (not during terminating).
   return !alreadyReviewed && ['active', 'paused', 'ended'].includes(match.value?.status)
 })
 
@@ -289,12 +289,7 @@ async function handleSubmitReview() {
   }
   await submitReview({ review_type: 'parent_to_tutor', ...reviewForm })
   if (!reviewError.value) {
-    // U-7: Mirror the tutor side's reset pattern by preserving the currently
-    // chosen review_type. Parents only have one valid type, so this stays a
-    // no-op in behavior but keeps the two call sites structurally identical.
-    const currentType = reviewForm.review_type || 'parent_to_tutor'
     Object.assign(reviewForm, {
-      review_type: currentType,
       rating_1: 5, rating_2: 5, rating_3: 5, rating_4: 5,
       personality_comment: '', comment: ''
     })

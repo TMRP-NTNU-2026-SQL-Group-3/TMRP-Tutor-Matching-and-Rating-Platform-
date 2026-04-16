@@ -34,8 +34,16 @@ class CatalogQueryAdapter(BaseRepository, ICatalogQuery):
         return row is not None
 
     def get_active_student_count(self, tutor_id: int) -> int:
+        # DB-H01: count all non-terminal matches directly from the matches
+        # table instead of v_tutor_active_students (which only counts
+        # active/trial).  Including pending/paused/terminating ensures the
+        # FOR UPDATE lock on the tutor row (acquired earlier in the same tx)
+        # actually prevents two concurrent create_match calls from both
+        # passing the capacity gate — a pending INSERT now "reserves" a slot.
         row = self.fetch_one(
-            "SELECT active_count AS cnt FROM v_tutor_active_students WHERE tutor_id = %s",
+            """SELECT COUNT(*) AS cnt FROM matches
+               WHERE tutor_id = %s
+                 AND status NOT IN ('cancelled', 'rejected', 'ended')""",
             (tutor_id,),
         )
         return row["cnt"] if row else 0

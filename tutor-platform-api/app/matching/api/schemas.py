@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -24,7 +24,7 @@ class MatchStatusUpdate(BaseModel):
     # the contract terms. Optional so other actions stay unchanged.
     hourly_rate: float | None = Field(default=None, gt=0, description="正式合作時薪")
     sessions_per_week: int | None = Field(default=None, ge=1, description="正式合作每週堂數")
-    start_date: date | None = Field(default=None, description="正式合作起始日")
+    start_date: datetime | None = Field(default=None, description="正式合作起始日")
 
 
 class MatchDetailResponse(BaseModel):

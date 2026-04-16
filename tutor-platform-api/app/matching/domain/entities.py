@@ -36,13 +36,30 @@ class Match:
             return self.termination_reason.split("|", 1)[1]
         return self.termination_reason
 
+    _VALID_PRE_TERMINATION_STATUSES = {"active", "paused"}
+
     @property
     def previous_status_before_terminating(self) -> str:
+        """Extract the status stored before termination from the
+        ``{previous_status}|{reason}`` or bare ``{previous_status}``
+        format (the repo omits the pipe when no reason is provided).
+
+        Returns the extracted status when the stored format is valid,
+        otherwise raises ValueError so callers notice a data-integrity
+        issue instead of silently receiving a wrong default.
+        """
         raw = self.termination_reason or ""
         if "|" in raw:
-            prev = raw.split("|")[0]
-            if prev in ("active", "paused"):
-                return prev
+            prev = raw.split("|", 1)[0]
+        else:
+            prev = raw
+        if prev in self._VALID_PRE_TERMINATION_STATUSES:
+            return prev
+        if raw:
+            raise ValueError(
+                f"Cannot extract pre-termination status from "
+                f"termination_reason '{raw}'"
+            )
         return "active"
 
     def is_participant(self, user_id: int) -> bool:

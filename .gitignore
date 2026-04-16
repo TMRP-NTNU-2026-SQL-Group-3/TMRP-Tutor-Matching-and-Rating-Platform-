@@ -2,9 +2,13 @@
 .env
 *.env
 .env.*
-# 但保留 *.example 範本以利新人 onboarding
+# 保留 *.example 範本以利 onboarding
 !.env.example
 !.env.docker.example
+
+# Docker secrets (SEC-H04)
+secrets/*
+!secrets/*.example
 
 # Python
 __pycache__/

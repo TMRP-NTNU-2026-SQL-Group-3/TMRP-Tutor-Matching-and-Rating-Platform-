@@ -2,7 +2,7 @@ from psycopg2 import sql as psql
 
 from app.catalog.domain.ports import ITutorRepository
 from app.shared.api.constants import DEFAULT_PAGE_SIZE
-from app.shared.infrastructure.base_repository import BaseRepository
+from app.shared.infrastructure.base_repository import BaseRepository, escape_like
 from app.shared.infrastructure.column_validation import validate_columns
 from app.shared.infrastructure.database_tx import transaction
 
@@ -30,7 +30,7 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
             ).format(psql.Placeholder()))
             params.append(subject_id)
         if school:
-            escaped = school.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            escaped = escape_like(school)
             conditions.append(psql.SQL(
                 "t.university LIKE {} ESCAPE '\\'"
             ).format(psql.Placeholder()))
@@ -60,10 +60,14 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
         # B5: sort_by is whitelisted via a fixed dict, so it is safe to
         # embed as a literal SQL fragment. Everything else is composed via
         # psycopg2.sql.
-        order_clause = psql.SQL({
+        _SORT_OPTIONS = {
+            "rating": "avg_rating DESC NULLS LAST, tutor_id DESC",
             "rate_asc": "avg_rate ASC NULLS LAST, tutor_id DESC",
             "newest": "tutor_id DESC",
-        }.get(sort_by, "avg_rating DESC NULLS LAST, tutor_id DESC"))
+        }
+        if sort_by not in _SORT_OPTIONS:
+            raise ValueError(f"Unknown sort_by value: {sort_by!r}")
+        order_clause = psql.SQL(_SORT_OPTIONS[sort_by])
 
         conditions: list[psql.Composable] = []
         params: list = []
@@ -73,7 +77,7 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
             ).format(psql.Placeholder()))
             params.append(subject_id)
         if school:
-            escaped = school.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            escaped = escape_like(school)
             conditions.append(psql.SQL(
                 "t.university LIKE {} ESCAPE '\\'"
             ).format(psql.Placeholder()))
@@ -229,14 +233,22 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
 
     def update_visibility(self, tutor_id: int, flags: dict) -> None:
         validate_columns(list(flags.keys()), self.VISIBILITY_COLUMNS)
-        set_parts = [f"{col} = %s" for col in flags]
+        if not flags:
+            return
+        set_parts = [psql.SQL("{} = %s").format(psql.Identifier(col)) for col in flags]
+        query = psql.SQL("UPDATE tutors SET {} WHERE tutor_id = %s").format(
+            psql.SQL(", ").join(set_parts)
+        )
         params = list(flags.values()) + [tutor_id]
-        if set_parts:
-            self.execute(f"UPDATE tutors SET {', '.join(set_parts)} WHERE tutor_id = %s", tuple(params))
+        self.execute(query.as_string(self.conn), tuple(params))
 
     def update_profile(self, tutor_id: int, **fields) -> None:
         validate_columns(list(fields.keys()), self.PROFILE_COLUMNS)
-        set_parts = [f"{col} = %s" for col in fields]
+        if not fields:
+            return
+        set_parts = [psql.SQL("{} = %s").format(psql.Identifier(col)) for col in fields]
+        query = psql.SQL("UPDATE tutors SET {} WHERE tutor_id = %s").format(
+            psql.SQL(", ").join(set_parts)
+        )
         params = list(fields.values()) + [tutor_id]
-        if set_parts:
-            self.execute(f"UPDATE tutors SET {', '.join(set_parts)} WHERE tutor_id = %s", tuple(params))
+        self.execute(query.as_string(self.conn), tuple(params))

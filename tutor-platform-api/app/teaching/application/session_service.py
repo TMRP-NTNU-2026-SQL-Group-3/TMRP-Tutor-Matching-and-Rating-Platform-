@@ -28,9 +28,27 @@ _SESSION_CREATE_LIMIT = 10
 _SESSION_CREATE_WINDOW = 60
 
 
-def _as_str(value) -> str:
+def _normalize(value):
+    """Normalize a value for change detection so that equivalent values
+    of different types (e.g. int 1 vs float 1.0, Decimal vs float)
+    compare correctly."""
     if value is None:
-        return ""
+        return None
+    if isinstance(value, bool):
+        return value
+    # Decimal (psycopg2 returns this for NUMERIC columns) is not a
+    # subclass of float, so coerce it explicitly before the numeric path.
+    from decimal import Decimal, InvalidOperation
+    if isinstance(value, (int, float, Decimal)):
+        try:
+            f = float(value)
+        except (ValueError, OverflowError, InvalidOperation):
+            return str(value)
+        try:
+            i = int(f)
+        except (ValueError, OverflowError):
+            return f
+        return i if f == i else f
     return str(value)
 
 
@@ -93,7 +111,7 @@ class SessionAppService:
                 old_val = fresh.get(field)
                 if field == "visible_to_parent":
                     old_val = bool(old_val)
-                if _as_str(old_val) != _as_str(new_val):
+                if _normalize(old_val) != _normalize(new_val):
                     diffs.append((field, old_val, new_val))
             if not diffs:
                 return {"session_id": session_id, "changed": False, "message": "無實際變動"}
@@ -101,6 +119,16 @@ class SessionAppService:
             for field, old_val, new_val in diffs:
                 self._repo.insert_edit_log(session_id, field, old_val, new_val)
         return {"session_id": session_id, "changed": True, "message": "上課日誌已更新"}
+
+    def delete(self, *, session_id: int, tutor_user_id: int) -> None:
+        session = self._repo.get_by_id(session_id)
+        if not session:
+            raise SessionNotFoundError()
+        match = self._repo.get_match_for_create(session["match_id"])
+        if not match or match["tutor_user_id"] != tutor_user_id:
+            raise PermissionDeniedError("只有此配對的老師可以刪除上課日誌")
+        with self._uow.begin():
+            self._repo.delete(session_id)
 
     def get_edit_logs(self, *, session_id: int, user_id: int, is_admin: bool) -> list[dict]:
         session = self._repo.get_by_id(session_id)

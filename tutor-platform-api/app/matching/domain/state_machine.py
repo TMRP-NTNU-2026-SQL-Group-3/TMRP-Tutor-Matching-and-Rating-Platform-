@@ -36,7 +36,7 @@ TRANSITIONS: dict[tuple[MatchStatus, Action], Transition] = {
     (MatchStatus.TERMINATING, Action.AGREE_TERMINATE):
         Transition(MatchStatus.ENDED, AllowedActor.OTHER_PARTY),
     (MatchStatus.TERMINATING, Action.DISAGREE_TERMINATE):
-        Transition(None, AllowedActor.OTHER_PARTY),
+        Transition(MatchStatus.TERMINATING, AllowedActor.OTHER_PARTY),
 }
 
 
@@ -69,9 +69,6 @@ def resolve_transition(
     if action == Action.ACCEPT:
         return MatchStatus.TRIAL if want_trial else MatchStatus.ACTIVE
 
-    if action == Action.DISAGREE_TERMINATE:
-        return None  # type: ignore
-
     return transition.new_status
 
 
@@ -98,5 +95,7 @@ def _check_permission(
             if not actor_is_parent and not actor_is_tutor and not actor_is_admin:
                 raise MatchPermissionDeniedError("無權操作此配對")
         case AllowedActor.OTHER_PARTY:
+            if terminated_by is None:
+                raise InvalidTransitionError("無法確認終止：缺少發起終止方資訊")
             if terminated_by == actor_user_id:
                 raise MatchPermissionDeniedError("需要由對方確認此操作")

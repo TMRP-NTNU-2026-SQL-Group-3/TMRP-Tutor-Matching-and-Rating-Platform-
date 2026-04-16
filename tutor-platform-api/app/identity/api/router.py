@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.identity.api.dependencies import get_auth_service, get_current_user, get_db
-from app.identity.api.schemas import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
+from app.identity.api.schemas import AuthUserResponse, LoginRequest, RefreshRequest, RegisterRequest
 from app.identity.domain.services import AuthService
 from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
 from app.shared.domain.exceptions import DomainException
+from app.shared.infrastructure.config import settings
 from app.shared.infrastructure.database_tx import transaction
 
 # H-03: per-username rate limit in addition to the per-IP limit applied by
@@ -17,6 +18,29 @@ _LOGIN_USER_MAX_ATTEMPTS = 5
 _LOGIN_USER_WINDOW_SECONDS = 900  # 15 minutes
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+_REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 3600
+
+
+def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    """SEC-C02: deliver tokens via HttpOnly cookies instead of the response body."""
+    secure = settings.cookie_secure
+    response.set_cookie(
+        key="access_token", value=access_token,
+        httponly=True, secure=secure, samesite="lax",
+        path="/api", max_age=settings.jwt_expire_minutes * 60,
+    )
+    response.set_cookie(
+        key="refresh_token", value=refresh_token,
+        httponly=True, secure=secure, samesite="lax",
+        path="/api/auth", max_age=_REFRESH_TOKEN_TTL_SECONDS,
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    secure = settings.cookie_secure
+    response.delete_cookie(key="access_token", path="/api", httponly=True, secure=secure, samesite="lax")
+    response.delete_cookie(key="refresh_token", path="/api/auth", httponly=True, secure=secure, samesite="lax")
 
 
 @router.post("/register", summary="使用者註冊", description="建立新帳號，角色可為 parent（家長）或 tutor（家教）。家教註冊時會同步建立 Tutors 資料。", response_model=ApiResponse)
@@ -37,10 +61,11 @@ def register(
     return ApiResponse(success=True, data={"user_id": user_id}, message="註冊成功")
 
 
-@router.post("/login", summary="使用者登入", description="驗證帳號密碼後核發 JWT Token，回傳使用者基本資訊。", response_model=ApiResponse[TokenResponse])
+@router.post("/login", summary="使用者登入", description="驗證帳號密碼後核發 JWT Token，回傳使用者基本資訊。", response_model=ApiResponse[AuthUserResponse])
 def login(
     body: LoginRequest,
     request: Request,
+    response: Response,
     service: AuthService = Depends(get_auth_service),
 ):
     # Account-level bucket is checked before password verification so the cost
@@ -71,25 +96,50 @@ def login(
         source_ip=source_ip,
         user_agent=user_agent,
     )
+    # SEC-C02: tokens delivered via HttpOnly cookies; body carries user info only.
+    _set_auth_cookies(response, result["access_token"], result["refresh_token"])
     return ApiResponse(
         success=True,
-        data=TokenResponse(**result),
+        data=AuthUserResponse(**result),
     )
 
 
-@router.post("/refresh", summary="刷新 Token", description="使用 refresh token 取得新的 access token。", response_model=ApiResponse)
-def refresh(body: RefreshRequest, service: AuthService = Depends(get_auth_service)):
-    result = service.refresh(refresh_token=body.refresh_token)
+@router.post("/refresh", summary="刷新 Token", description="使用 refresh token 取得新的 access token。", response_model=ApiResponse[AuthUserResponse])
+def refresh(
+    request: Request,
+    response: Response,
+    body: RefreshRequest | None = None,
+    service: AuthService = Depends(get_auth_service),
+):
+    # SEC-C02: prefer cookie, fall back to body for backward compatibility.
+    refresh_token_value = request.cookies.get("refresh_token")
+    if not refresh_token_value and body:
+        refresh_token_value = body.refresh_token
+    if not refresh_token_value:
+        raise HTTPException(status_code=401, detail="Missing refresh token")
+    result = service.refresh(refresh_token=refresh_token_value)
+    _set_auth_cookies(response, result["access_token"], result["refresh_token"])
     return ApiResponse(
         success=True,
-        data=TokenResponse(**result),
+        data=AuthUserResponse(**result),
     )
 
 
 @router.post("/logout", summary="登出", description="使目前的 refresh token 失效。", response_model=ApiResponse)
-def logout(body: RefreshRequest, user=Depends(get_current_user)):
+def logout(
+    request: Request,
+    response: Response,
+    body: RefreshRequest | None = None,
+    user=Depends(get_current_user),
+):
     from app.shared.infrastructure.security import decode_refresh_token, invalidate_refresh_token
-    payload = decode_refresh_token(body.refresh_token)
+    # SEC-C02: prefer cookie, fall back to body for backward compatibility.
+    refresh_token_value = request.cookies.get("refresh_token")
+    if not refresh_token_value and body:
+        refresh_token_value = body.refresh_token
+    if not refresh_token_value:
+        raise DomainException("Missing refresh token", status_code=400)
+    payload = decode_refresh_token(refresh_token_value)
     # Refuse mismatched / malformed refresh tokens so attackers cannot burn
     # another user's JTI via a forged /logout call.
     if not payload or str(payload.get("sub")) != str(user["sub"]):
@@ -98,6 +148,7 @@ def logout(body: RefreshRequest, user=Depends(get_current_user)):
     if not jti:
         raise DomainException("Invalid refresh token", status_code=400)
     invalidate_refresh_token(jti)
+    _clear_auth_cookies(response)
     return ApiResponse(success=True, message="已登出")
 
 

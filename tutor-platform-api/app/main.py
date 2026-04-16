@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -79,8 +80,9 @@ async def unhandled_exception_handler(request, exc: Exception):
         request.method, request.url.path, request_id, type(exc).__name__, exc,
     )
     body = {"success": False, "data": None, "message": "伺服器內部錯誤"}
-    if request_id:
-        body["request_id"] = request_id
+    # SEC-L04: expose request_id only in the header — keeps it available for
+    # support correlation without surfacing it in the JSON body where it
+    # could aid request-fingerprinting attacks.
     headers = {"X-Request-ID": request_id} if request_id else None
     return JSONResponse(status_code=500, content=body, headers=headers)
 
@@ -126,8 +128,19 @@ async def lifespan(app: FastAPI):
         # Crash on init failure rather than serve requests in a half-initialized state.
         logger.exception("Database initialization failed; refusing to start: %s", e)
         raise
+    # SEC-L03: periodic cleanup so rate-limit records don't accumulate
+    # during zero-traffic windows (the middleware-driven cleanup only fires
+    # on incoming requests).
+    from app.middleware.rate_limit import run_periodic_cleanup
+    cleanup_task = asyncio.create_task(run_periodic_cleanup())
+
     yield
     # Shutdown
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
     close_pool()
     logger.info("API server shutting down — flushing logs")
     logging.shutdown()
@@ -178,12 +191,10 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
-    # L-04: authentication is Bearer-token in the Authorization header, not
-    # cookies. Leaving allow_credentials=True here activated the stricter
-    # "credentialed" CORS mode for no functional reason and forbade the
-    # wildcard-origin safety net. If we migrate to HttpOnly cookie auth
-    # (M-01), flip this back to True and add CSRF protection at the same time.
-    allow_credentials=False,
+    # SEC-C02 / M-01: auth migrated to HttpOnly cookies. allow_credentials
+    # must be True so the browser sends cookies on cross-origin requests.
+    # CSRF is mitigated by SameSite=Lax on all auth cookies.
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )

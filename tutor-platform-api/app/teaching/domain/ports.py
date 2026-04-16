@@ -26,6 +26,9 @@ class ISessionRepository(ABC):
     @abstractmethod
     def get_edit_logs(self, session_id: int) -> list[dict]: ...
 
+    @abstractmethod
+    def delete(self, session_id: int) -> None: ...
+
 
 class IExamRepository(ABC):
     @abstractmethod
@@ -45,3 +48,6 @@ class IExamRepository(ABC):
 
     @abstractmethod
     def list_by_student(self, student_id: int, parent_only: bool = False) -> list[dict]: ...
+
+    @abstractmethod
+    def delete(self, exam_id: int) -> None: ...

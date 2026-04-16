@@ -2,19 +2,15 @@
 // router. Keeping this in its own module means the transport layer has no
 // runtime dependency on Pinia or the DOM, which is what made the old
 // interceptor painful to test and rigid to change.
+//
+// SEC-C02: tokens are now in HttpOnly cookies — JS never reads or writes
+// them. This module only syncs *user info* between the transport and the
+// auth store.
 
 import { useAuthStore } from '@/stores/auth'
 
-export function getAccessToken() {
-  return useAuthStore().token || ''
-}
-
-export function getRefreshToken() {
-  return useAuthStore().refreshToken || ''
-}
-
-export function applyRefreshedAuth({ access_token, refresh_token, user_id, role, display_name }) {
-  useAuthStore().setAuth(access_token, { user_id, role, display_name }, refresh_token)
+export function applyRefreshedAuth({ user_id, role, display_name }) {
+  useAuthStore().setAuth({ user_id, role, display_name })
 }
 
 export function handleAuthLost() {

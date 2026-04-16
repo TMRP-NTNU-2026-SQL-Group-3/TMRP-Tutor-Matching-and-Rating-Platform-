@@ -25,11 +25,11 @@ logger = logging.getLogger("app.init_db")
 SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS users (
     user_id       SERIAL PRIMARY KEY,
-    username      VARCHAR(50)  NOT NULL,
+    username      VARCHAR(100) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role          VARCHAR(10)  NOT NULL,
-    display_name  VARCHAR(50)  NOT NULL,
-    phone         VARCHAR(20),
+    display_name  VARCHAR(100) NOT NULL,
+    phone         VARCHAR(30),
     email         VARCHAR(100),
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
@@ -66,7 +66,8 @@ CREATE TABLE IF NOT EXISTS students (
 CREATE TABLE IF NOT EXISTS subjects (
     subject_id   SERIAL PRIMARY KEY,
     subject_name VARCHAR(30) NOT NULL,
-    category     VARCHAR(20) NOT NULL
+    category     VARCHAR(30) NOT NULL,
+    CONSTRAINT chk_subject_category CHECK (category IN ('math', 'science', 'lang', 'other'))
 );
 
 CREATE TABLE IF NOT EXISTS tutor_subjects (
@@ -267,6 +268,12 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_resource     ON audit_log (resource_typ
 CREATE INDEX IF NOT EXISTS idx_audit_log_actor        ON audit_log (actor_user_id, created_at);
 
 -- FK 補強索引：CASCADE/SET NULL 會在父表刪列時掃這些 FK 欄位，沒索引時會 seq scan
+-- DB-C01/C02: single-column indexes on conversations.user_a_id / user_b_id.
+-- The composite unique idx_conversations_pair (user_a_id, user_b_id) requires
+-- both columns (AND), so the OR query in postgres_message_repo forces a full
+-- table scan without these. They also support ON DELETE CASCADE scans from users.
+CREATE INDEX IF NOT EXISTS idx_conversations_user_a   ON conversations (user_a_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_user_b   ON conversations (user_b_id);
 CREATE INDEX IF NOT EXISTS idx_messages_sender        ON messages (sender_user_id);
 CREATE INDEX IF NOT EXISTS idx_exams_added_by         ON exams (added_by_user_id);
 CREATE INDEX IF NOT EXISTS idx_exams_subject          ON exams (subject_id);
@@ -286,6 +293,8 @@ CREATE INDEX IF NOT EXISTS idx_exams_student_date    ON exams (student_id, exam_
 CREATE INDEX IF NOT EXISTS idx_sessions_match_visible ON sessions (match_id, visible_to_parent) INCLUDE (session_date);
 -- D4: supports parent-scoped match lookups via the denormalized column.
 CREATE INDEX IF NOT EXISTS idx_matches_parent         ON matches (parent_user_id);
+-- DB-M02: composite index for the common "list my active matches" query pattern.
+CREATE INDEX IF NOT EXISTS idx_matches_parent_status   ON matches (parent_user_id, status);
 
 -- B11: v_tutor_ratings used to be a regular VIEW, so every tutor page
 -- re-scanned the full reviews table. Materialising it turns reads into a
@@ -309,15 +318,17 @@ SELECT m.tutor_id,
        AVG(r.rating_3) AS avg_r3,
        AVG(r.rating_4) AS avg_r4,
        COUNT(*)        AS review_count,
-       -- Overall rating = mean of whichever dimensions were rated.
+       -- Overall rating = mean of whichever dimensions were actually rated.
+       -- Only non-NULL dimensions contribute to both numerator and denominator.
        COALESCE(
-         (COALESCE(AVG(r.rating_1),0)+COALESCE(AVG(r.rating_2),0)
-         +COALESCE(AVG(r.rating_3),0)+COALESCE(AVG(r.rating_4),0))
-         / NULLIF(
-           (CASE WHEN AVG(r.rating_1) IS NOT NULL THEN 1 ELSE 0 END
-           +CASE WHEN AVG(r.rating_2) IS NOT NULL THEN 1 ELSE 0 END
-           +CASE WHEN AVG(r.rating_3) IS NOT NULL THEN 1 ELSE 0 END
-           +CASE WHEN AVG(r.rating_4) IS NOT NULL THEN 1 ELSE 0 END), 0)
+         (COALESCE(AVG(r.rating_1), 0) + COALESCE(AVG(r.rating_2), 0)
+        + COALESCE(AVG(r.rating_3), 0) + COALESCE(AVG(r.rating_4), 0))
+        / NULLIF(
+            (CASE WHEN AVG(r.rating_1) IS NOT NULL THEN 1 ELSE 0 END)
+          + (CASE WHEN AVG(r.rating_2) IS NOT NULL THEN 1 ELSE 0 END)
+          + (CASE WHEN AVG(r.rating_3) IS NOT NULL THEN 1 ELSE 0 END)
+          + (CASE WHEN AVG(r.rating_4) IS NOT NULL THEN 1 ELSE 0 END)
+        , 0)
        , 0) AS avg_rating
 FROM reviews r
 INNER JOIN matches m ON r.match_id = m.match_id
@@ -423,6 +434,14 @@ UPDATE matches m
   FROM students s
  WHERE s.student_id = m.student_id
    AND m.parent_user_id IS NULL;
+
+-- DB-L01: widen tight VARCHAR columns for existing databases.
+-- CREATE TABLE IF NOT EXISTS does not alter existing columns, so
+-- explicit ALTERs are needed for deployments created before the widening.
+ALTER TABLE users ALTER COLUMN username      TYPE VARCHAR(100);
+ALTER TABLE users ALTER COLUMN display_name  TYPE VARCHAR(100);
+ALTER TABLE users ALTER COLUMN phone         TYPE VARCHAR(30);
+ALTER TABLE subjects ALTER COLUMN category   TYPE VARCHAR(30);
 """
 
 # ──────────────────────────────────────────────

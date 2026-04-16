@@ -24,5 +24,9 @@ EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
     CMD curl -f http://localhost:8000/health || exit 1
 
+# SEC-H04: entrypoint reads DB password from Docker secret file and
+# constructs DATABASE_URL at runtime, keeping credentials out of env vars.
+ENTRYPOINT ["./docker-entrypoint.sh"]
+
 # 預設啟動 API 伺服器（可在 docker-compose 中覆蓋為 huey worker）
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

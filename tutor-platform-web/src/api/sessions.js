@@ -10,6 +10,9 @@ export const sessionsApi = {
   update(sessionId, data) {
     return api.put(`/api/sessions/${sessionId}`, data)
   },
+  delete(sessionId) {
+    return api.delete(`/api/sessions/${sessionId}`)
+  },
   getEditLogs(sessionId) {
     return api.get(`/api/sessions/${sessionId}/edit-logs`)
   }

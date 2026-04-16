@@ -138,7 +138,9 @@
           @cancel="showSessionForm = false"
         />
 
-        <SessionTimeline :sessions="sessions" :show-visibility="true" />
+        <SessionTimeline :sessions="sessions" :show-visibility="true"
+          :editable="['active', 'trial'].includes(match.status)"
+          @updated="onSessionUpdated" @deleted="onSessionDeleted" />
       </div>
 
       <!-- Progress Chart -->
@@ -183,7 +185,7 @@
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">分數 *</label>
-                <input v-model.number="examForm.score" type="number" min="0"
+                <input v-model.number="examForm.score" type="number" min="0" max="100"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
               </div>
               <div class="flex items-end pb-2">
@@ -216,14 +218,53 @@
                 <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">科目</th>
                 <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">類型</th>
                 <th class="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">分數</th>
+                <th v-if="['active', 'trial'].includes(match.status)" class="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">操作</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
               <tr v-for="e in exams" :key="e.exam_id" class="hover:bg-gray-50 transition-colors">
-                <td class="px-4 py-2.5 text-sm text-gray-700">{{ formatDate(e.exam_date) }}</td>
-                <td class="px-4 py-2.5 text-sm text-gray-700">{{ e.subject_name }}</td>
-                <td class="px-4 py-2.5 text-sm text-gray-700">{{ e.exam_type }}</td>
-                <td class="px-4 py-2.5 text-sm text-gray-900 font-semibold text-right">{{ e.score }}</td>
+                <template v-if="editingExamId === e.exam_id">
+                  <td class="px-4 py-2.5">
+                    <input v-model="editExamForm.exam_date" type="date"
+                      class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none" />
+                  </td>
+                  <td class="px-4 py-2.5 text-sm text-gray-700">{{ e.subject_name }}</td>
+                  <td class="px-4 py-2.5">
+                    <select v-model="editExamForm.exam_type"
+                      class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none">
+                      <option value="段考">段考</option>
+                      <option value="小考">小考</option>
+                      <option value="模擬考">模擬考</option>
+                      <option value="其他">其他</option>
+                    </select>
+                  </td>
+                  <td class="px-4 py-2.5 text-right">
+                    <input v-model.number="editExamForm.score" type="number" min="0" max="100"
+                      class="w-20 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none" />
+                  </td>
+                  <td class="px-4 py-2.5 text-right">
+                    <div class="flex justify-end gap-1">
+                      <button @click="saveExamEdit(e.exam_id)" :disabled="examEditSaving"
+                        class="text-xs text-green-600 hover:text-green-800 font-medium disabled:opacity-50">儲存</button>
+                      <button @click="cancelExamEdit"
+                        class="text-xs text-gray-500 hover:text-gray-700 font-medium">取消</button>
+                    </div>
+                  </td>
+                </template>
+                <template v-else>
+                  <td class="px-4 py-2.5 text-sm text-gray-700">{{ formatDate(e.exam_date) }}</td>
+                  <td class="px-4 py-2.5 text-sm text-gray-700">{{ e.subject_name }}</td>
+                  <td class="px-4 py-2.5 text-sm text-gray-700">{{ e.exam_type }}</td>
+                  <td class="px-4 py-2.5 text-sm text-gray-900 font-semibold text-right">{{ e.score }}</td>
+                  <td v-if="['active', 'trial'].includes(match.status)" class="px-4 py-2.5 text-right">
+                    <div class="flex justify-end gap-2">
+                      <button @click="startExamEdit(e)"
+                        class="text-xs text-primary-600 hover:text-primary-800 font-medium">編輯</button>
+                      <button @click="confirmDeleteExam(e.exam_id)"
+                        class="text-xs text-red-600 hover:text-red-800 font-medium">刪除</button>
+                    </div>
+                  </td>
+                </template>
               </tr>
             </tbody>
           </table>
@@ -366,6 +407,55 @@ const examForm = reactive({
   exam_date: '', exam_type: '段考', score: 0, visible_to_parent: true,
 })
 
+// Exam edit/delete
+const editingExamId = ref(null)
+const examEditSaving = ref(false)
+const editExamForm = reactive({ exam_date: '', exam_type: '', score: 0 })
+
+function startExamEdit(exam) {
+  editingExamId.value = exam.exam_id
+  editExamForm.exam_date = String(exam.exam_date).slice(0, 10)
+  editExamForm.exam_type = exam.exam_type
+  editExamForm.score = exam.score
+}
+
+function cancelExamEdit() {
+  editingExamId.value = null
+}
+
+async function saveExamEdit(examId) {
+  if (editExamForm.score < 0 || editExamForm.score > 100) {
+    toast.error('分數必須在 0-100 之間')
+    return
+  }
+  examEditSaving.value = true
+  try {
+    await examsApi.update(examId, {
+      exam_date: editExamForm.exam_date,
+      exam_type: editExamForm.exam_type,
+      score: editExamForm.score,
+    })
+    editingExamId.value = null
+    toast.success('考試紀錄已更新')
+    await fetchMatch()
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    examEditSaving.value = false
+  }
+}
+
+async function confirmDeleteExam(examId) {
+  if (!window.confirm('確定要刪除此考試紀錄嗎？此操作無法復原。')) return
+  try {
+    await examsApi.delete(examId)
+    toast.success('考試紀錄已刪除')
+    await fetchMatch()
+  } catch (e) {
+    toast.error(e.message)
+  }
+}
+
 // Review form
 const reviewForm = reactive({
   review_type: 'tutor_to_parent',
@@ -424,6 +514,16 @@ async function handleSubmitReview() {
   }
 }
 
+async function onSessionUpdated() {
+  toast.success('上課紀錄已更新')
+  await fetchMatch()
+}
+
+async function onSessionDeleted() {
+  toast.success('上課紀錄已刪除')
+  await fetchMatch()
+}
+
 async function submitSession(formData) {
   sessionError.value = ''
   if (!formData.session_date || !formData.content_summary?.trim()) {
@@ -460,6 +560,10 @@ async function submitExam() {
   examError.value = ''
   if (!examForm.exam_date) {
     examError.value = '日期為必填'
+    return
+  }
+  if (examForm.score < 0 || examForm.score > 100) {
+    examError.value = '分數必須在 0-100 之間'
     return
   }
   // Bug #24: match 載入失敗時 student_id / subject_id 會是 undefined，

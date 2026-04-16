@@ -9,19 +9,23 @@ import { API_BASE_URL } from '@/api/baseURL'
 import { resetRefreshState, markLoggedIn } from '@/api'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref(localStorage.getItem('token') || '')
-  const refreshToken = ref(localStorage.getItem('refreshToken') || '')
+  // SEC-C02: tokens are now in HttpOnly cookies — JS never touches them.
+  // Only user info (non-sensitive) is persisted in localStorage for
+  // cross-tab / page-refresh continuity.
+  // One-time cleanup: remove stale token entries from the pre-cookie era.
+  localStorage.removeItem('token')
+  localStorage.removeItem('refreshToken')
 
   let savedUser = null
   try { savedUser = JSON.parse(localStorage.getItem('user') || 'null') } catch { /* corrupted */ }
   const user = ref(savedUser)
 
-  const isLoggedIn = computed(() => !!token.value && !!user.value)
+  const isLoggedIn = computed(() => !!user.value)
   const role = computed(() => user.value?.role || '')
 
   const VALID_ROLES = ['parent', 'tutor', 'admin']
 
-  function setAuth(tokenValue, userData, refreshTokenValue) {
+  function setAuth(userData) {
     // Guard against an upstream bug (e.g. a broken interceptor) writing a
     // bogus role into the store — router guards and UI gates all key off
     // `user.role`, so silently accepting anything here masks the real bug.
@@ -31,32 +35,18 @@ export const useAuthStore = defineStore('auth', () => {
     if (!VALID_ROLES.includes(userData.role)) {
       throw new Error(`setAuth: invalid role "${userData.role}"`)
     }
-    token.value = tokenValue
     user.value = userData
-    localStorage.setItem('token', tokenValue)
     localStorage.setItem('user', JSON.stringify(userData))
-    if (refreshTokenValue !== undefined) {
-      refreshToken.value = refreshTokenValue
-      localStorage.setItem('refreshToken', refreshTokenValue)
-    }
     // F-06: drop the loggingOut fence (raised by a previous logout) now that a
     // fresh session is in place, so 401s on the new user's requests can refresh.
     markLoggedIn()
   }
 
   function logout() {
-    // P-BIZ-01: 先保存 token 與 refresh token，清除本地狀態，再非同步撤銷
-    const savedToken = token.value
-    const savedRefreshToken = refreshToken.value
-
-    token.value = ''
-    refreshToken.value = ''
     user.value = null
-    localStorage.removeItem('token')
-    localStorage.removeItem('refreshToken')
     localStorage.removeItem('user')
 
-    // 清除其他 store 的快取資料，避免下一位登入使用者看到前一位的敏感資料
+    // Clear other stores to prevent the next user from seeing stale data.
     useMatchStore().setMatches([])
     useMessageStore().setConversations([])
     const tutorStore = useTutorStore()
@@ -68,16 +58,12 @@ export const useAuthStore = defineStore('auth', () => {
     // resolve into the next user's request stream.
     resetRefreshState()
 
-    // P-BIZ-01: 非同步撤銷 refresh token（fire-and-forget，不阻塞登出流程）
-    // 使用原始 axios 而非 api instance，因為 store 的 token 已清除，
-    // 攔截器無法再附上 Authorization header；改以保留下來的 savedToken 直接帶。
-    // baseURL 由 @/api 集中定義，避免與 axios instance 的 baseURL 漂移（Bug #19）。
-    if (savedRefreshToken && savedToken) {
-      axios.post(`${API_BASE_URL}/api/auth/logout`, { refresh_token: savedRefreshToken }, {
-        headers: { Authorization: `Bearer ${savedToken}` }
-      }).catch(() => {})
-    }
+    // SEC-C02: fire-and-forget backend logout. HttpOnly cookies are sent
+    // automatically; the server clears them via Set-Cookie in the response.
+    axios.post(`${API_BASE_URL}/api/auth/logout`, null, {
+      withCredentials: true,
+    }).catch(() => {})
   }
 
-  return { token, refreshToken, user, isLoggedIn, role, setAuth, logout }
+  return { user, isLoggedIn, role, setAuth, logout }
 })

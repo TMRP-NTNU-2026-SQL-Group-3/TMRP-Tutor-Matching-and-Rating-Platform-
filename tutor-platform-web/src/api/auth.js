@@ -10,8 +10,8 @@ export const authApi = {
   getMe() {
     return api.get('/api/auth/me')
   },
-  // P-BIZ-01: 後端撤銷 refresh token
-  logout(refreshToken) {
-    return api.post('/api/auth/logout', { refresh_token: refreshToken })
+  // SEC-C02: refresh_token is sent via HttpOnly cookie automatically.
+  logout() {
+    return api.post('/api/auth/logout')
   }
 }

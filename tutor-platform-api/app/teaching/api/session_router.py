@@ -59,6 +59,19 @@ def update_session(
     return ApiResponse(success=True, data={"session_id": result["session_id"]}, message=result["message"])
 
 
+@router.delete("/{session_id}", summary="刪除上課日誌", response_model=ApiResponse)
+def delete_session(
+    session_id: int,
+    user=Depends(require_role("tutor")),
+    service: SessionAppService = Depends(get_session_service),
+):
+    service.delete(
+        session_id=session_id,
+        tutor_user_id=int(user["sub"]),
+    )
+    return ApiResponse(success=True, message="上課日誌已刪除")
+
+
 @router.get("/{session_id}/edit-logs", summary="查看修改紀錄", response_model=ApiResponse)
 def get_edit_logs(
     session_id: int,

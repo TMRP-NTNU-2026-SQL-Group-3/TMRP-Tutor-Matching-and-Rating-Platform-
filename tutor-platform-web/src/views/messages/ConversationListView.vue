@@ -2,10 +2,11 @@
   <div>
     <PageHeader title="對話列表" />
 
-    <div v-if="!loading && conversations.length" class="mb-4">
+    <div v-if="!loading && conversations.length" class="mb-4 relative">
       <label for="conv-search" class="sr-only">搜尋對話</label>
-      <input id="conv-search" v-model="searchQuery" type="search" placeholder="搜尋對話對象..."
+      <input id="conv-search" v-model="searchQuery" type="search" placeholder="搜尋對話對象或訊息內容..."
         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
+      <span v-if="searching" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">搜尋中...</span>
     </div>
 
     <div v-if="loading" class="text-center py-8 text-gray-500">載入中...</div>
@@ -46,7 +47,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { messagesApi } from '@/api/messages'
 import { useAuthStore } from '@/stores/auth'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -57,12 +58,43 @@ const conversations = ref([])
 const loading = ref(false)
 const error = ref('')
 const searchQuery = ref('')
+const serverSearchResults = ref(null)
+const searching = ref(false)
 
 const PREVIEW_MAX = 50
+
+let searchTimer = null
+let searchSeq = 0
+watch(searchQuery, (q) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  const trimmed = q.trim()
+  if (!trimmed) {
+    searchSeq++
+    serverSearchResults.value = null
+    searching.value = false
+    return
+  }
+  searching.value = true
+  const seq = ++searchSeq
+  searchTimer = setTimeout(async () => {
+    try {
+      const results = await messagesApi.search(trimmed)
+      if (seq === searchSeq) serverSearchResults.value = results
+    } catch {
+      // Server-side search not available, fall back to local filtering
+      if (seq === searchSeq) serverSearchResults.value = null
+    } finally {
+      if (seq === searchSeq) searching.value = false
+    }
+  }, 300)
+})
 
 const filteredConversations = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return conversations.value
+  // Use server-side results when available
+  if (serverSearchResults.value) return serverSearchResults.value
+  // Local fallback: search name and full last_message_content
   return conversations.value.filter(c =>
     (c.other_name || '').toLowerCase().includes(q)
     || (c.last_message_content || '').toLowerCase().includes(q)
@@ -119,5 +151,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (searchTimer) clearTimeout(searchTimer)
 })
 </script>

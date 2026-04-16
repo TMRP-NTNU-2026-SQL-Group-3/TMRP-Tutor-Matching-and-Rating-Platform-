@@ -5,7 +5,9 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # Database (PostgreSQL) — URL is required; env-only so it is never committed.
     database_url: str = Field(...)
-    db_pool_min: int = 2
+    # Pool min should be >= number of uvicorn workers to avoid starvation
+    # under burst load. Default 5 covers a typical 2–4 worker deployment.
+    db_pool_min: int = 5
     db_pool_max: int = 10
 
     # JWT — secret is required; Settings() construction fails without it in env/.env
@@ -13,11 +15,12 @@ class Settings(BaseSettings):
     # 上一版密鑰：輪換期間仍接受其簽發的 token，避免 in-flight session 立刻 401。
     # 留空表示沒有過渡期。長度限制亦為 32 字元（沿用同強度），允許留白以表示停用。
     jwt_secret_key_previous: str = ""
+    # HS256 (symmetric) is sufficient for single-service deployments.
+    # Federated or multi-service auth requires RS256/ES256 with a keypair;
+    # switching also needs changes to decode_access_token's verification logic.
     jwt_algorithm: str = "HS256"
-    # M-01: default lowered from 15 to 5 minutes. Access tokens live in
-    # localStorage (pending migration to HttpOnly cookies), so the access-
-    # token TTL is the main bound on an XSS-stolen credential. Shorter TTL
-    # means a refresh flow round-trip more often — acceptable at this scale.
+    # SEC-C02: access tokens are now in HttpOnly cookies (M-01 complete).
+    # The 5-minute TTL remains appropriate as defence in depth.
     jwt_expire_minutes: int = 5
 
     # Super-admin seeded on startup — password required via env.
@@ -46,6 +49,10 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: str = "http://localhost:5173"
+
+    # SEC-C02: auth cookies. Secure=True requires HTTPS — set to True in
+    # production (.env.docker), leave False for local HTTP development.
+    cookie_secure: bool = False
 
     # Operational toggle. When False, FastAPI suppresses /docs, /redoc and the
     # OpenAPI JSON so production deployments don't leak the full route list.
