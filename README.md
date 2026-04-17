@@ -107,15 +107,27 @@ The fastest way to run the whole stack — database, API, worker, and frontend �
 git clone <this-repo-url>
 cd "TMRP (Tutor Matching and Rating Platform)"
 
-# 2. Prepare the repo-root env file (DB credentials consumed by docker-compose)
+# 2. Prepare the repo-root env file (DB_USER and DB_NAME consumed by docker-compose)
 cp .env.example .env
-# Edit .env — set DB_USER, DB_PASSWORD, DB_NAME (docker compose aborts if any are empty)
+# Edit .env — set DB_USER and DB_NAME (docker compose aborts if either is empty).
+# The database password is a Docker secret; set it in the next step.
 
-# 3. Prepare the backend env file
+# 3. Create Docker secrets (passwords and JWT key — never committed to git)
+cp secrets/db_password.txt.example     secrets/db_password.txt
+cp secrets/jwt_secret_key.txt.example  secrets/jwt_secret_key.txt
+cp secrets/admin_password.txt.example  secrets/admin_password.txt
+# Populate each file with a real value:
+#   jwt_secret_key.txt  — at least 32 hex chars:
+#       python -c "import secrets; print(secrets.token_hex(32))" > secrets/jwt_secret_key.txt
+#   admin_password.txt  — a strong password (min 8 chars, not 'admin' or 'admin123')
+#   db_password.txt     — any strong password
+
+# 4. Prepare the backend env file (non-secret settings only)
 cp tutor-platform-api/.env.docker.example tutor-platform-api/.env.docker
-# Edit .env.docker — at minimum set a real JWT_SECRET_KEY (>= 32 chars) and ADMIN_PASSWORD
+# Edit .env.docker — change ADMIN_USERNAME away from the placeholder default.
+# JWT_SECRET_KEY and ADMIN_PASSWORD are read from secrets/ files, not from here.
 
-# 4. Build and start
+# 5. Build and start
 docker compose up -d --build
 ```
 

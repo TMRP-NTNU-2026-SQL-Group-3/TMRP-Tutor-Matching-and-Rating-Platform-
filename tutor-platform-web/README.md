@@ -55,7 +55,7 @@ npm run dev
 
 Dev server starts on <http://localhost:5273> (port configured in `vite.config.js`).
 
-For first-time setup alongside the backend, use the root `start.bat` or `docker compose up` — both bring up the API, worker, database, and frontend together.
+For first-time setup alongside the backend, use `tutor-platform-api/start.bat` (Windows) or `docker compose up` from the repo root — both bring up the API, worker, database, and frontend together.
 
 ---
 
@@ -76,21 +76,16 @@ Vite only exposes variables prefixed with `VITE_`. Set them in a `.env` file or 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `VITE_API_BASE_URL` | `http://localhost:8000` | Base URL prepended to axios requests. |
+| `VITE_API_BASE_URL` | `""` | Base URL prepended to axios requests. Both `.env.development` and `.env.production` ship with an empty value. Override with a full origin only when the API is at a different host; `.env.example` shows `http://localhost:8000` as a reference for that scenario. |
 
 ### The empty-baseURL pattern
 
-In Docker, `docker-compose.yml` builds the image with `VITE_API_BASE_URL=""`:
+Both dev mode and Docker production use `VITE_API_BASE_URL=""`. The routing layer is different in each case:
 
-```yaml
-web:
-  build:
-    context: ./tutor-platform-web
-    args:
-      VITE_API_BASE_URL: ""
-```
+- **Dev (`npm run dev`)**: `.env.development` sets `VITE_API_BASE_URL=""`. The Vite dev server's built-in proxy (configured in `vite.config.js`) forwards every `/api/*` request to `http://localhost:8000`, keeping cookies same-origin.
+- **Docker production**: `docker-compose.yml` passes `VITE_API_BASE_URL=""` as a build arg. The browser sends relative paths which Nginx inside the web container proxies to `api:8000`.
 
-This is intentional. Every frontend API call already includes the `/api/` prefix (e.g. `axios.post('/api/auth/login', ...)`). Combined with an empty base URL, the browser sends a **relative path** which Nginx inside the web container then proxies to `api:8000`.
+In both cases every frontend API call already includes the `/api/` prefix (e.g. `axios.post('/api/auth/login', ...)`), so an empty base URL produces the correct relative path.
 
 **Do not** change this to `/api` (you'd get `/api/api/...`) or to `http://api:8000` (the browser can't resolve container hostnames). The rationale is documented in `src/api/baseURL.js` and `nginx.conf`.
 
@@ -103,7 +98,7 @@ tutor-platform-web/
 ├── Dockerfile                  # Multi-stage: Vite build → nginx-unprivileged static serve
 ├── nginx.conf                  # /api/* → api:8000, SPA fallback, asset caching,
 │                               # edge rate limit (20 r/s, burst 40), global security headers + CSP
-├── vite.config.js              # Port 5273, @ alias, vendor/charts manual chunks, sourcemap off
+├── vite.config.js              # Port 5273, @ alias, dev proxy (/api → localhost:8000), vendor/charts manual chunks, sourcemap off
 ├── index.html
 ├── package.json
 ├── scripts/
