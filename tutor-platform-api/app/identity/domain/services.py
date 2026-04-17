@@ -65,9 +65,12 @@ class AuthService:
     ) -> dict:
         user = self._repo.find_by_username(username)
         if not user or not verify_password(password, user["password_hash"]):
+            # LOW-2: defence in depth — strip CR/LF and truncate before logging
+            # in case a caller bypassed the schema validator.
+            safe_username = (username or "").replace("\r", "").replace("\n", "")[:64]
             _audit_logger.warning(
                 "login_failed username=%s ip=%s ua=%s",
-                username, source_ip, user_agent,
+                safe_username, source_ip, user_agent,
             )
             raise InvalidCredentialsError()
 

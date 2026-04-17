@@ -1,4 +1,5 @@
 # ── Stage 1: Build ──
+# MEDIUM-10: pin by @sha256 digest in production — see ./scripts/pin-base-images.sh.
 FROM node:20-alpine AS build
 
 WORKDIR /app
@@ -19,6 +20,7 @@ RUN npm run build
 # 改用官方 unprivileged 變體：預設以 nginx (uid 101) 身分執行、監聽 8080，
 # 不需要 CAP_NET_BIND_SERVICE 也不會 root；相容 docker-compose 將 8080 對外
 # 映射到 host 的 80 埠。
+# MEDIUM-10: pin by @sha256 digest in production — see ./scripts/pin-base-images.sh.
 FROM nginxinc/nginx-unprivileged:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html

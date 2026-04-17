@@ -21,18 +21,23 @@ function notifyUnexpectedError() {
   }
 }
 
+// LOW-5: only log error objects in dev — production bundles must not ship
+// stack traces / backend error envelopes to the console where a shoulder-
+// surfer or a devtools-enabled extension can read them.
+const isDev = import.meta.env.DEV
+
 app.config.errorHandler = (err, instance, info) => {
-  console.error('[Vue Error]', err, info)
+  if (isDev) console.error('[Vue Error]', err, info)
   notifyUnexpectedError()
 }
 
 window.addEventListener('unhandledrejection', (event) => {
-  console.error('[Unhandled Rejection]', event.reason)
+  if (isDev) console.error('[Unhandled Rejection]', event.reason)
   notifyUnexpectedError()
 })
 
 window.addEventListener('error', (event) => {
-  console.error('[Window Error]', event.error || event.message)
+  if (isDev) console.error('[Window Error]', event.error || event.message)
   notifyUnexpectedError()
 })
 

@@ -44,8 +44,27 @@ async def domain_exception_handler(request, exc: DomainException):
     )
 
 
+def _redact_validation_errors(errors):
+    # HIGH-2: Pydantic error dicts embed the raw `input` under any failed field.
+    # Logging them verbatim persists plaintext passwords and refresh tokens
+    # (OWASP ASVS V7.1.1). Drop `input`/`ctx` entirely — the triage signal we
+    # actually need is just {loc, type, msg}.
+    redacted = []
+    for e in errors:
+        loc = e.get("loc") or ()
+        redacted.append({
+            "loc": [str(p) for p in loc],
+            "type": e.get("type", ""),
+            "msg": e.get("msg", ""),
+        })
+    return redacted
+
+
 async def validation_exception_handler(request, exc: RequestValidationError):
-    logger.warning("Validation error on %s %s: %s", request.method, request.url.path, exc.errors())
+    logger.warning(
+        "Validation error on %s %s: %s",
+        request.method, request.url.path, _redact_validation_errors(exc.errors()),
+    )
     sanitized = [
         {
             "field": str(e["loc"][-1]) if e.get("loc") else "",
@@ -196,7 +215,11 @@ app.add_middleware(
     # CSRF is mitigated by SameSite=Lax on all auth cookies.
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    # HIGH-3: X-Requested-With is attached by the SPA on all mutating
+    # requests to force a CORS preflight — cross-origin CSRF attempts from
+    # non-whitelisted origins cannot pass the preflight. Must be listed here
+    # so legitimate browser preflights succeed.
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
 
 # ─── Centralised exception handlers ───

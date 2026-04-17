@@ -12,6 +12,7 @@ from app.admin.infrastructure.table_admin_repo import TableAdminRepository
 from app.identity.api.dependencies import get_db, require_role
 from app.shared.api.schemas import ApiResponse
 from app.shared.infrastructure.security import (
+    consume_reset_confirmation_jti,
     create_reset_confirmation_token,
     decode_reset_confirmation_token,
     verify_password,
@@ -61,7 +62,15 @@ def import_csv(
 ):
     validate_table(table_name)
     logger.warning("Admin user_id=%s 匯入 CSV 至 %s", user.get("sub"), table_name)
-    count = service.import_single_csv(table_name=table_name, content=file.file.read())
+    # LOW-3: enforce the same size cap as import_zip so a compromised or
+    # careless admin cannot OOM the worker via a huge single-CSV upload.
+    data = file.file.read(MAX_UPLOAD_SIZE + 1)
+    if len(data) > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"上傳檔案過大（上限 {MAX_UPLOAD_SIZE // 1024 // 1024} MB）",
+        )
+    count = service.import_single_csv(table_name=table_name, content=data)
     if count == 0:
         return ApiResponse(success=True, data={"count": 0}, message="CSV 檔案無資料列")
     return ApiResponse(success=True, data={"count": count}, message=f"已匯入 {count} 筆資料至 {table_name}")
@@ -128,6 +137,19 @@ def confirm_reset(
             request.client.host if request.client else "unknown",
         )
         raise HTTPException(status_code=401, detail="Reset token 無效或已過期")
+
+    # LOW-4: burn the reset JTI up-front so neither a successful nor a failed
+    # attempt leaves the token replayable within its 5-minute TTL. If the
+    # insert finds an existing row, this token has already been used.
+    reset_jti = payload.get("jti")
+    if not reset_jti or not consume_reset_confirmation_jti(reset_jti):
+        logger.warning(
+            "Admin reset confirm: reset token replay rejected user_id=%s ip=%s jti=%s",
+            user.get("sub"),
+            request.client.host if request.client else "unknown",
+            reset_jti,
+        )
+        raise HTTPException(status_code=401, detail="Reset token 已使用或無效")
 
     with conn.cursor() as cur:
         cur.execute(

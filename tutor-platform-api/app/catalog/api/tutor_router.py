@@ -150,6 +150,8 @@ def get_tutor_detail(
 @router.get("/{tutor_id}/reviews", summary="取得老師評價", response_model=ApiResponse)
 def get_tutor_reviews(
     tutor_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     user=Depends(get_current_user),
     conn=Depends(get_db),
     repo: PostgresTutorRepository = Depends(get_tutor_repo),
@@ -157,7 +159,10 @@ def get_tutor_reviews(
     tutor = repo.find_by_id(tutor_id)
     if not tutor:
         raise NotFoundError("找不到此老師")
+    # MEDIUM-8: bounded fetch + public-field projection happens in the repo.
     from app.review.infrastructure.postgres_review_repo import PostgresReviewRepository
     review_repo = PostgresReviewRepository(conn)
-    reviews = review_repo.list_by_tutor(tutor_id)
+    reviews = review_repo.list_by_tutor(
+        tutor_id, limit=page_size, offset=(page - 1) * page_size,
+    )
     return ApiResponse(success=True, data=reviews)

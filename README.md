@@ -471,6 +471,19 @@ The backend ships with several middleware layers (innermost → outermost):
 
 Nginx in the `web` container adds an edge-layer `limit_req_zone` (20 r/s, burst 40) in front of `/api/*`, plus global security headers and a CSP applied to every `location`.
 
+### TLS is a hard prerequisite in production (MEDIUM-12)
+
+The `web` container listens on plain HTTP port 8080 because the official `nginx-unprivileged` image cannot bind 443 without extra capabilities. The container emits `Strict-Transport-Security` and sets JWT cookies without `Secure` unless `COOKIE_SECURE=true` is set — **both only make sense when a TLS-terminating reverse proxy (Caddy, Traefik, an AWS ALB, Cloudflare, ...) sits in front of the container**.
+
+Deployment rules:
+
+- In production, **you must terminate TLS before traffic reaches this container**. Exposing port 80 directly to the internet will ship auth cookies and JWTs in cleartext and silently neuter the HSTS header browsers will ignore it over HTTP).
+- Set `COOKIE_SECURE=true` in the API environment so auth cookies carry the `Secure` attribute. The default is `false` to keep local `docker compose up` usable without a TLS cert.
+- Point the TLS proxy at `web:8080` (inside the compose/overlay network) and let it rewrite `X-Forwarded-Proto` to `https`. Uvicorn is launched with `--proxy-headers` (see MEDIUM-2) and will honour the forwarded scheme when generating redirects.
+
+The full deployment checklist lives in `docs/production-hardening-plan.md`.
+
+
 Additional guardrails:
 
 - Startup validation in `Settings` refuses to boot with a placeholder `JWT_SECRET_KEY` or `ADMIN_PASSWORD`, and rejects a `JWT_SECRET_KEY_PREVIOUS` that is too short or equal to the current key.

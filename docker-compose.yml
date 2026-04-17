@@ -16,8 +16,19 @@ secrets:
 services:
   # ── PostgreSQL ──
   db:
+    # MEDIUM-10: pin by @sha256 digest in production — see ./scripts/pin-base-images.sh.
     image: postgres:16-alpine
     restart: on-failure
+    # HIGH-5: drop all Linux capabilities + block capability regain via
+    # setuid/setgid binaries. Postgres binds no privileged port and runs
+    # fine without caps; the official alpine image already drops to UID 70
+    # (`postgres`) for the server itself, but declaring it here also covers
+    # the entrypoint shell so nothing in the container runs as root.
+    user: "70:70"
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
     secrets:
       - db_password
     environment:
@@ -28,11 +39,10 @@ services:
       POSTGRES_DB: ${DB_NAME:?DB_NAME must be set in repo-root .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      # Bind to loopback only so a misconfigured host firewall does not expose
-      # Postgres to the LAN. In prod this whole `ports:` block should be
-      # removed — inter-container traffic flows over the compose network.
-      - "127.0.0.1:5432:5432"
+    # HIGH-5: the host port binding moved to docker-compose.override.yml so
+    # `docker compose -f docker-compose.yml up` (production invocation) never
+    # publishes 5432 to the host. The override file is auto-loaded by local
+    # `docker compose up`, preserving dev ergonomics.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
       interval: 5s
@@ -48,6 +58,12 @@ services:
   api:
     build: ./tutor-platform-api
     restart: on-failure
+    # HIGH-5: same container hardening as `db`. The api image already runs
+    # as non-root (see Dockerfile USER directive) and needs no extra caps.
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
     secrets:
       - db_password
       - jwt_secret_key
@@ -87,6 +103,11 @@ services:
   worker:
     build: ./tutor-platform-api
     restart: on-failure
+    # HIGH-5: container hardening, mirrors the api service.
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
     secrets:
       - db_password
       - jwt_secret_key
@@ -133,6 +154,12 @@ services:
         # http://api:8000（瀏覽器無法解析容器主機名）。
         VITE_API_BASE_URL: ""
     restart: on-failure
+    # HIGH-5: container hardening. nginx:alpine binds port 8080 (non-privileged),
+    # so dropping NET_BIND_SERVICE along with everything else is safe.
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
     depends_on:
       api:
         condition: service_healthy

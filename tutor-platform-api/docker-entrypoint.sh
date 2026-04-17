@@ -7,6 +7,16 @@ set -e
 
 if [ -f /run/secrets/db_password ]; then
   DB_PASS=$(cat /run/secrets/db_password)
+  # HIGH-4: refuse to boot with a known placeholder or empty secret. If
+  # ./secrets/db_password.txt was copied from the shipped .example without
+  # being edited, the Postgres password would otherwise be trivially guessable.
+  case "$DB_PASS" in
+    ""|"REPLACE_ME"|"please_change_me_to_a_strong_random_password"|"changeme"|"password"|"postgres")
+      echo "FATAL: /run/secrets/db_password contains an empty or placeholder value." >&2
+      echo "Edit ./secrets/db_password.txt with a strong random password before starting." >&2
+      exit 1
+      ;;
+  esac
   export DATABASE_URL="postgresql://${DB_USER:?}:${DB_PASS}@${DB_HOST:-db}:5432/${DB_NAME:?}"
 fi
 

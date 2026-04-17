@@ -50,11 +50,23 @@ export function markLoggedIn() {
 // ── Transport: attach abort signal ─────────────────────────────
 // SEC-C02: Authorization header is no longer needed — HttpOnly cookies are
 // sent automatically by the browser via withCredentials.
+// HIGH-3: CSRF defense for the cookie-authenticated SPA. Adding a
+// non-simple header (X-Requested-With) forces a CORS preflight on any
+// cross-origin mutating request, which the API's CORS config will reject
+// unless the Origin is whitelisted. This blocks classic form-based CSRF
+// even if the auth cookie's SameSite is ever weakened.
+const CSRF_METHODS = new Set(['post', 'put', 'patch', 'delete'])
+
 api.interceptors.request.use(config => {
   // SEC-H03: attach the shared abort signal so logout() can cancel all
   // pending requests. Callers that supply their own signal are unaffected.
   if (!config.signal) {
     config.signal = inflightController.signal
+  }
+  const method = (config.method || 'get').toLowerCase()
+  if (CSRF_METHODS.has(method)) {
+    config.headers = config.headers || {}
+    config.headers['X-Requested-With'] = 'XMLHttpRequest'
   }
   return config
 })
@@ -76,7 +88,12 @@ async function refreshAccessToken() {
         const res = await axios.post(
           `${api.defaults.baseURL}/api/auth/refresh`,
           null,
-          { withCredentials: true },
+          {
+            withCredentials: true,
+            // HIGH-3: this call bypasses the `api` instance interceptor,
+            // so attach the CSRF-forcing header directly.
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+          },
         )
         applyRefreshedAuth(res.data.data)
       } finally {

@@ -6,7 +6,7 @@ only hand off role-gated inputs and shape the response envelope.
 """
 
 from app.analytics.infrastructure.postgres_stats_repo import PostgresStatsRepository
-from app.shared.domain.exceptions import NotFoundError, PermissionDeniedError
+from app.shared.domain.exceptions import NotFoundError
 
 
 def _to_float(value) -> float:
@@ -71,14 +71,19 @@ class StatsAppService:
         self, *, student_id: int, user_id: int,
         is_admin: bool, subject_id: int | None,
     ) -> list[dict]:
+        # MEDIUM-7: collapse "does not exist" and "not yours" into a single
+        # generic not-found response. The previous branch distinguished the
+        # two cases, which let a caller enumerate the students table by
+        # probing IDs and watching for 404 vs. 403.
+        _NOT_FOUND = NotFoundError("找不到此學生")
         student = self._repo.get_student(student_id)
         if not student:
-            raise NotFoundError("找不到此學生")
+            raise _NOT_FOUND
 
         is_parent = student["parent_user_id"] == user_id
         is_tutor = bool(self._repo.get_active_match_for_tutor(student_id, user_id))
         if not is_parent and not is_tutor and not is_admin:
-            raise PermissionDeniedError("無權查看此學生的成績資料")
+            raise _NOT_FOUND
 
         # Tutors see only the subjects they currently teach this student.
         if is_tutor and not is_parent and not is_admin:
@@ -87,7 +92,10 @@ class StatsAppService:
             )
             if subject_id is not None:
                 if subject_id not in tutor_subject_ids:
-                    raise PermissionDeniedError("無權查看此科目的成績")
+                    # Same treatment for subject-scoped enumeration: a tutor
+                    # must not be able to tell whether a subject exists for
+                    # a student they don't teach.
+                    raise _NOT_FOUND
                 exams = self._repo.student_progress(student_id, subject_id)
             else:
                 exams = self._repo.student_progress_by_subjects(

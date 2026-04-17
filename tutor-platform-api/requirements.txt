@@ -2,7 +2,11 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
 pydantic-settings==2.7.1
-psycopg2-binary==2.9.10
+# MEDIUM-11: 2.9.10 bundles libpq <17.1, vulnerable to CVE-2024-10977
+# (error-message spoofing during TLS handshake). Bounded today because the
+# in-compose DB hop is untrusted-free, but any move to managed Postgres
+# with TLS makes this exploitable. Bump to the patched series.
+psycopg2-binary>=2.9.11
 PyJWT==2.9.0
 bcrypt==4.2.1
 python-multipart==0.0.20

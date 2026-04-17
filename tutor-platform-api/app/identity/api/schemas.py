@@ -34,8 +34,15 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(..., description="使用者帳號", examples=["parent01"])
-    password: str = Field(..., description="使用者密碼", examples=["P@ssw0rd123"])
+    # LOW-2: cap length and restrict to safe characters so attacker-supplied
+    # usernames cannot forge audit-log lines (CRLF injection) or exhaust disk
+    # via oversized inputs. The character class matches RegisterRequest norms.
+    username: str = Field(
+        ..., description="使用者帳號", examples=["parent01"],
+        min_length=1, max_length=64,
+        pattern=r"^[A-Za-z0-9_.\-@]+$",
+    )
+    password: str = Field(..., description="使用者密碼", examples=["P@ssw0rd123"], max_length=128)
 
 
 class TokenResponse(BaseModel):
@@ -54,5 +61,3 @@ class AuthUserResponse(BaseModel):
     display_name: str = Field(..., description="顯示名稱")
 
 
-class RefreshRequest(BaseModel):
-    refresh_token: str = Field(..., description="刷新令牌")

@@ -1,0 +1,12 @@
+# Dev-only overrides. docker compose auto-loads this file when you run
+# `docker compose up` without `-f`. In production invoke compose explicitly
+# so this file is NOT applied:
+#   docker compose -f docker-compose.yml up -d
+#
+# HIGH-5: host port publishing for the database lives here so production
+# never exposes 5432 on the host. Inter-container traffic (api -> db) uses
+# the compose network and does not need this binding.
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"

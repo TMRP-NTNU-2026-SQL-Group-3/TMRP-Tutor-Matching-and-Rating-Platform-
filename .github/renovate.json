@@ -1,0 +1,20 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:base"],
+  "docker": {
+    "pinDigests": true
+  },
+  "dockerfile": {
+    "pinDigests": true
+  },
+  "docker-compose": {
+    "pinDigests": true
+  },
+  "packageRules": [
+    {
+      "description": "MEDIUM-10: keep every base image pinned by @sha256 digest so supply-chain pushes to a floating tag (node:20-alpine, python:3.12-slim, ...) cannot land silently on rebuild. Renovate files automated PRs when upstream publishes a new digest.",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "pinDigests": true
+    }
+  ]
+}

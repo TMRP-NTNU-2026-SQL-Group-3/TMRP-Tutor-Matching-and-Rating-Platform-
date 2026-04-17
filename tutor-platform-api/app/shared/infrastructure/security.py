@@ -212,6 +212,41 @@ def cleanup_expired_blacklist() -> int:
         pool_ref.putconn(conn)
 
 
+def consume_reset_confirmation_jti(jti: str, ttl_minutes: int = 5) -> bool:
+    """LOW-4: mark a reset-confirmation JTI as used. Returns True if the JTI
+    was consumed by this call (first use), False if it was already burnt.
+
+    The destructive ``/api/admin/reset/confirm`` endpoint must call this on
+    EVERY attempt — success or failure — before proceeding, otherwise a
+    stolen reset token would remain replayable for its 5-minute TTL.
+
+    Re-uses the existing ``refresh_token_blacklist`` table: its schema (jti
+    PK + expires_at) matches the single-use + TTL semantics we need here, and
+    the regular ``cleanup_expired_blacklist`` task already trims it.
+    """
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+    pool_ref = _get_pool()
+    conn = pool_ref.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO refresh_token_blacklist (jti, expires_at) VALUES (%s, %s) "
+                "ON CONFLICT (jti) DO NOTHING",
+                (jti, expires_at),
+            )
+            inserted = cur.rowcount == 1
+        conn.commit()
+        return inserted
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        pool_ref.putconn(conn)
+
+
 def create_reset_confirmation_token(user_id: int, ttl_minutes: int = 5) -> str:
     """Short-lived token that binds a subsequent destructive admin action
     (e.g. ``/api/admin/reset/confirm``) to a specific admin user.

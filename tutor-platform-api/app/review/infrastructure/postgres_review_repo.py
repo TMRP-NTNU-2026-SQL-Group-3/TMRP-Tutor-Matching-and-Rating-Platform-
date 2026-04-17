@@ -49,15 +49,25 @@ class PostgresReviewRepository(BaseRepository, IReviewRepository):
             (match_id,),
         )
 
-    def list_by_tutor(self, tutor_id: int) -> list[dict]:
+    def list_by_tutor(
+        self, tutor_id: int, *, limit: int = 20, offset: int = 0,
+    ) -> list[dict]:
+        # MEDIUM-8: project only public columns. The previous `r.*` leaked
+        # `personality_comment` (tutor's private note about the parent) and
+        # `reviewer_user_id` (linkable across tutors to reconstruct a
+        # parent's identity graph). Pagination caps the response size so a
+        # high-rated tutor's review page cannot be used for DoS.
         return self.fetch_all(
-            """SELECT r.*, u.display_name AS reviewer_name
-               FROM reviews r
-               INNER JOIN users u ON r.reviewer_user_id = u.user_id
-               INNER JOIN matches m ON r.match_id = m.match_id
-               WHERE m.tutor_id = %s AND r.review_type = 'parent_to_tutor'
-               ORDER BY r.created_at DESC""",
-            (tutor_id,),
+            """SELECT r.review_id,
+                      r.rating_1, r.rating_2, r.rating_3, r.rating_4,
+                      r.comment,
+                      r.created_at
+                 FROM reviews r
+                 INNER JOIN matches m ON r.match_id = m.match_id
+                WHERE m.tutor_id = %s AND r.review_type = 'parent_to_tutor'
+                ORDER BY r.created_at DESC
+                LIMIT %s OFFSET %s""",
+            (tutor_id, limit, offset),
         )
 
     def get_for_update(self, review_id: int) -> dict | None:

@@ -11,9 +11,11 @@ class SelfConversationError(DomainException):
         super().__init__("不能與自己建立對話")
 
 
-class TargetUserNotFoundError(NotFoundError):
+class ConversationNotAllowedError(NotFoundError):
+    """MEDIUM-6: single response for both "no such user" and "no prior match"
+    so a caller cannot distinguish the two cases and enumerate user IDs."""
     def __init__(self):
-        super().__init__("找不到該使用者")
+        super().__init__("無法建立對話")
 
 
 class EmptyMessageError(DomainException):

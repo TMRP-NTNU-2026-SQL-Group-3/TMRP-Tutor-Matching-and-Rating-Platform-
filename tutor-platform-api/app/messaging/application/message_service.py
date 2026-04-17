@@ -5,10 +5,10 @@ router layer only parses HTTP inputs and shapes responses.
 """
 
 from app.messaging.domain.exceptions import (
+    ConversationNotAllowedError,
     EmptyMessageError,
     NotConversationParticipantError,
     SelfConversationError,
-    TargetUserNotFoundError,
 )
 from app.messaging.domain.ports import IConversationRepository, IMessageRepository
 from app.shared.infrastructure.base_repository import BaseRepository
@@ -25,11 +25,29 @@ class MessageAppService:
     def create_conversation(self, *, user_id: int, target_user_id: int) -> int:
         if user_id == target_user_id:
             raise SelfConversationError()
-        target = self._user_lookup.fetch_one(
-            "SELECT user_id FROM users WHERE user_id = %s", (target_user_id,)
+        # MEDIUM-6: require at least one non-rejected match between the two
+        # users before allowing a conversation to be opened. This prevents
+        # (a) enumerating valid user IDs via the 404/200 oracle and
+        # (b) unsolicited DMs to arbitrary registered users.
+        # The query is symmetric: either side can be the parent or the tutor
+        # (currently always parent↔tutor, but the shape keeps the check
+        # correct if future roles pair differently). "Rejected" matches don't
+        # count — a rejection is an explicit refusal of contact.
+        row = self._user_lookup.fetch_one(
+            """SELECT 1
+                 FROM matches m
+                 JOIN tutors  t  ON m.tutor_id   = t.tutor_id
+                 JOIN students st ON m.student_id = st.student_id
+                WHERE m.status <> 'rejected'
+                  AND ( (t.user_id = %s AND st.parent_user_id = %s)
+                     OR (t.user_id = %s AND st.parent_user_id = %s) )
+                LIMIT 1""",
+            (user_id, target_user_id, target_user_id, user_id),
         )
-        if not target:
-            raise TargetUserNotFoundError()
+        if not row:
+            # Single generic response: do not leak whether target_user_id
+            # exists at all vs. exists-but-not-matched.
+            raise ConversationNotAllowedError()
         return self._conv_repo.get_or_create_conversation(user_id, target_user_id)
 
     def list_conversations(self, *, user_id: int) -> list[dict]:

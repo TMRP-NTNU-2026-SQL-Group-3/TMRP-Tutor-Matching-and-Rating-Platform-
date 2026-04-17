@@ -35,6 +35,10 @@ class TutorService:
         # Active student count leaks roster size; treat as private and only
         # expose it to the tutor themselves.
         tutor.pop("active_student_count", None)
+        # HIGH-1: email/phone are PII. Never expose on the public-facing view;
+        # a match moving to active/trial is the only flow that unlocks them.
+        tutor.pop("email", None)
+        tutor.pop("phone", None)
         for key in [k for k in tutor if k.startswith("show_")]:
             del tutor[key]
         return tutor

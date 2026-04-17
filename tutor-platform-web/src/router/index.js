@@ -83,12 +83,29 @@ const router = createRouter({
 })
 
 // 路由守衛
-router.beforeEach((to, from, next) => {
+// MEDIUM-4: the guard is async so it can await ensureVerified(), which
+// confirms with the server (via HttpOnly-cookie-gated /api/auth/me) that
+// the role held in localStorage is authentic. Without this, a browser
+// extension or XSS primitive can seed localStorage.user with role="admin"
+// and render admin layouts before any API call fails.
+router.beforeEach(async (to, from, next) => {
   const auth = useAuthStore()
 
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
   const requiredRole = to.matched.find(record => record.meta.role)?.meta.role
   const allowedRoles = to.matched.find(record => record.meta.roles)?.meta.roles
+
+  // Verify the cached user against the server before authorizing any
+  // protected route. ensureVerified() is single-flight and caches success
+  // for the session, so this is a one-shot round-trip per page load.
+  if ((requiresAuth || to.meta.guest) && auth.isLoggedIn && !auth.verified) {
+    try {
+      await auth.ensureVerified()
+    } catch {
+      // Server rejected the session — drop any cached user and fall through
+      // so the requiresAuth branch below bounces to /login.
+    }
+  }
 
   if (requiresAuth && !auth.isLoggedIn) {
     return next('/login')

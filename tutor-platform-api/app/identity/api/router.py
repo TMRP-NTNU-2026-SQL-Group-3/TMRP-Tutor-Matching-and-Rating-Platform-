@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.identity.api.dependencies import get_auth_service, get_current_user, get_db
-from app.identity.api.schemas import AuthUserResponse, LoginRequest, RefreshRequest, RegisterRequest
+from app.identity.api.schemas import AuthUserResponse, LoginRequest, RegisterRequest
 from app.identity.domain.services import AuthService
 from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
@@ -108,13 +108,12 @@ def login(
 def refresh(
     request: Request,
     response: Response,
-    body: RefreshRequest | None = None,
     service: AuthService = Depends(get_auth_service),
 ):
-    # SEC-C02: prefer cookie, fall back to body for backward compatibility.
+    # MEDIUM-5: accept the refresh token only from the HttpOnly cookie. The
+    # previous body fallback defeated SameSite protection and let a stolen
+    # token be replayed from any origin that could POST JSON.
     refresh_token_value = request.cookies.get("refresh_token")
-    if not refresh_token_value and body:
-        refresh_token_value = body.refresh_token
     if not refresh_token_value:
         raise HTTPException(status_code=401, detail="Missing refresh token")
     result = service.refresh(refresh_token=refresh_token_value)
@@ -129,14 +128,12 @@ def refresh(
 def logout(
     request: Request,
     response: Response,
-    body: RefreshRequest | None = None,
     user=Depends(get_current_user),
 ):
     from app.shared.infrastructure.security import decode_refresh_token, invalidate_refresh_token
-    # SEC-C02: prefer cookie, fall back to body for backward compatibility.
+    # MEDIUM-5: cookie-only (see /refresh note). A stolen refresh token in a
+    # body POST would otherwise still be replayable from a cross-origin page.
     refresh_token_value = request.cookies.get("refresh_token")
-    if not refresh_token_value and body:
-        refresh_token_value = body.refresh_token
     if not refresh_token_value:
         raise DomainException("Missing refresh token", status_code=400)
     payload = decode_refresh_token(refresh_token_value)

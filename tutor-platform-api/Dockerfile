@@ -1,10 +1,17 @@
+# MEDIUM-10: production builds must pin this image by @sha256 digest — run
+# `./scripts/pin-base-images.sh` from repo root to rewrite the tag into
+# `python:3.12-slim@sha256:<digest>`. Renovate (.github/renovate.json) keeps
+# the digest current via automated PRs.
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# 安裝系統依賴（psycopg2 + healthcheck 用 curl）
+# LOW-8: psycopg2-binary ships prebuilt wheels with libpq statically linked,
+# so neither gcc nor libpq-dev is needed at build or runtime. curl stays for
+# the HEALTHCHECK below. Keeping the image slim cuts ~150 MB and removes a
+# compiler from the runtime attack surface.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev gcc curl \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -29,4 +36,11 @@ HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
 ENTRYPOINT ["./docker-entrypoint.sh"]
 
 # 預設啟動 API 伺服器（可在 docker-compose 中覆蓋為 huey worker）
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# MEDIUM-2: trust X-Forwarded-For/Proto from the in-cluster nginx proxy so
+# rate-limiting and audit logs key off the real client IP instead of the
+# proxy IP. The forwarded-allow-ips list is intentionally broad ("*") because
+# uvicorn only sees traffic inside the compose/overlay network — the outer
+# nginx is the single trusted hop, and it overwrites XFF before forwarding
+# (see tutor-platform-web/nginx.conf, MEDIUM-3).
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--proxy-headers", "--forwarded-allow-ips", "*"]

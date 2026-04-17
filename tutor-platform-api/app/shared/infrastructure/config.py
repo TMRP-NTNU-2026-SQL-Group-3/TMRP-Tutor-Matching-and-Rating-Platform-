@@ -77,6 +77,28 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET_KEY_PREVIOUS must differ from JWT_SECRET_KEY.")
         if self.admin_password in {"admin123", "admin", "password"}:
             raise ValueError("ADMIN_PASSWORD must not be a known placeholder value.")
+        # LOW-1: CORS origins must be an explicit allow-list. With
+        # allow_credentials=True a misconfigured "*" or scheme-less entry would
+        # silently trust arbitrary origins. Reject wildcards outright; require
+        # https:// outside debug mode so prod cannot accept http:// origins.
+        origins = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        if not origins:
+            raise ValueError("CORS_ORIGINS must contain at least one origin.")
+        for origin in origins:
+            if origin == "*":
+                raise ValueError(
+                    "CORS_ORIGINS must not contain '*' when credentials are enabled."
+                )
+            if self.debug:
+                if not (origin.startswith("http://") or origin.startswith("https://")):
+                    raise ValueError(
+                        f"CORS origin {origin!r} must start with http:// or https://."
+                    )
+            else:
+                if not origin.startswith("https://"):
+                    raise ValueError(
+                        f"CORS origin {origin!r} must use https:// in non-debug mode."
+                    )
         return self
 
 
