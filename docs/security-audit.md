@@ -43,7 +43,7 @@ The codebase is materially more hardened than a typical student or early-stage p
 ### CRITICAL-1 — JWT secret and admin password leaked in git history
 - **Category:** Secrets management
 - **Location:** `tutor-platform-api/.env.docker` (current working file); historical blobs in commits `cb7ad86` and `950a53e`
-- **Evidence:** `git log -S "JWT_SECRET_KEY=" -- '*.env*'` returns two commits exposing the secret. The file's own header comment (`.env.docker:8, 19-21`) acknowledges the prior leak of `JWT_SECRET_KEY` and `ADMIN_PASSWORD=<REDACTED>`.
+- **Evidence:** `git log -S "JWT_SECRET_KEY=" -- '*.env*'` returned two commits exposing the secret. The prior header comment in `.env.docker` acknowledged the prior leak of `JWT_SECRET_KEY` and the bootstrap `ADMIN_PASSWORD`. Specific leaked values intentionally omitted from this doc to avoid re-seeding them into history.
 - **Description:** A real 256-bit HS256 secret plus the bootstrap admin password were committed to the repo. `.env.*` is now gitignored, but history was never rewritten, so anyone with read access to the repo (or to clones/forks made before remediation) retains the leaked secrets.
 - **Impact:** An attacker can forge arbitrary JWTs for any user or role, including admin. If the admin password was reused elsewhere, that reuse is also exposed.
 - **Recommendation:**
@@ -70,7 +70,8 @@ git filter-repo --invert-paths \
   --path-glob '.env'
 # Verify the leaked strings are gone from every reachable blob:
 git log -S 'JWT_SECRET_KEY=' --all --oneline            # expect empty
-git log -S '<REDACTED>' --all --oneline             # expect empty
+git log -S '<old-admin-password>' --all --oneline       # expect empty
+git log -S '<old-jwt-hex>' --all --oneline              # expect empty
 git push --force --all
 git push --force --tags
 ```
