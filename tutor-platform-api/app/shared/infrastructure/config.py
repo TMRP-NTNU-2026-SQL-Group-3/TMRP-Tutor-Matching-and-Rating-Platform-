@@ -77,6 +77,24 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET_KEY_PREVIOUS must differ from JWT_SECRET_KEY.")
         if self.admin_password in {"admin123", "admin", "password"}:
             raise ValueError("ADMIN_PASSWORD must not be a known placeholder value.")
+        # INFO-2: auth cookies must carry the Secure flag in production so they
+        # are never transmitted over plain HTTP. debug=False is our proxy for
+        # "non-local deployment"; operators who terminate TLS at a reverse proxy
+        # must still set COOKIE_SECURE=true.
+        if not self.debug and not self.cookie_secure:
+            raise ValueError(
+                "COOKIE_SECURE must be true when DEBUG is false "
+                "(auth cookies require the Secure flag in production)."
+            )
+        # INFO-3: the literal 'admin' username is enumeration bait. Require an
+        # operator-chosen bootstrap username in production deployments; also
+        # reject the onboarding placeholder so it cannot silently ship to prod.
+        if not self.debug and self.admin_username.lower() in {"admin", "owner_change_me"}:
+            raise ValueError(
+                "ADMIN_USERNAME must not be 'admin' or the onboarding placeholder "
+                "when DEBUG is false. Choose an enumeration-resistant form, "
+                "e.g. owner_<random6>."
+            )
         # LOW-1: CORS origins must be an explicit allow-list. With
         # allow_credentials=True a misconfigured "*" or scheme-less entry would
         # silently trust arbitrary origins. Reject wildcards outright; require

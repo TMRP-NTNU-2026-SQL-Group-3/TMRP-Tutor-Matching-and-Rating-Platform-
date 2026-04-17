@@ -26,8 +26,12 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def password_strength(cls, v):
-        if len(v) < 8:
-            raise ValueError("密碼長度至少 8 個字元")
+        # INFO-1: raised floor to 10 chars to align with 2026 baseline guidance.
+        # Per-username login rate limiting (5/15min) remains the primary defence
+        # against online guessing; the longer floor adds margin against offline
+        # attack on any future hash leak.
+        if len(v) < 10:
+            raise ValueError("密碼長度至少 10 個字元")
         if not re.search(r"[A-Za-z]", v) or not re.search(r"\d", v):
             raise ValueError("密碼須同時包含英文字母與數字")
         return v

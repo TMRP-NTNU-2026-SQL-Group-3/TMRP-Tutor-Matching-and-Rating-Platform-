@@ -27,7 +27,7 @@ class TestRegister:
 
             resp = client.post(self.ENDPOINT, json={
                 "username": "parent01",
-                "password": "Secure123",
+                "password": "Secure12345",
                 "display_name": "王媽媽",
                 "role": "parent",
             })
@@ -46,7 +46,7 @@ class TestRegister:
 
             resp = client.post(self.ENDPOINT, json={
                 "username": "tutor01",
-                "password": "Secure456",
+                "password": "Secure45678",
                 "display_name": "陳老師",
                 "role": "tutor",
             })
@@ -62,7 +62,7 @@ class TestRegister:
 
             resp = client.post(self.ENDPOINT, json={
                 "username": "existed",
-                "password": "Secure123",
+                "password": "Secure12345",
                 "display_name": "重複",
                 "role": "parent",
             })
@@ -78,7 +78,7 @@ class TestRegister:
 
             resp = client.post(self.ENDPOINT, json={
                 "username": "bad_role",
-                "password": "Secure123",
+                "password": "Secure12345",
                 "display_name": "壞角色",
                 "role": "admin",
             })
