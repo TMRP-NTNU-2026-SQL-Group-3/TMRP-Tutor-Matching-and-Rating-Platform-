@@ -1,6 +1,17 @@
 secrets:
   db_password:
     file: ./secrets/db_password.txt
+  # CRITICAL-1: JWT signing key + bootstrap admin password live in Docker
+  # secrets (not .env.docker) so they never enter the git-tracked surface.
+  jwt_secret_key:
+    file: ./secrets/jwt_secret_key.txt
+  # Optional — only mount during a rotation window. Remove the file (and the
+  # `- jwt_secret_key_previous` entries below) once the old access-token TTL
+  # window has passed and no in-flight tokens need verification.
+  jwt_secret_key_previous:
+    file: ./secrets/jwt_secret_key_previous.txt
+  admin_password:
+    file: ./secrets/admin_password.txt
 
 services:
   # ── PostgreSQL ──
@@ -39,6 +50,9 @@ services:
     restart: on-failure
     secrets:
       - db_password
+      - jwt_secret_key
+      - jwt_secret_key_previous
+      - admin_password
     env_file: ./tutor-platform-api/.env.docker
     environment:
       # SEC-H04: docker-entrypoint.sh reads /run/secrets/db_password and
@@ -75,6 +89,9 @@ services:
     restart: on-failure
     secrets:
       - db_password
+      - jwt_secret_key
+      - jwt_secret_key_previous
+      - admin_password
     env_file: ./tutor-platform-api/.env.docker
     environment:
       DB_USER: ${DB_USER:?DB_USER must be set in repo-root .env}
