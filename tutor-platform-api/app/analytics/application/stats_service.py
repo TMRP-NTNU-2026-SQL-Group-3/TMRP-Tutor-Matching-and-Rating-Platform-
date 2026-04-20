@@ -25,8 +25,16 @@ def _shape_period_report(
 
     `amount_key` is "income" for tutors, "expense" for parents — the only thing
     that differs between the two reports.
+
+    `missing_rate_count` is forwarded from the repo so the UI can surface
+    sessions whose matching row has a NULL hourly_rate (otherwise the SUM
+    would silently drop those rows and the caller cannot tell a low-earnings
+    month apart from a data-integrity gap).
     """
-    summary = summary or {"total_hours": 0, f"total_{amount_key}": 0, "session_count": 0}
+    summary = summary or {
+        "total_hours": 0, f"total_{amount_key}": 0,
+        "session_count": 0, "missing_rate_count": 0,
+    }
     for row in breakdown:
         row["hours"] = _to_float(row.get("hours"))
         row[amount_key] = _to_float(row.get(amount_key))
@@ -35,6 +43,7 @@ def _shape_period_report(
         "total_hours": _to_float(summary["total_hours"]),
         f"total_{amount_key}": _to_float(summary[f"total_{amount_key}"]),
         "session_count": _to_int(summary["session_count"]),
+        "missing_rate_count": _to_int(summary.get("missing_rate_count")),
         "breakdown": breakdown,
     }
 
@@ -49,7 +58,7 @@ class StatsAppService:
             return {
                 "year": year, "month": month,
                 "total_hours": 0, "total_income": 0,
-                "session_count": 0, "breakdown": [],
+                "session_count": 0, "missing_rate_count": 0, "breakdown": [],
             }
         tutor_id = tutor["tutor_id"]
         return _shape_period_report(

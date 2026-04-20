@@ -69,6 +69,16 @@ import PageHeader from '@/components/common/PageHeader.vue'
 const route = useRoute()
 const auth = useAuthStore()
 
+// Crypto-strong random suffix for optimistic-message temp IDs. Math.random is
+// trivially predictable — even though the tempId is purely local UI state
+// today, using a weak RNG here normalises a pattern that hurts the first time
+// an ID leaks into anything trust-sensitive (idempotency keys, logs).
+function randomSuffix() {
+  const bytes = new Uint8Array(6)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+}
+
 const messages = ref([])
 const newMessage = ref('')
 const loading = ref(false)
@@ -137,7 +147,7 @@ async function handleSend() {
   // Optimistic append so the bubble shows up immediately and stays in the user's
   // intended order even when send takes 1–3s. The temp entry is wiped by the
   // refetch that runs after the server confirms.
-  const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const tempId = `tmp-${Date.now()}-${randomSuffix()}`
   const tempMessage = {
     message_id: tempId,
     sender_user_id: userId.value,

@@ -154,18 +154,32 @@ class MatchAppService:
                     match_id, user_id, is_admin, action,
                     old_status.value, new_status.value, reason,
                 )
-        elif action == Action.CONFIRM_TRIAL and self._has_contract_terms(contract_terms):
+        elif action == Action.CONFIRM_TRIAL:
             # Spec Module D: trial → active is the parties' formal contract
             # confirmation, so persist any edited terms in the same tx as the
-            # status flip.
+            # status flip. Trial slots do not count against the tutor's active
+            # roster, so a tutor at max_students could confirm multiple trials
+            # and overflow the cap; re-check capacity here under the same lock
+            # pattern as create_match / resume.
+            has_terms = self._has_contract_terms(contract_terms)
             with self._uow.begin():
-                self._match_repo.confirm_trial_with_terms(
-                    match_id=match_id,
-                    new_status=new_status.value,
-                    hourly_rate=contract_terms.get("hourly_rate"),
-                    sessions_per_week=contract_terms.get("sessions_per_week"),
-                    start_date=contract_terms.get("start_date"),
-                )
+                if new_status == MatchStatus.ACTIVE:
+                    if not self._catalog.lock_tutor_for_update(match.tutor_id):
+                        raise TutorNotFoundError()
+                    active = self._catalog.get_active_student_count(match.tutor_id)
+                    max_s = self._catalog.get_max_students(match.tutor_id)
+                    if active >= max_s:
+                        raise CapacityExceededError()
+                if has_terms:
+                    self._match_repo.confirm_trial_with_terms(
+                        match_id=match_id,
+                        new_status=new_status.value,
+                        hourly_rate=contract_terms.get("hourly_rate"),
+                        sessions_per_week=contract_terms.get("sessions_per_week"),
+                        start_date=contract_terms.get("start_date"),
+                    )
+                else:
+                    self._match_repo.update_status(match_id, new_status.value)
                 self._audit_admin_transition(
                     match_id, user_id, is_admin, action,
                     old_status.value, new_status.value, reason,

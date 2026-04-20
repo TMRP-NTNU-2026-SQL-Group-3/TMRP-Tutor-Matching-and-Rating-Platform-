@@ -1,5 +1,20 @@
 import api from './index'
 
+// Multipart upload helper. Axios derives the correct
+// `multipart/form-data; boundary=...` header ONLY when Content-Type is
+// absent from the request config — an interceptor that sets a default
+// `application/json` would otherwise clobber it and make FastAPI fail to
+// parse the body (the original Bug #27). Setting `Content-Type: undefined`
+// tells axios to strip any inherited default and re-derive from the
+// FormData body. Route every multipart POST through here so that rule
+// lives in exactly one place.
+function postMultipart(url, formData, config = {}) {
+  return api.post(url, formData, {
+    ...config,
+    headers: { ...(config.headers || {}), 'Content-Type': undefined },
+  })
+}
+
 export const adminApi = {
   listUsers() {
     return api.get('/api/admin/users')
@@ -8,13 +23,9 @@ export const adminApi = {
     return api.post('/api/admin/seed')
   },
   importCsv(formData, tableName) {
-    // Bug #27: 顯式設 Content-Type 為 undefined 讓 axios 自動帶上正確的
-    // multipart boundary；若被攔截器其他預設 header 覆蓋成 application/json
-    // 會導致後端解析 FormData 失敗。
-    return api.post(
+    return postMultipart(
       `/api/admin/import?table_name=${encodeURIComponent(tableName)}`,
       formData,
-      { headers: { 'Content-Type': undefined } },
     )
   },
   exportCsv(tableName) {
@@ -38,12 +49,7 @@ export const adminApi = {
     return api.get('/api/admin/system-status')
   },
   importAll(formData, clearFirst = false) {
-    // Bug #27: 同 importCsv，明確讓 axios 自填 multipart boundary
-    return api.post(
-      `/api/admin/import-all?clear_first=${clearFirst}`,
-      formData,
-      { headers: { 'Content-Type': undefined } },
-    )
+    return postMultipart(`/api/admin/import-all?clear_first=${clearFirst}`, formData)
   },
   getTaskStatus(taskId) {
     return api.get(`/api/admin/tasks/${taskId}`)

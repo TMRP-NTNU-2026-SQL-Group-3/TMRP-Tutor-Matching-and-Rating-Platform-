@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
@@ -12,9 +14,16 @@ class Settings(BaseSettings):
 
     # JWT — secret is required; Settings() construction fails without it in env/.env
     jwt_secret_key: str = Field(..., min_length=32)
-    # 上一版密鑰：輪換期間仍接受其簽發的 token，避免 in-flight session 立刻 401。
-    # 留空表示沒有過渡期。長度限制亦為 32 字元（沿用同強度），允許留白以表示停用。
+    # Previous key accepted during rotation so in-flight sessions are not
+    # force-logged-out. Empty disables the grace path.
     jwt_secret_key_previous: str = ""
+    # Hard deadline (ISO 8601 UTC, e.g. "2026-05-01T00:00:00Z") after which the
+    # previous key is no longer accepted. Required when jwt_secret_key_previous
+    # is set so an unbounded grace window cannot linger after rotation — a key
+    # kept live "just in case" widens the blast radius of a past leak. A
+    # refresh_token's 7-day TTL is the natural upper bound; anything longer is
+    # almost certainly an oversight.
+    jwt_secret_key_previous_expires_at: str = ""
     # HS256 (symmetric) is sufficient for single-service deployments.
     # Federated or multi-service auth requires RS256/ES256 with a keypair;
     # switching also needs changes to decode_access_token's verification logic.
@@ -23,9 +32,11 @@ class Settings(BaseSettings):
     # The 5-minute TTL remains appropriate as defence in depth.
     jwt_expire_minutes: int = 5
 
-    # Super-admin seeded on startup — password required via env.
-    admin_username: str = "admin"
-    admin_password: str = Field(..., min_length=8)
+    # Super-admin seeded on startup — username and password required via env so
+    # deployments cannot silently ship with a guessable literal like 'admin'.
+    # Complexity is enforced by reject_weak_admin_password below.
+    admin_username: str = Field(..., min_length=3)
+    admin_password: str = Field(..., min_length=12)
 
     # Reviews become immutable after this many days.
     review_lock_days: int = 7
@@ -75,8 +86,51 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET_KEY_PREVIOUS, when set, must also be >= 32 chars.")
         if self.jwt_secret_key_previous == self.jwt_secret_key:
             raise ValueError("JWT_SECRET_KEY_PREVIOUS must differ from JWT_SECRET_KEY.")
+        if self.jwt_secret_key_previous and not self.jwt_secret_key_previous_expires_at:
+            raise ValueError(
+                "JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT is required when "
+                "JWT_SECRET_KEY_PREVIOUS is set (ISO 8601 UTC, e.g. "
+                "'2026-05-01T00:00:00Z'). An unbounded grace period keeps "
+                "a retired key verifiable indefinitely."
+            )
+        if self.jwt_secret_key_previous_expires_at:
+            raw = self.jwt_secret_key_previous_expires_at.strip()
+            try:
+                deadline = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError(
+                    f"JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT must be ISO 8601 UTC: {exc}"
+                ) from exc
+            if deadline.tzinfo is None:
+                raise ValueError(
+                    "JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT must include a timezone "
+                    "(append 'Z' for UTC)."
+                )
+            max_deadline = datetime.now(timezone.utc) + timedelta(days=7)
+            if deadline > max_deadline:
+                raise ValueError(
+                    "JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT must not exceed 7 days "
+                    "from now (the refresh-token TTL). Rotate the key sooner."
+                )
         if self.admin_password in {"admin123", "admin", "password"}:
             raise ValueError("ADMIN_PASSWORD must not be a known placeholder value.")
+        # HIGH: enforce complexity in addition to the 12-char minimum. A 12-char
+        # password drawn from a single class (e.g. all lowercase) is still in
+        # reach of an offline attacker; require at least three of the four
+        # character classes so a bootstrapped admin account meaningfully
+        # resists credential stuffing and dictionary attacks.
+        pw = self.admin_password
+        classes = sum([
+            any(c.islower() for c in pw),
+            any(c.isupper() for c in pw),
+            any(c.isdigit() for c in pw),
+            any(not c.isalnum() for c in pw),
+        ])
+        if classes < 3:
+            raise ValueError(
+                "ADMIN_PASSWORD must contain at least three of: lowercase, "
+                "uppercase, digit, symbol."
+            )
         # INFO-2: auth cookies must carry the Secure flag in production so they
         # are never transmitted over plain HTTP. debug=False is our proxy for
         # "non-local deployment"; operators who terminate TLS at a reverse proxy

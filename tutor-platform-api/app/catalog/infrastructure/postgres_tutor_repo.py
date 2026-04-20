@@ -169,6 +169,51 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
             (tutor_id,),
         )
 
+    def find_detail(self, tutor_id: int) -> dict | None:
+        """Single-query detail view: merges the tutor row with subjects,
+        availability, rating aggregates, and active-student count.
+        Replaces the previous 5-call N+1 pattern in the detail endpoint.
+        COALESCE keeps shape stable for tutors with no reviews / empty
+        subject or availability lists."""
+        return self.fetch_one(
+            """SELECT t.*, u.display_name, u.email, u.phone,
+                      COALESCE(r.avg_r1, NULL) AS avg_r1,
+                      COALESCE(r.avg_r2, NULL) AS avg_r2,
+                      COALESCE(r.avg_r3, NULL) AS avg_r3,
+                      COALESCE(r.avg_r4, NULL) AS avg_r4,
+                      COALESCE(r.review_count, 0) AS review_count,
+                      COALESCE(a.active_count, 0) AS active_student_count,
+                      COALESCE(subj.subjects, '[]'::json) AS subjects,
+                      COALESCE(avail.slots, '[]'::json) AS availability
+               FROM tutors t
+               INNER JOIN users u ON t.user_id = u.user_id
+               LEFT JOIN v_tutor_ratings r ON r.tutor_id = t.tutor_id
+               LEFT JOIN v_tutor_active_students a ON a.tutor_id = t.tutor_id
+               LEFT JOIN LATERAL (
+                   SELECT json_agg(json_build_object(
+                       'subject_id', ts.subject_id,
+                       'subject_name', s.subject_name,
+                       'category', s.category,
+                       'hourly_rate', ts.hourly_rate
+                   )) AS subjects
+                   FROM tutor_subjects ts
+                   INNER JOIN subjects s ON ts.subject_id = s.subject_id
+                   WHERE ts.tutor_id = t.tutor_id
+               ) subj ON TRUE
+               LEFT JOIN LATERAL (
+                   SELECT json_agg(json_build_object(
+                       'availability_id', availability_id,
+                       'day_of_week', day_of_week,
+                       'start_time', start_time,
+                       'end_time', end_time
+                   ) ORDER BY day_of_week, start_time) AS slots
+                   FROM tutor_availability
+                   WHERE tutor_id = t.tutor_id
+               ) avail ON TRUE
+               WHERE t.tutor_id = %s""",
+            (tutor_id,),
+        )
+
     def find_by_user_id(self, user_id: int) -> dict | None:
         return self.fetch_one("SELECT * FROM tutors WHERE user_id = %s", (user_id,))
 

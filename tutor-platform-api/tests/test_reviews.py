@@ -80,11 +80,18 @@ class TestCreateReview:
         assert resp.status_code == 200
 
     def test_duplicate_review_rejected(self, client, parent_headers, mock_conn):
-        """Duplicate review returns 409."""
+        """Duplicate review returns 409.
+
+        The service now relies on idx_reviews_unique to enforce
+        one-per-(match, reviewer, type) at the DB layer, so the duplicate
+        surfaces as a psycopg2 UniqueViolation from repo.create rather than
+        a pre-INSERT find_existing check.
+        """
+        from psycopg2.errors import UniqueViolation
         with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
-            repo.find_existing.return_value = {"review_id": 10}
+            repo.create.side_effect = UniqueViolation()
 
             resp = client.post(self.ENDPOINT, json={
                 "match_id": 1,

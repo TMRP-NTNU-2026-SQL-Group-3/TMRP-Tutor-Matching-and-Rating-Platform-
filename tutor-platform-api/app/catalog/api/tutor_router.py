@@ -59,7 +59,19 @@ def search_tutors(
         for t in rows
     ]
 
-    return ApiResponse(success=True, data={"items": results, "total": total})
+    total_pages = (total + page_size - 1) // page_size if total else 0
+    return ApiResponse(
+        success=True,
+        data={
+            "items": results,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        },
+    )
 
 
 @router.put("/profile", summary="更新老師個人資料", response_model=ApiResponse)
@@ -135,15 +147,18 @@ def get_tutor_detail(
     repo: PostgresTutorRepository = Depends(get_tutor_repo),
     service: TutorService = Depends(get_tutor_service),
 ):
-    tutor = repo.find_by_id(tutor_id)
+    tutor = repo.find_detail(tutor_id)
     if not tutor:
         raise NotFoundError("找不到此老師")
-    tutor["subjects"] = repo.get_subjects(tutor_id)
-    tutor["availability"] = repo.get_availability(tutor_id)
-    tutor["rating"] = repo.get_avg_rating(tutor_id)
-    tutor["active_student_count"] = repo.get_active_student_count(tutor_id)
+    tutor["rating"] = {
+        "avg_r1": tutor.pop("avg_r1"),
+        "avg_r2": tutor.pop("avg_r2"),
+        "avg_r3": tutor.pop("avg_r3"),
+        "avg_r4": tutor.pop("avg_r4"),
+        "review_count": tutor.pop("review_count"),
+    }
     if int(user["sub"]) != tutor["user_id"]:
-        service.apply_visibility(tutor)
+        tutor = service.apply_visibility(tutor)
     return ApiResponse(success=True, data=tutor)
 
 

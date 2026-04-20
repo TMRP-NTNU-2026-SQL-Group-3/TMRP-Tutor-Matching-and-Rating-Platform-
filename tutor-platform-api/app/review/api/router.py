@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
+from psycopg2.errors import UniqueViolation
 
 from app.identity.api.dependencies import get_current_user, get_db, is_admin
 from app.review.api.schemas import ReviewCreate, ReviewUpdate
@@ -43,16 +44,21 @@ def create_review(body: ReviewCreate, user=Depends(get_current_user), conn=Depen
         raise WrongReviewerRoleError(body.review_type)
     if body.review_type in ("tutor_to_parent", "tutor_to_student") and not is_tutor:
         raise WrongReviewerRoleError(body.review_type)
-    with transaction(conn):
-        if repo.find_existing(body.match_id, user_id, body.review_type):
-            raise DuplicateReviewError()
-        review_id = repo.create(
-            match_id=body.match_id, reviewer_user_id=user_id,
-            review_type=body.review_type, rating_1=body.rating_1,
-            rating_2=body.rating_2, rating_3=body.rating_3,
-            rating_4=body.rating_4, personality_comment=body.personality_comment,
-            comment=body.comment,
-        )
+    # Rely on idx_reviews_unique (match_id, reviewer_user_id, review_type)
+    # to enforce "one review per reviewer per type per match" atomically at
+    # the DB layer. A prior find_existing + INSERT pair was racy — two
+    # concurrent submissions could both see "no duplicate" and insert twice.
+    try:
+        with transaction(conn):
+            review_id = repo.create(
+                match_id=body.match_id, reviewer_user_id=user_id,
+                review_type=body.review_type, rating_1=body.rating_1,
+                rating_2=body.rating_2, rating_3=body.rating_3,
+                rating_4=body.rating_4, personality_comment=body.personality_comment,
+                comment=body.comment,
+            )
+    except UniqueViolation:
+        raise DuplicateReviewError() from None
     return ApiResponse(success=True, data={"review_id": review_id}, message="評價已提交")
 
 
@@ -87,9 +93,19 @@ def update_review(review_id: int, body: ReviewUpdate, user=Depends(get_current_u
             raise ReviewLockedError()
         cutoff = datetime.now(timezone.utc) - timedelta(days=settings.review_lock_days)
         created_at = review["created_at"]
-        if hasattr(created_at, "tzinfo") and created_at.tzinfo is None:
+        # created_at is TIMESTAMPTZ so psycopg2 returns an aware datetime;
+        # the naive-fallback branch guards legacy rows imported before the
+        # tzinfo migration. Any TypeError from the final compare maps to
+        # ReviewLockedError (HTTP 423) rather than a bare 500 — refusing
+        # the edit is safer than silently allowing it when we cannot prove
+        # the row is inside the edit window.
+        if isinstance(created_at, datetime) and created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
-        if created_at < cutoff:
+        try:
+            past_cutoff = created_at < cutoff
+        except TypeError:
+            raise ReviewLockedError()
+        if past_cutoff:
             raise ReviewLockedError()
         repo.update(review_id, updates)
     return ApiResponse(success=True, data={"review_id": review_id}, message="評價已更新")

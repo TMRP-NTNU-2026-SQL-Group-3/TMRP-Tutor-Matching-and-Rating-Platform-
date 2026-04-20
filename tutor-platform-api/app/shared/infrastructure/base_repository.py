@@ -28,6 +28,16 @@ class BaseRepository:
         self.conn = conn
         self.cursor = conn.cursor()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        # Guarantees the cursor is released when the repo is used as a
+        # `with` block. Returning False lets the original exception (if any)
+        # propagate after cleanup.
+        self.close()
+        return False
+
     def close(self):
         # DB-L02: Intentionally broad catch — cursor cleanup must not mask
         # the original exception that caused the caller to close the repo.
@@ -93,6 +103,17 @@ class BaseRepository:
 
         if total == 0:
             return [], 0
+
+        # Surface an out-of-range page as an explicit error instead of silently
+        # returning an empty list. Clients cannot distinguish "past the last
+        # page" from "filter matched nothing" without this check, which makes
+        # pagination bugs in callers hard to diagnose. Page 1 is always valid
+        # (even with total=0, we returned early above).
+        max_page = (total + page_size - 1) // page_size
+        if page > max_page:
+            raise ValueError(
+                f"page {page} out of range (1..{max_page}, total={total})"
+            )
 
         offset = (page - 1) * page_size
         paged_sql = sql + " LIMIT %s OFFSET %s"

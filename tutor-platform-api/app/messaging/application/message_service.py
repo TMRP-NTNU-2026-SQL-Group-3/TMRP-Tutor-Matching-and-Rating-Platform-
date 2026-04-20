@@ -29,24 +29,32 @@ class MessageAppService:
         # users before allowing a conversation to be opened. This prevents
         # (a) enumerating valid user IDs via the 404/200 oracle and
         # (b) unsolicited DMs to arbitrary registered users.
-        # The query is symmetric: either side can be the parent or the tutor
-        # (currently always parent↔tutor, but the shape keeps the check
-        # correct if future roles pair differently). "Rejected" matches don't
-        # count — a rejection is an explicit refusal of contact.
+        # "Rejected" matches don't count — a rejection is an explicit
+        # refusal of contact.
+        #
+        # Role pairing is enforced explicitly in the same query: exactly
+        # one side must have role='tutor' and the other role='parent'.
+        # Relying on the tutors/students join alone would silently permit
+        # a conversation if role columns and tutor/student rows ever
+        # diverged (e.g. after an out-of-band role change). The single
+        # generic 403 keeps the error shape indistinguishable from
+        # "user does not exist".
         row = self._user_lookup.fetch_one(
             """SELECT 1
                  FROM matches m
-                 JOIN tutors  t  ON m.tutor_id   = t.tutor_id
+                 JOIN tutors  t   ON m.tutor_id   = t.tutor_id
                  JOIN students st ON m.student_id = st.student_id
+                 JOIN users ut    ON ut.user_id = t.user_id
+                 JOIN users up    ON up.user_id = st.parent_user_id
                 WHERE m.status <> 'rejected'
+                  AND ut.role = 'tutor'
+                  AND up.role = 'parent'
                   AND ( (t.user_id = %s AND st.parent_user_id = %s)
                      OR (t.user_id = %s AND st.parent_user_id = %s) )
                 LIMIT 1""",
             (user_id, target_user_id, target_user_id, user_id),
         )
         if not row:
-            # Single generic response: do not leak whether target_user_id
-            # exists at all vs. exists-but-not-matched.
             raise ConversationNotAllowedError()
         return self._conv_repo.get_or_create_conversation(user_id, target_user_id)
 

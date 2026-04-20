@@ -24,14 +24,21 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "/api/admin/reset/confirm": (3, 3600),  # 3/hour
     "/api/admin/import-all": (5, 86400),    # 5/day
     "/api/admin/seed": (5, 3600),           # 5/hour
+    # /health is probed by the docker healthcheck every 10s (6/min per
+    # container) and by external uptime checks. It also runs a SELECT 1
+    # against the DB — leaving it on the `default` bucket means an anonymous
+    # caller can sustain 60 req/s of DB round-trips. Cap at a budget that
+    # comfortably covers legitimate probes (docker + 1–2 external monitors)
+    # but starves amplification attempts.
+    "/health": (30, 60),
     "default": (60, 60),
 }
 
 # M-06: Paths that must fail CLOSED if the rate-limit DB is unreachable.
 # Rationale: on these endpoints a fail-open posture turns a DB outage into
 # an open door for credential stuffing / account enumeration / destructive
-# admin actions. For all other endpoints we keep fail-open so a rate-limit
-# outage cannot take the whole product down.
+# admin actions. For safe-method endpoints we keep fail-open so a rate-limit
+# outage cannot take read-only browsing of the whole product down.
 FAIL_CLOSED_PATHS: frozenset[str] = frozenset({
     "/api/auth/login",
     "/api/auth/register",
@@ -40,6 +47,13 @@ FAIL_CLOSED_PATHS: frozenset[str] = frozenset({
     "/api/admin/import-all",
     "/api/admin/seed",
 })
+
+# HTTP methods whose requests change server state. These fail CLOSED by
+# default even if the path is not in FAIL_CLOSED_PATHS — a rate-limit DB
+# outage must not silently lift the brake on writes (match creation, review
+# submission, message sending, etc.). Safe methods (GET/HEAD/OPTIONS) still
+# fail open so read traffic can keep flowing during partial degradation.
+_UNSAFE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
 _CLEANUP_INTERVAL = 300  # 每 5 分鐘清理一次過期紀錄
@@ -183,7 +197,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Offload the synchronous psycopg2 call to the thread pool so we
         # don't block the event loop.
-        fail_closed = path in FAIL_CLOSED_PATHS
+        fail_closed = path in FAIL_CLOSED_PATHS or request.method in _UNSAFE_METHODS
         allowed = await asyncio.to_thread(
             check_and_record_bucket,
             bucket_key,

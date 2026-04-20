@@ -44,7 +44,10 @@ const routes = [
   // 訊息（僅限家長/老師，管理員無訊息功能）
   {
     path: '/messages',
-    meta: { requiresAuth: true, roles: ['parent', 'tutor'] },
+    // `excludeRoles` is belt-and-braces with `roles`: any future drift in role
+    // values (e.g. adding a new role to the allow-list by mistake) still
+    // won't leak admin into a surface where admin has no business.
+    meta: { requiresAuth: true, roles: ['parent', 'tutor'], excludeRoles: ['admin'] },
     children: [
       { path: '', name: 'Conversations', component: () => import('@/views/messages/ConversationListView.vue') },
       { path: ':id', name: 'Chat', component: () => import('@/views/messages/ChatView.vue') },
@@ -94,6 +97,7 @@ router.beforeEach(async (to, from, next) => {
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
   const requiredRole = to.matched.find(record => record.meta.role)?.meta.role
   const allowedRoles = to.matched.find(record => record.meta.roles)?.meta.roles
+  const excludedRoles = to.matched.find(record => record.meta.excludeRoles)?.meta.excludeRoles
 
   // Verify the cached user against the server before authorizing any
   // protected route. ensureVerified() is single-flight and caches success
@@ -119,6 +123,12 @@ router.beforeEach(async (to, from, next) => {
   }
 
   if (requiredRole && auth.role !== requiredRole) {
+    if (auth.role === 'admin') return next('/admin')
+    if (auth.role === 'tutor') return next('/tutor')
+    return next('/parent')
+  }
+
+  if (excludedRoles && excludedRoles.includes(auth.role)) {
     if (auth.role === 'admin') return next('/admin')
     if (auth.role === 'tutor') return next('/tutor')
     return next('/parent')

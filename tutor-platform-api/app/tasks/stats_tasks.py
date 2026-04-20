@@ -50,7 +50,8 @@ def calculate_income_stats(user_id: int, month: str | None = None) -> dict:
         tutor_id = tutor["tutor_id"]
         summary = repo.income_summary(tutor_id, year, mon)
         if summary is None:
-            summary = {"total_hours": 0, "total_income": 0, "session_count": 0}
+            summary = {"total_hours": 0, "total_income": 0,
+                       "session_count": 0, "missing_rate_count": 0}
         breakdown = repo.income_breakdown(tutor_id, year, mon)
 
         for row in breakdown:
@@ -63,6 +64,7 @@ def calculate_income_stats(user_id: int, month: str | None = None) -> dict:
             "total_hours": float(summary["total_hours"] or 0),
             "total_income": float(summary["total_income"] or 0),
             "session_count": int(summary["session_count"] or 0),
+            "missing_rate_count": int(summary.get("missing_rate_count") or 0),
             "breakdown": breakdown,
         }
     except Exception:
@@ -87,7 +89,8 @@ def calculate_expense_stats(user_id: int, month: str | None = None) -> dict:
 
         summary = repo.expense_summary(user_id, year, mon)
         if summary is None:
-            summary = {"total_hours": 0, "total_expense": 0, "session_count": 0}
+            summary = {"total_hours": 0, "total_expense": 0,
+                       "session_count": 0, "missing_rate_count": 0}
         breakdown = repo.expense_breakdown(user_id, year, mon)
 
         for row in breakdown:
@@ -100,6 +103,7 @@ def calculate_expense_stats(user_id: int, month: str | None = None) -> dict:
             "total_hours": float(summary["total_hours"] or 0),
             "total_expense": float(summary["total_expense"] or 0),
             "session_count": int(summary["session_count"] or 0),
+            "missing_rate_count": int(summary.get("missing_rate_count") or 0),
             "breakdown": breakdown,
         }
     except Exception:

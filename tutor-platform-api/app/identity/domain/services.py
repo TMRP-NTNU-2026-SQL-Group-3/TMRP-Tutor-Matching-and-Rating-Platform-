@@ -87,18 +87,40 @@ class AuthService:
             "display_name": user["display_name"],
         }
 
-    def refresh(self, *, refresh_token: str) -> dict:
+    def refresh(
+        self,
+        *,
+        refresh_token: str,
+        source_ip: str | None = None,
+        user_agent: str | None = None,
+    ) -> dict:
         payload = decode_refresh_token(refresh_token)
         if payload is None:
+            # A failed refresh is a defensive signal (stolen/replayed token,
+            # clock skew, or key rotation), so record it on the audit channel
+            # with the same shape as login_failed for cross-event analysis.
+            _audit_logger.warning(
+                "refresh_failed reason=invalid_token ip=%s ua=%s",
+                source_ip, user_agent,
+            )
             raise InvalidRefreshTokenError()
 
-        if jti := payload.get("jti"):
+        jti = payload.get("jti")
+        if jti:
             invalidate_refresh_token(jti)
 
         user = self._repo.find_by_id(int(payload["sub"]))
         if not user:
+            _audit_logger.warning(
+                "refresh_failed reason=user_not_found sub=%s ip=%s ua=%s",
+                payload.get("sub"), source_ip, user_agent,
+            )
             raise UserNotFoundError()
 
+        _audit_logger.info(
+            "refresh_success user_id=%s jti=%s ip=%s ua=%s",
+            user["user_id"], jti, source_ip, user_agent,
+        )
         token_data = {"sub": str(user["user_id"]), "role": user["role"]}
         return {
             "access_token": create_access_token(token_data),

@@ -17,6 +17,12 @@ class PostgresConversationRepository(BaseRepository, IConversationRepository):
     def find_conversations_for_user(self, user_id: int) -> list[dict]:
         # Pulls the latest message via a LATERAL subquery so the list view can
         # show a message preview without an N+1 round trip per conversation.
+        #
+        # NOTE on empty conversations: LEFT JOIN LATERAL returns one row per
+        # conversation regardless of whether `messages` has a match. For a
+        # conversation with no messages, `last_message_content` and
+        # `last_message_sender_id` are NULL — callers must render a
+        # placeholder rather than treating NULL as an error.
         return self.fetch_all(
             """SELECT c.conversation_id, c.user_a_id, c.user_b_id,
                       c.created_at, c.last_message_at,

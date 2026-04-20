@@ -1,6 +1,6 @@
 # ── Stage 1: Build ──
 # MEDIUM-10: pin by @sha256 digest in production — see ./scripts/pin-base-images.sh.
-FROM node:20-alpine AS build
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS build
 
 WORKDIR /app
 
@@ -21,10 +21,14 @@ RUN npm run build
 # 不需要 CAP_NET_BIND_SERVICE 也不會 root；相容 docker-compose 將 8080 對外
 # 映射到 host 的 80 埠。
 # MEDIUM-10: pin by @sha256 digest in production — see ./scripts/pin-base-images.sh.
-FROM nginxinc/nginx-unprivileged:alpine
+FROM nginxinc/nginx-unprivileged:alpine@sha256:72cd9a222d01fdf47bd47ad8dc50b0221a768742b84a66c5e0b94ed13bcc6c72
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Place security-headers snippet OUTSIDE conf.d so nginx's top-level
+# `include /etc/nginx/conf.d/*.conf` (http scope) does not try to load these
+# add_header directives at http scope, which would fail to start nginx.
+COPY nginx-security-headers.conf /etc/nginx/snippets/security-headers.conf
 
 EXPOSE 8080
 

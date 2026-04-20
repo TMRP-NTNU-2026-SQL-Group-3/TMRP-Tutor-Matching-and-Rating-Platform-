@@ -35,8 +35,15 @@ TRANSITIONS: dict[tuple[MatchStatus, Action], Transition] = {
         Transition(MatchStatus.TERMINATING, AllowedActor.EITHER),
     (MatchStatus.TERMINATING, Action.AGREE_TERMINATE):
         Transition(MatchStatus.ENDED, AllowedActor.OTHER_PARTY),
+    # DISAGREE_TERMINATE reverts to the match's pre-termination status
+    # (active or paused). The resolver cannot know which without the stored
+    # reason payload, so the transition uses `new_status=None` and the
+    # application layer computes the real next status at commit time from
+    # `parsed pre-termination status`. Treating this as an explicit revert
+    # avoids the misleading TERMINATING→TERMINATING self-transition the
+    # table previously encoded.
     (MatchStatus.TERMINATING, Action.DISAGREE_TERMINATE):
-        Transition(MatchStatus.TERMINATING, AllowedActor.OTHER_PARTY),
+        Transition(None, AllowedActor.OTHER_PARTY),
 }
 
 
@@ -50,7 +57,7 @@ def resolve_transition(
     actor_user_id: int,
     terminated_by: int | None,
     want_trial: bool,
-) -> MatchStatus:
+) -> MatchStatus | None:
     transition = TRANSITIONS.get((current, action))
     if transition is None:
         raise InvalidTransitionError(

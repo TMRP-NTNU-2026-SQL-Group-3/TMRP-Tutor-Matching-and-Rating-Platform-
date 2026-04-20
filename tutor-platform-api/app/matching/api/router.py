@@ -5,9 +5,17 @@ from app.matching.api.dependencies import get_match_service
 from app.matching.api.schemas import MatchCreate, MatchDetailResponse, MatchStatusUpdate
 from app.matching.application.match_app_service import MatchAppService
 from app.matching.domain.value_objects import MatchStatus
+from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
+from app.shared.domain.exceptions import TooManyRequestsError
 
 router = APIRouter(prefix="/api/matches", tags=["matches"])
+
+# Mirror of exam_router's per-student bucket (B6). Even under the global
+# /api/matches path limit, a single parent could flood one tutor's inbox
+# with invitations; cap invitations per (tutor, parent) pair.
+_MATCH_CREATE_LIMIT = 10
+_MATCH_CREATE_WINDOW = 3600
 
 
 @router.post("", summary="建立配對邀請", description="家長為指定學生向家教發送配對邀請。", response_model=ApiResponse)
@@ -16,8 +24,12 @@ def create_match(
     user=Depends(require_role("parent")),
     service: MatchAppService = Depends(get_match_service),
 ):
+    user_id = int(user["sub"])
+    bucket = f"match:create|tutor={body.tutor_id}|user={user_id}"
+    if not check_and_record_bucket(bucket, _MATCH_CREATE_LIMIT, _MATCH_CREATE_WINDOW):
+        raise TooManyRequestsError("對此家教的邀請頻率過高，請稍後再試")
     match_id = service.create_match(
-        user_id=int(user["sub"]),
+        user_id=user_id,
         tutor_id=body.tutor_id,
         student_id=body.student_id,
         subject_id=body.subject_id,

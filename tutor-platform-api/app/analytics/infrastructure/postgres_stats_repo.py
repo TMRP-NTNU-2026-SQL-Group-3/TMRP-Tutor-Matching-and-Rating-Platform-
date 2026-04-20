@@ -7,10 +7,15 @@ class PostgresStatsRepository(BaseRepository):
         return self.fetch_one("SELECT tutor_id FROM tutors WHERE user_id = %s", (user_id,))
 
     def income_summary(self, tutor_id: int, year: int, month: int) -> dict:
+        # `missing_rate_count` surfaces sessions whose match has a NULL
+        # hourly_rate — otherwise SUM(se.hours * m.hourly_rate) silently
+        # drops those rows and the caller can't tell a legitimately low
+        # income month from a data-integrity gap.
         return self.fetch_one(
             """SELECT COALESCE(SUM(se.hours), 0) AS total_hours,
                       COALESCE(SUM(se.hours * m.hourly_rate), 0) AS total_income,
-                      COUNT(*) AS session_count
+                      COUNT(*) AS session_count,
+                      COUNT(*) FILTER (WHERE m.hourly_rate IS NULL) AS missing_rate_count
                FROM sessions se INNER JOIN matches m ON se.match_id = m.match_id
                WHERE m.tutor_id = %s
                  AND EXTRACT(YEAR FROM se.session_date) = %s
@@ -34,10 +39,13 @@ class PostgresStatsRepository(BaseRepository):
         )
 
     def expense_summary(self, parent_user_id: int, year: int, month: int) -> dict:
+        # See income_summary: surface the NULL-rate row count so the
+        # caller can distinguish low expense from missing rate data.
         return self.fetch_one(
             """SELECT COALESCE(SUM(se.hours), 0) AS total_hours,
                       COALESCE(SUM(se.hours * m.hourly_rate), 0) AS total_expense,
-                      COUNT(*) AS session_count
+                      COUNT(*) AS session_count,
+                      COUNT(*) FILTER (WHERE m.hourly_rate IS NULL) AS missing_rate_count
                FROM sessions se
                INNER JOIN matches m ON se.match_id = m.match_id
                INNER JOIN students st ON m.student_id = st.student_id

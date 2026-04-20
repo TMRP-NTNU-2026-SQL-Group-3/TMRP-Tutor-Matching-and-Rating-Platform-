@@ -31,24 +31,26 @@ _SESSION_CREATE_WINDOW = 60
 def _normalize(value):
     """Normalize a value for change detection so that equivalent values
     of different types (e.g. int 1 vs float 1.0, Decimal vs float)
-    compare correctly."""
+    compare correctly.
+
+    NUMERIC columns (hours) come back as Decimal from psycopg2. Routing the
+    value through float would lose precision for values like 0.1 that are
+    exact in Decimal but not in float, causing spurious "changed" logs.
+    All numeric inputs are therefore normalized to Decimal, and integers
+    collapse to a plain int for clean comparison with JSON payloads.
+    """
     if value is None:
         return None
     if isinstance(value, bool):
         return value
-    # Decimal (psycopg2 returns this for NUMERIC columns) is not a
-    # subclass of float, so coerce it explicitly before the numeric path.
     from decimal import Decimal, InvalidOperation
     if isinstance(value, (int, float, Decimal)):
         try:
-            f = float(value)
-        except (ValueError, OverflowError, InvalidOperation):
+            d = value if isinstance(value, Decimal) else Decimal(str(value))
+        except (InvalidOperation, ValueError):
             return str(value)
-        try:
-            i = int(f)
-        except (ValueError, OverflowError):
-            return f
-        return i if f == i else f
+        as_int = int(d)
+        return as_int if d == as_int else d
     return str(value)
 
 

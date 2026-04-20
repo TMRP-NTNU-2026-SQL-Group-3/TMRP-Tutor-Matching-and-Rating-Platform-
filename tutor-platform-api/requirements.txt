@@ -1,6 +1,6 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-pydantic==2.10.4
+pydantic[email]==2.10.4
 pydantic-settings==2.7.1
 # MEDIUM-11: 2.9.10 bundles libpq <17.1, vulnerable to CVE-2024-10977
 # (error-message spoofing during TLS handshake). Bounded today because the

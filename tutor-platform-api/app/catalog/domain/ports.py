@@ -9,6 +9,9 @@ class ITutorRepository(ABC):
     def find_by_id(self, tutor_id: int) -> dict | None: ...
 
     @abstractmethod
+    def find_detail(self, tutor_id: int) -> dict | None: ...
+
+    @abstractmethod
     def find_by_user_id(self, user_id: int) -> dict | None: ...
 
     @abstractmethod

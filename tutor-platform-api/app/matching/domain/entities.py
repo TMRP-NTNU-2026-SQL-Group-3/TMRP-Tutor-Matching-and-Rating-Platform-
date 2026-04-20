@@ -44,23 +44,23 @@ class Match:
         ``{previous_status}|{reason}`` or bare ``{previous_status}``
         format (the repo omits the pipe when no reason is provided).
 
-        Returns the extracted status when the stored format is valid,
-        otherwise raises ValueError so callers notice a data-integrity
-        issue instead of silently receiving a wrong default.
+        Raises ValueError if the stored value is missing or unparseable —
+        a match in TERMINATING status without a valid payload is a
+        data-integrity bug that silently defaulting to "active" would mask.
         """
         raw = self.termination_reason or ""
-        if "|" in raw:
-            prev = raw.split("|", 1)[0]
-        else:
-            prev = raw
-        if prev in self._VALID_PRE_TERMINATION_STATUSES:
-            return prev
-        if raw:
+        if not raw:
+            raise ValueError(
+                "termination_reason is empty — cannot determine "
+                "pre-termination status"
+            )
+        prev = raw.split("|", 1)[0] if "|" in raw else raw
+        if prev not in self._VALID_PRE_TERMINATION_STATUSES:
             raise ValueError(
                 f"Cannot extract pre-termination status from "
                 f"termination_reason '{raw}'"
             )
-        return "active"
+        return prev
 
     def is_participant(self, user_id: int) -> bool:
         return user_id == self.parent_user_id or user_id == self.tutor_user_id

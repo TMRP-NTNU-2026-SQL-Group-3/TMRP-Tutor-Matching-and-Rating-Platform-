@@ -1,3 +1,5 @@
+from psycopg2 import sql as psql
+
 from app.matching.domain.entities import Match
 from app.matching.domain.ports import IMatchRepository
 from app.matching.domain.value_objects import Contract, MatchStatus
@@ -120,22 +122,37 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
         # any subset of the contract terms.
         if new_status not in self.VALID_STATUSES:
             raise ValueError(f"Invalid status: {new_status}")
-        sets = ["status = %s", "updated_at = NOW()"]
+        # Build the SET clause through psycopg2.sql.Composable so column names
+        # are always identifier-quoted by the driver rather than interpolated
+        # as raw strings. Today the field names are hard-coded literals, so
+        # the f-string variant is safe — but the Composable form removes any
+        # possibility of a future refactor accidentally feeding a caller-
+        # controlled key into the SQL fragment.
+        set_parts = [
+            psql.SQL("{} = {}").format(psql.Identifier("status"), psql.Placeholder()),
+            psql.SQL("{} = NOW()").format(psql.Identifier("updated_at")),
+        ]
         params: list = [new_status]
+        optional_fields: list[tuple[str, object]] = []
         if hourly_rate is not None:
-            sets.append("hourly_rate = %s")
-            params.append(hourly_rate)
+            optional_fields.append(("hourly_rate", hourly_rate))
         if sessions_per_week is not None:
-            sets.append("sessions_per_week = %s")
-            params.append(sessions_per_week)
+            optional_fields.append(("sessions_per_week", sessions_per_week))
         if start_date is not None:
-            sets.append("start_date = %s")
-            params.append(start_date)
+            optional_fields.append(("start_date", start_date))
+        for col, val in optional_fields:
+            set_parts.append(
+                psql.SQL("{} = {}").format(psql.Identifier(col), psql.Placeholder())
+            )
+            params.append(val)
         params.append(match_id)
-        self.execute(
-            f"UPDATE matches SET {', '.join(sets)} WHERE match_id = %s",
-            tuple(params),
+        query = psql.SQL("UPDATE {} SET {} WHERE {} = {}").format(
+            psql.Identifier("matches"),
+            psql.SQL(", ").join(set_parts),
+            psql.Identifier("match_id"),
+            psql.Placeholder(),
         )
+        self.execute(query.as_string(self.conn), tuple(params))
 
     # Hard ceiling on the combined "{previous_status}|{reason}" payload that
     # `clear_termination` later reverses by splitting on "|". A bad-actor

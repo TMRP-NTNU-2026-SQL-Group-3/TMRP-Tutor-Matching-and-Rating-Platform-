@@ -39,8 +39,17 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    """驗證明碼是否與 bcrypt 雜湊值相符。"""
-    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    """驗證明碼是否與 bcrypt 雜湊值相符。
+
+    Non-bcrypt sentinels (e.g. the 'ANONYMIZED' marker left behind by the
+    admin anonymization flow) make bcrypt.checkpw raise ValueError. Swallow
+    that and return False so login attempts against an anonymized account
+    produce a normal 401, not a 500 that leaks the account state.
+    """
+    try:
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except ValueError:
+        return False
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
@@ -71,16 +80,38 @@ def create_refresh_token(data: dict) -> str:
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def _decode_with_rotation(token: str) -> dict | None:
-    """以目前的密鑰驗 token；若失敗、且設定了 JWT_SECRET_KEY_PREVIOUS，再以舊密鑰嘗試一次。
+def _previous_key_active() -> bool:
+    """True while the rotation grace window is still open.
 
-    回傳成功的 payload 或 None。設計目的：金鑰輪換期間，舊密鑰簽出的尚未過期 token
-    仍能驗證，避免所有使用者一次被踢出。新發行的 token 一律以新密鑰簽。
+    Config guarantees an expiry is set whenever a previous key is set, so a
+    missing deadline here means rotation is disabled entirely.
+    """
+    if not settings.jwt_secret_key_previous:
+        return False
+    raw = settings.jwt_secret_key_previous_expires_at.strip()
+    if not raw:
+        return False
+    try:
+        deadline = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) < deadline
+
+
+def _decode_with_rotation(token: str) -> dict | None:
+    """Verify with the current key; on failure and within the rotation grace
+    window, retry with the previous key.
+
+    Returns the payload or None. Purpose: during key rotation, tokens signed
+    by the previous key remain verifiable so in-flight sessions aren't all
+    evicted at once. New tokens are always signed with the current key.
+    The grace window is bounded by JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT so a
+    retired key cannot stay trusted indefinitely.
     """
     try:
         return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
     except JWTError as primary_err:
-        if not settings.jwt_secret_key_previous:
+        if not _previous_key_active():
             logger.warning("JWT decode failed: %s", type(primary_err).__name__)
             return None
         try:

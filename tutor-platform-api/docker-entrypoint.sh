@@ -5,8 +5,15 @@ set -e
 # absent (e.g. local dev without compose), fall back to whatever is already in
 # the env so uvicorn / tests still work.
 
+# Strip trailing CR/LF from a secret file — Windows editors often save as CRLF,
+# which Postgres's POSTGRES_PASSWORD_FILE reader tolerates but `cat` does not.
+# tr -d drops both so DATABASE_URL/JWT values don't carry stray whitespace.
+read_secret() {
+  tr -d '\r\n' < "$1"
+}
+
 if [ -f /run/secrets/db_password ]; then
-  DB_PASS=$(cat /run/secrets/db_password)
+  DB_PASS=$(read_secret /run/secrets/db_password)
   # HIGH-4: refuse to boot with a known placeholder or empty secret. If
   # ./secrets/db_password.txt was copied from the shipped .example without
   # being edited, the Postgres password would otherwise be trivially guessable.
@@ -21,18 +28,50 @@ if [ -f /run/secrets/db_password ]; then
 fi
 
 if [ -f /run/secrets/jwt_secret_key ]; then
-  JWT_SECRET_KEY=$(cat /run/secrets/jwt_secret_key)
+  JWT_SECRET_KEY=$(read_secret /run/secrets/jwt_secret_key)
+  # HIGH-4: mirror the db_password guard — refuse to boot on empty or
+  # placeholder JWT signing keys. config.py also rejects some placeholder
+  # strings, but it only runs after env export; an empty file here would
+  # trigger a far less actionable "JWT_SECRET_KEY must be >= 32 chars"
+  # pydantic error at import time.
+  case "$JWT_SECRET_KEY" in
+    ""|"REPLACE_ME"|"REPLACE_WITH_HEX_FROM_secrets.token_hex_32_AT_LEAST_32_CHARS"|"change-me-in-production"|"change-me")
+      echo "FATAL: /run/secrets/jwt_secret_key is empty or a known placeholder." >&2
+      echo "Generate one with: python -c 'import secrets; print(secrets.token_hex(32))'" >&2
+      exit 1
+      ;;
+  esac
   export JWT_SECRET_KEY
 fi
 
-# Optional — present only during a rotation window.
+# Optional — present only during a rotation window. An empty file is a
+# legitimate "no rotation in flight" signal, so don't treat empty as fatal
+# here; just skip the export. A non-empty-but-placeholder value is still
+# rejected so a rotation can't silently fall back to a known secret.
 if [ -f /run/secrets/jwt_secret_key_previous ]; then
-  JWT_SECRET_KEY_PREVIOUS=$(cat /run/secrets/jwt_secret_key_previous)
-  export JWT_SECRET_KEY_PREVIOUS
+  JWT_SECRET_KEY_PREVIOUS=$(read_secret /run/secrets/jwt_secret_key_previous)
+  case "$JWT_SECRET_KEY_PREVIOUS" in
+    "")
+      ;;
+    "REPLACE_ME"|"change-me-in-production"|"change-me")
+      echo "FATAL: /run/secrets/jwt_secret_key_previous contains a placeholder value." >&2
+      exit 1
+      ;;
+    *)
+      export JWT_SECRET_KEY_PREVIOUS
+      ;;
+  esac
 fi
 
 if [ -f /run/secrets/admin_password ]; then
-  ADMIN_PASSWORD=$(cat /run/secrets/admin_password)
+  ADMIN_PASSWORD=$(read_secret /run/secrets/admin_password)
+  case "$ADMIN_PASSWORD" in
+    ""|"REPLACE_ME"|"REPLACE_WITH_STRONG_PASSWORD_12PLUS_MIXED"|"admin"|"admin123"|"password"|"changeme")
+      echo "FATAL: /run/secrets/admin_password is empty or a known placeholder." >&2
+      echo "Edit ./secrets/admin_password.txt with a strong password (12+ chars, 3+ classes)." >&2
+      exit 1
+      ;;
+  esac
   export ADMIN_PASSWORD
 fi
 

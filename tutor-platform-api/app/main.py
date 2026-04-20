@@ -44,18 +44,53 @@ async def domain_exception_handler(request, exc: DomainException):
     )
 
 
+# HIGH-2 / HIGH-4: fields whose raw value must never reach logs or the 422
+# response body. Some Pydantic validators (e.g. regex, string-length) embed
+# the offending value inside `msg`, so dropping `input`/`ctx` alone is not
+# enough — we also scrub `msg` to a generic string whenever the failing
+# field name matches this list.
+_SENSITIVE_FIELD_NAMES: frozenset[str] = frozenset({
+    "password", "old_password", "new_password", "admin_password",
+    "token", "access_token", "refresh_token", "reset_token",
+    "jwt", "secret", "secret_key", "api_key", "authorization",
+})
+
+
+def _is_sensitive_loc(loc) -> bool:
+    for part in loc:
+        if isinstance(part, str) and part.lower() in _SENSITIVE_FIELD_NAMES:
+            return True
+    return False
+
+
+def _safe_msg(e: dict) -> str:
+    """Return `msg` with the raw input scrubbed out for sensitive fields.
+
+    For non-sensitive fields Pydantic's message is preserved so operators
+    keep a useful triage signal. For sensitive fields we return a generic
+    replacement — a password that fails `min_length` otherwise leaks its
+    length via "String should have at least N characters", and regex
+    failures can echo fragments of the value itself.
+    """
+    loc = e.get("loc") or ()
+    if _is_sensitive_loc(loc):
+        return "value failed validation"
+    return e.get("msg", "")
+
+
 def _redact_validation_errors(errors):
     # HIGH-2: Pydantic error dicts embed the raw `input` under any failed field.
     # Logging them verbatim persists plaintext passwords and refresh tokens
-    # (OWASP ASVS V7.1.1). Drop `input`/`ctx` entirely — the triage signal we
-    # actually need is just {loc, type, msg}.
+    # (OWASP ASVS V7.1.1). Drop `input`/`ctx` entirely and scrub `msg` for
+    # sensitive fields — the triage signal we actually need is just
+    # {loc, type, msg} with value fragments stripped.
     redacted = []
     for e in errors:
         loc = e.get("loc") or ()
         redacted.append({
             "loc": [str(p) for p in loc],
             "type": e.get("type", ""),
-            "msg": e.get("msg", ""),
+            "msg": _safe_msg(e),
         })
     return redacted
 
@@ -68,7 +103,7 @@ async def validation_exception_handler(request, exc: RequestValidationError):
     sanitized = [
         {
             "field": str(e["loc"][-1]) if e.get("loc") else "",
-            "message": e.get("msg", ""),
+            "message": _safe_msg(e),
         }
         for e in exc.errors()
     ]
@@ -90,13 +125,33 @@ async def http_exception_handler(request, exc: StarletteHTTPException):
     )
 
 
+_LEAKY_EXCEPTION_TYPES: frozenset[str] = frozenset({
+    # Exception classes whose name alone reveals the backing technology
+    # (DB driver, ORM, ...). Collapse to a generic label in structured logs
+    # so log sinks shipped to 3rd parties (Sentry, ELK) don't double as a
+    # stack fingerprint. The full traceback still goes to server-local logs
+    # via logger.exception — operators retain root-cause detail.
+    "UndefinedTable", "UndefinedColumn", "IntegrityError", "DataError",
+    "OperationalError", "ProgrammingError", "InterfaceError",
+    "InternalError", "NotSupportedError", "DatabaseError",
+    "DuplicateTable", "ForeignKeyViolation", "UniqueViolation",
+})
+
+
 async def unhandled_exception_handler(request, exc: Exception):
     # Surface the request_id injected by RequestIDMiddleware so user-reported
     # errors can be cross-referenced against the structured logs.
     request_id = getattr(request.state, "request_id", None)
+    exc_type = type(exc).__name__
+    logged_type = "InternalError" if exc_type in _LEAKY_EXCEPTION_TYPES else exc_type
+    # Don't interpolate str(exc) into the message — exception messages from
+    # libraries (especially DB drivers) frequently carry query fragments,
+    # constraint names and server paths that become searchable in log
+    # aggregators. The traceback attached by logger.exception stays on
+    # the server-local handler for operator debugging.
     logger.exception(
-        "Unhandled exception on %s %s [request_id=%s]: %s: %s",
-        request.method, request.url.path, request_id, type(exc).__name__, exc,
+        "Unhandled exception on %s %s [request_id=%s] type=%s",
+        request.method, request.url.path, request_id, logged_type,
     )
     body = {"success": False, "data": None, "message": "伺服器內部錯誤"}
     # SEC-L04: expose request_id only in the header — keeps it available for
@@ -118,12 +173,16 @@ async def unhandled_exception_handler(request, exc: Exception):
 async def lifespan(app: FastAPI):
     logger.info("API server starting")
     # Access tokens are not revoked on logout; only refresh-token JTIs are
-    # blacklisted. The short access-token TTL is the sole bound on a
-    # hijacked token's window — enforce the <=15-minute assumption here.
+    # blacklisted. Building an access-token blacklist is explicitly rejected
+    # here — it would require a DB hit on every authenticated request, which
+    # erases the main reason for choosing short-lived JWTs. Instead, we lean
+    # entirely on the short TTL as the bound on a hijacked token's window.
+    # The default in config.py is 5 minutes; the 10-minute cap below is the
+    # absolute upper bound we are willing to accept as defence in depth.
     # `raise` (not `assert`) so `python -O` cannot strip the check.
-    if settings.jwt_expire_minutes > 15:
+    if settings.jwt_expire_minutes > 10:
         raise RuntimeError(
-            f"JWT_EXPIRE_MINUTES must be <= 15 (got {settings.jwt_expire_minutes}) "
+            f"JWT_EXPIRE_MINUTES must be <= 10 (got {settings.jwt_expire_minutes}) "
             "because access tokens are not revoked on logout."
         )
     from app.shared.infrastructure.database import init_pool, close_pool, get_connection, release_connection
@@ -179,6 +238,17 @@ tags_metadata = [
     {"name": "admin", "description": "系統管理：使用者管理、資料匯入匯出、假資料生成、系統狀態"},
     {"name": "health", "description": "健康檢查：API 與資料庫連線狀態"},
 ]
+
+if settings.debug:
+    # DEBUG=true exposes /docs, /redoc and /openapi.json — these publish the
+    # full route inventory and schemas and MUST NOT be enabled in production.
+    # Log loudly at startup so a misconfigured deploy is obvious in the logs
+    # rather than silently shipping an introspectable attack surface.
+    logger.warning(
+        "DEBUG=true: /docs, /redoc, /openapi.json are PUBLIC. "
+        "Never enable this in production — the full route and schema "
+        "inventory is exposed to anonymous callers."
+    )
 
 app = FastAPI(
     title="家教媒合與評價平台 API",

@@ -14,6 +14,14 @@ import psycopg2
 
 from app.shared.infrastructure.config import Settings, settings as _default_settings
 from app.shared.infrastructure.security import hash_password
+from app.teaching.domain.constants import EXAM_TYPES
+
+# Render the exam_type CHECK-constraint IN-list from the single-source tuple
+# in app.teaching.domain.constants. Values are SQL-escaped by doubling single
+# quotes — they are short hand-curated labels, never user-supplied.
+_EXAM_TYPES_SQL = ", ".join(
+    "'" + t.replace("'", "''") + "'" for t in EXAM_TYPES
+)
 
 logger = logging.getLogger("app.init_db")
 
@@ -22,7 +30,7 @@ logger = logging.getLogger("app.init_db")
 # All DEFAULTs are declared inline on each CREATE TABLE.
 # ──────────────────────────────────────────────
 
-SCHEMA_DDL = """
+SCHEMA_DDL = f"""
 CREATE TABLE IF NOT EXISTS users (
     user_id       SERIAL PRIMARY KEY,
     username      VARCHAR(100) NOT NULL,
@@ -181,7 +189,7 @@ CREATE TABLE IF NOT EXISTS exams (
     -- 以 CHECK 取代 ENUM 以維持 schema 簡單、可遷移；保持與 UI 顯示文字一致
     -- 才不會在 INSERT 階段違反 constraint。
     exam_type         VARCHAR(20)      NOT NULL
-        CHECK (exam_type IN ('段考','小考','模擬考','其他')),
+        CHECK (exam_type IN ({_EXAM_TYPES_SQL})),
     -- score 仍接受小數但不涉及金流，保留 DOUBLE PRECISION
     score             DOUBLE PRECISION NOT NULL,
     visible_to_parent BOOLEAN          DEFAULT FALSE,
@@ -340,11 +348,49 @@ GROUP BY m.tutor_id;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_tutor_ratings_tutor
     ON v_tutor_ratings (tutor_id);
 
-CREATE OR REPLACE VIEW v_tutor_active_students AS
+-- Previously a plain VIEW, scanned by the tutor search / detail hot paths.
+-- Converted to a MATERIALIZED VIEW so the group-by over `matches` is not
+-- re-executed on every listing request. Refreshed CONCURRENTLY by the
+-- trigger below after any write that can change a tutor's active-student
+-- count. A unique index on `tutor_id` is required for CONCURRENTLY.
+--
+-- Migration block: older deployments may still have the plain VIEW. The
+-- DO block drops it only if `relkind = 'v'`; if relkind is already 'm'
+-- (materialized) we leave it alone and let the CREATE … IF NOT EXISTS
+-- below be a no-op. A bare `DROP VIEW IF EXISTS` would error on the
+-- second init run because that syntax rejects materialized views.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_class
+         WHERE relname = 'v_tutor_active_students'
+           AND relkind = 'v'
+    ) THEN
+        DROP VIEW v_tutor_active_students;
+    END IF;
+END $$;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS v_tutor_active_students AS
 SELECT tutor_id, COUNT(*) AS active_count
 FROM matches
 WHERE status IN ('active', 'trial')
 GROUP BY tutor_id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_tutor_active_tutor
+    ON v_tutor_active_students (tutor_id);
+
+CREATE OR REPLACE FUNCTION fn_refresh_tutor_active_students() RETURNS TRIGGER AS $fn$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY v_tutor_active_students;
+    RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_matches_refresh_active_students ON matches;
+CREATE TRIGGER trg_matches_refresh_active_students
+    AFTER INSERT OR UPDATE OF status OR DELETE ON matches
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION fn_refresh_tutor_active_students();
 
 -- B11: Statement-level trigger refreshes the materialised view after any
 -- write to reviews. CONCURRENTLY keeps reads unblocked; statement scope
@@ -398,6 +444,31 @@ CREATE TRIGGER trg_students_propagate_parent
     AFTER UPDATE OF parent_user_id ON students
     FOR EACH ROW
     EXECUTE FUNCTION fn_students_propagate_parent();
+
+-- Normalize conversation participant order at the DB layer instead of
+-- trusting each caller (repo, admin CSV import, seed script) to sort
+-- user_a_id < user_b_id themselves. The CHECK constraint catches the bug,
+-- but raising a constraint violation on a non-app insert path is worse
+-- UX than transparently swapping the columns before the row reaches the
+-- check. Self-conversations (a == b) still fall to the existing CHECK.
+CREATE OR REPLACE FUNCTION fn_conversations_order_pair() RETURNS TRIGGER AS $fn$
+DECLARE
+    tmp INTEGER;
+BEGIN
+    IF NEW.user_a_id > NEW.user_b_id THEN
+        tmp := NEW.user_a_id;
+        NEW.user_a_id := NEW.user_b_id;
+        NEW.user_b_id := tmp;
+    END IF;
+    RETURN NEW;
+END;
+$fn$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_conversations_order_pair ON conversations;
+CREATE TRIGGER trg_conversations_order_pair
+    BEFORE INSERT OR UPDATE OF user_a_id, user_b_id ON conversations
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_conversations_order_pair();
 
 -- Migration block for databases created before these fixes shipped.
 -- CREATE TABLE IF NOT EXISTS does not rewrite existing tables, so any

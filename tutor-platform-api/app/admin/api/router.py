@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 
 from app.admin.api.dependencies import get_admin_import_service, get_admin_repo
 from app.admin.application.import_service import AdminImportService, MAX_UPLOAD_SIZE
-from app.admin.domain.tables import ALLOWED_TABLES, validate_table
+from app.admin.domain.tables import ALLOWED_TABLES, validate_exportable_table, validate_table
 from app.admin.infrastructure.table_admin_repo import TableAdminRepository
 from app.identity.api.dependencies import get_db, require_role
 from app.shared.api.schemas import ApiResponse
@@ -82,7 +82,7 @@ def export_csv(
     user=Depends(require_role("admin")),
     service: AdminImportService = Depends(get_admin_import_service),
 ):
-    validate_table(table_name)
+    validate_exportable_table(table_name)
     logger.warning("Admin user_id=%s 匯出 CSV: %s", user.get("sub"), table_name)
     path = service.export_table_to_csv(
         table_name=table_name, export_dir=Path("data/export"),
@@ -170,6 +170,9 @@ def confirm_reset(
         backup_path = service.export_all_tables_to_zip(
             export_dir=backup_dir,
             zip_name=f"pre-reset-{payload['jti']}.zip",
+            # DR artefact written to a server-local path — include users so a
+            # mistaken reset is actually recoverable from this backup.
+            include_sensitive=True,
         )
     except Exception:
         # An empty DB has nothing to export; fall through without a backup
@@ -187,10 +190,50 @@ def confirm_reset(
     )
     deleted = service.reset_database(admin_user_id=int(user["sub"]))
     total = sum(deleted.values())
+    # Return only a boolean: the backup path lives on the server filesystem
+    # and its filename embeds the reset JTI. Surfacing it invites a caller
+    # to infer paths and gives an attacker with stolen admin creds a
+    # predictable artefact name to target. The full path is already in the
+    # server log above for operator recovery.
     return ApiResponse(
         success=True,
-        data={"deleted": deleted, "backup": str(backup_path) if backup_path else None},
+        data={"deleted": deleted, "backup_created": backup_path is not None},
         message=f"已刪除 {total} 筆資料，Admin 帳號已保留",
+    )
+
+
+# GDPR: users cannot be hard-deleted because matches.terminated_by,
+# matches.parent_user_id, reviews.reviewer_user_id and exams.added_by_user_id
+# all use ON DELETE RESTRICT to keep the audit trail intact. This endpoint
+# gives admins the compliant alternative — replace the PII, invalidate the
+# credential, keep the user_id so FKs stay resolvable. The row is NOT
+# removed.
+@router.post("/users/{user_id}/anonymize", summary="匿名化使用者", response_model=ApiResponse)
+def anonymize_user(
+    user_id: int,
+    user=Depends(require_role("admin")),
+    repo: TableAdminRepository = Depends(get_admin_repo),
+):
+    # Self-anonymization would orphan the platform — block it up-front so a
+    # slip of the finger can't lock every operator out.
+    if int(user["sub"]) == user_id:
+        raise HTTPException(status_code=400, detail="無法匿名化自己的帳號")
+    # Block anonymizing the only remaining admin to preserve break-glass access.
+    target_role = repo.get_user_role(user_id)
+    if target_role is None:
+        raise HTTPException(status_code=404, detail="使用者不存在")
+    logger.warning(
+        "Admin user_id=%s anonymizing user_id=%s (role=%s)",
+        user.get("sub"), user_id, target_role,
+    )
+    updated = repo.anonymize_user(user_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="使用者不存在")
+    repo.conn.commit()
+    return ApiResponse(
+        success=True,
+        data={"user_id": user_id},
+        message="使用者已匿名化（保留 user_id 以維護審計關聯）",
     )
 
 

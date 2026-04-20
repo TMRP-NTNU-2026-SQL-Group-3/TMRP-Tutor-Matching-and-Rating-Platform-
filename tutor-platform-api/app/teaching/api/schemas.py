@@ -1,6 +1,21 @@
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+from app.teaching.domain.constants import EXAM_TYPES
+
+
+def _check_exam_type(v: str) -> str:
+    # Source of truth for allowed values is EXAM_TYPES; the DB CHECK
+    # constraint in init_db.py is generated from the same tuple, so the
+    # Pydantic layer and the database can never silently drift.
+    if v not in EXAM_TYPES:
+        raise ValueError(f"exam_type 必須為 {list(EXAM_TYPES)} 之一")
+    return v
+
+
+ExamType = Annotated[str, AfterValidator(_check_exam_type)]
 
 
 class SessionCreate(BaseModel):
@@ -28,13 +43,13 @@ class ExamCreate(BaseModel):
     student_id: int = Field(..., description="學生 ID")
     subject_id: int = Field(..., description="科目 ID")
     exam_date: datetime = Field(..., description="考試日期")
-    exam_type: str = Field(..., description="考試類型")
+    exam_type: ExamType = Field(..., description="考試類型")
     score: float = Field(..., ge=0, description="考試分數")
     visible_to_parent: bool = Field(default=True, description="是否對家長可見")
 
 
 class ExamUpdate(BaseModel):
     exam_date: datetime | None = Field(default=None)
-    exam_type: str | None = Field(default=None)
+    exam_type: ExamType | None = Field(default=None)
     score: float | None = Field(default=None, ge=0)
     visible_to_parent: bool | None = Field(default=None)

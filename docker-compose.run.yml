@@ -1,0 +1,16 @@
+# Ad-hoc override: your host already uses 5432 and 8000 (local Postgres +
+# FastAPI dev server). Drop those host bindings so the compose stack can run
+# alongside the local dev setup. Port 80 (web) is free so it stays as-is.
+# Invoke with:  docker compose -f docker-compose.yml -f docker-compose.run.yml up -d
+services:
+  api:
+    ports: !reset []
+    environment:
+      DEBUG: "true"
+      COOKIE_SECURE: "false"
+      CORS_ORIGINS: "http://localhost,http://localhost:80"
+  worker:
+    environment:
+      DEBUG: "true"
+      COOKIE_SECURE: "false"
+      CORS_ORIGINS: "http://localhost,http://localhost:80"

@@ -14,7 +14,9 @@ from pathlib import Path
 from app.admin.domain.tables import (
     ALLOWED_TABLES,
     DELETE_ORDER,
+    EXPORTABLE_TABLES,
     IMPORT_ORDER,
+    validate_exportable_table,
     validate_table,
 )
 from app.admin.infrastructure.csv_io import parse_csv, write_csv
@@ -138,14 +140,20 @@ class AdminImportService:
                 inserted = 0
                 table_errors: list[str] = []
                 for i, row in enumerate(rows, 1):
+                    # The counter must only advance after the savepoint is
+                    # released — an INSERT that succeeds but whose savepoint
+                    # release later fails is not a committed row, and the
+                    # outer transaction will roll it back. Incrementing
+                    # earlier produced a misleading "inserted" total.
+                    self._repo.savepoint()
                     try:
-                        self._repo.savepoint()
                         self._repo.insert_csv_row(table, columns, [row[c] for c in columns])
-                        self._repo.release_savepoint()
-                        inserted += 1
                     except Exception as e:
                         self._repo.rollback_to_savepoint()
                         table_errors.append(f"第 {i} 列: {_format_row_error(e)}")
+                    else:
+                        self._repo.release_savepoint()
+                        inserted += 1
                 result[table] = inserted
                 if table_errors:
                     errors[table] = table_errors
@@ -180,7 +188,7 @@ class AdminImportService:
     # ── Export ──────────────────────────────────────────────────────
 
     def export_table_to_csv(self, *, table_name: str, export_dir: Path) -> Path:
-        validate_table(table_name)
+        validate_exportable_table(table_name)
         rows = self._repo.select_all(table_name)
         if not rows:
             raise NotFoundError(f"{table_name} 無資料可匯出")
@@ -189,19 +197,57 @@ class AdminImportService:
         write_csv(str(path), rows)
         return path
 
-    def export_all_tables_to_zip(self, *, export_dir: Path, zip_name: str = "all_tables.zip") -> Path:
+    def export_all_tables_to_zip(
+        self,
+        *,
+        export_dir: Path,
+        zip_name: str = "all_tables.zip",
+        include_sensitive: bool = False,
+    ) -> Path:
+        """Export every non-empty allowed table to a ZIP.
+
+        ``include_sensitive`` controls whether tables on the EXPORT_DENYLIST
+        (notably ``users`` with its password_hash column) are included. The
+        HTTP ``/admin/export-all`` endpoint leaves it False so downloadable
+        archives cannot leak credential material. The pre-reset DR backup
+        passes True because the archive is written to a server-local path
+        and a reset without users is not actually restorable.
+        """
         export_dir.mkdir(parents=True, exist_ok=True)
         exported: list[Path] = []
-        for table in sorted(ALLOWED_TABLES):
-            rows = self._repo.select_all(table)
-            if rows:
-                path = export_dir / f"{table}.csv"
-                write_csv(str(path), rows)
-                exported.append(path)
-        if not exported:
-            raise NotFoundError("所有資料表均無資料可匯出")
+        tables = ALLOWED_TABLES if include_sensitive else EXPORTABLE_TABLES
         zip_path = export_dir / zip_name
-        with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
+        # Any partial CSV written before an error must be cleaned up, otherwise
+        # repeated admin/reset failures accumulate orphan artefacts on disk
+        # (and can leak sensitive column data for aborted include_sensitive
+        # runs). Wrap the loop so the finally block fires on success and
+        # failure alike — the CSVs are intermediate, only the zip is the
+        # deliverable.
+        try:
+            for table in sorted(tables):
+                rows = self._repo.select_all(table)
+                if rows:
+                    path = export_dir / f"{table}.csv"
+                    write_csv(str(path), rows)
+                    exported.append(path)
+            if not exported:
+                raise NotFoundError("所有資料表均無資料可匯出")
+            with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
+                for csv_path in exported:
+                    zf.write(str(csv_path), csv_path.name)
+        except Exception:
+            # Remove a half-written zip so callers don't mistake a truncated
+            # archive for a valid backup.
+            try:
+                if zip_path.exists():
+                    zip_path.unlink()
+            except OSError:
+                pass
+            raise
+        finally:
             for csv_path in exported:
-                zf.write(str(csv_path), csv_path.name)
+                try:
+                    csv_path.unlink()
+                except OSError:
+                    pass
         return zip_path

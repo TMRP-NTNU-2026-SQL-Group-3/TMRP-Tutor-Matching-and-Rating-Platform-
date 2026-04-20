@@ -6,7 +6,22 @@ open a connection pool on app startup) is patched to a no-op for the
 duration of the test session.
 """
 
+import os
 from unittest.mock import MagicMock, patch
+
+# Settings() is constructed at import time by app.shared.infrastructure.config,
+# so required env vars must be populated before app.main is imported below. The
+# values here are test-only fixtures; do not reuse them anywhere else.
+os.environ.setdefault(
+    "DATABASE_URL", "postgresql://test:test@localhost:5432/test"
+)
+os.environ.setdefault(
+    "JWT_SECRET_KEY", "test_" + "0" * 60
+)
+os.environ.setdefault("ADMIN_USERNAME", "owner_test_fixture")
+os.environ.setdefault("ADMIN_PASSWORD", "TestFixturePw!9x")
+# Debug mode so CORS/cookie production-only validators don't fire under tests.
+os.environ.setdefault("DEBUG", "true")
 
 import pytest
 from fastapi.testclient import TestClient

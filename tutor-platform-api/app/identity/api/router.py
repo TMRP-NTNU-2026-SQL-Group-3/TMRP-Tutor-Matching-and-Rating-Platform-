@@ -116,7 +116,11 @@ def refresh(
     refresh_token_value = request.cookies.get("refresh_token")
     if not refresh_token_value:
         raise HTTPException(status_code=401, detail="Missing refresh token")
-    result = service.refresh(refresh_token=refresh_token_value)
+    result = service.refresh(
+        refresh_token=refresh_token_value,
+        source_ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     _set_auth_cookies(response, result["access_token"], result["refresh_token"])
     return ApiResponse(
         success=True,

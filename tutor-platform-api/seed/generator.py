@@ -53,6 +53,17 @@ def run_seed(conn) -> dict:
     dict
         各資料表新增的筆數，例如 {"users": 6, "students": 5, ...}。
     """
+    # B8: the caller owns the transaction. Fail fast if `conn` is in
+    # autocommit mode — otherwise every INSERT below would commit
+    # individually and a mid-run error would leave the DB half-seeded,
+    # defeating the whole point of the rollback path in seed_tasks /
+    # admin router.
+    if getattr(conn, "autocommit", False):
+        raise RuntimeError(
+            "run_seed requires conn.autocommit=False so the caller owns the "
+            "transaction boundary (commit on success, rollback on failure)."
+        )
+
     cursor = conn.cursor()
 
     # ── 防重複 ─────────────────────────────────

@@ -36,11 +36,13 @@ HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
 ENTRYPOINT ["./docker-entrypoint.sh"]
 
 # 預設啟動 API 伺服器（可在 docker-compose 中覆蓋為 huey worker）
-# MEDIUM-2: trust X-Forwarded-For/Proto from the in-cluster nginx proxy so
-# rate-limiting and audit logs key off the real client IP instead of the
-# proxy IP. The forwarded-allow-ips list is intentionally broad ("*") because
-# uvicorn only sees traffic inside the compose/overlay network — the outer
-# nginx is the single trusted hop, and it overwrites XFF before forwarding
-# (see tutor-platform-web/nginx.conf, MEDIUM-3).
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
-     "--proxy-headers", "--forwarded-allow-ips", "*"]
+# MEDIUM-2: trust X-Forwarded-For/Proto only from the nginx sidecar.
+# uvicorn's ProxyHeadersMiddleware does exact-string IP match (no CIDR), so
+# we take the list from the FORWARDED_ALLOW_IPS env var — docker-compose
+# pins the web service to a fixed address on a user-defined subnet and
+# exports it here. Defaulting to "127.0.0.1" means a mis-deployed container
+# (no env var, no nginx in front) refuses to honour spoofed XFF from the
+# public internet.
+# `exec` replaces the shell with uvicorn so SIGTERM from `docker stop` reaches
+# uvicorn directly (otherwise the sh wrapper becomes PID 1 and swallows signals).
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips \"${FORWARDED_ALLOW_IPS:-127.0.0.1}\""]

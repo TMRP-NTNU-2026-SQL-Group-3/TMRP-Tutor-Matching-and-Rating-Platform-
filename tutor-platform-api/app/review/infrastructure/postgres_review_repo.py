@@ -42,8 +42,16 @@ class PostgresReviewRepository(BaseRepository, IReviewRepository):
         )
 
     def list_by_match(self, match_id: int) -> list[dict]:
+        # Project explicit columns — `r.*` leaked reviewer_user_id, which lets
+        # a participant correlate reviews across matches to deanonymise the
+        # other side's identity graph. review_type is enough for the caller
+        # to know whether they are looking at the tutor's or parent's review.
         return self.fetch_all(
-            """SELECT r.*, u.display_name AS reviewer_name
+            """SELECT r.review_id, r.match_id, r.review_type,
+                      r.rating_1, r.rating_2, r.rating_3, r.rating_4,
+                      r.personality_comment, r.comment,
+                      r.is_locked, r.created_at, r.updated_at,
+                      u.display_name AS reviewer_name
                FROM reviews r INNER JOIN users u ON r.reviewer_user_id = u.user_id
                WHERE r.match_id = %s ORDER BY r.created_at DESC""",
             (match_id,),

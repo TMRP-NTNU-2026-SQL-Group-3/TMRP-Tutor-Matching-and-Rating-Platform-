@@ -53,18 +53,35 @@ class TableAdminRepository(BaseRepository):
         self.cursor.execute(stmt, values)
 
     def reset_serial_sequences(self, table_names) -> None:
+        # Rebases every SERIAL/IDENTITY sequence to MAX(col) of the current
+        # table contents so the next auto-generated id cannot collide with an
+        # imported row that hard-coded an id. The reset is strictly MAX-based
+        # — `setval(..., MAX, true)` makes the next `nextval` return MAX+1
+        # (equivalently, `MAX+1, false`); we never lower a sequence below its
+        # current MAX and never raise it past the last stored row.
+        # table_schema is constrained to the active schema so a same-named
+        # table in another schema cannot leak into the match.
         for table in table_names:
             self.cursor.execute(
                 "SELECT column_name, pg_get_serial_sequence(%s, column_name) AS seq "
                 "FROM information_schema.columns "
-                "WHERE table_name = %s AND column_default LIKE 'nextval%%'",
+                "WHERE table_schema = current_schema() "
+                "  AND table_name = %s "
+                "  AND column_default LIKE 'nextval%%'",
                 (table, table),
             )
             for row in self.cursor.fetchall():
                 col_name, seq_name = row[0], row[1]
                 if seq_name:
+                    # setval(seq, MAX+1, false) makes the next nextval() return
+                    # exactly MAX+1. For an empty table COALESCE yields 0 → the
+                    # next nextval returns 1, matching PostgreSQL's default
+                    # starting value. Never lowered below MAX(col), so a hand-
+                    # coded id in the imported data cannot collide with a
+                    # subsequent auto-assigned id.
                     stmt = sql.SQL(
-                        "SELECT setval({seq}, COALESCE((SELECT MAX({col}) FROM {tbl}), 0) + 1, false)"
+                        "SELECT setval({seq}, "
+                        "COALESCE((SELECT MAX({col}) FROM {tbl}), 0) + 1, false)"
                     ).format(
                         seq=sql.Literal(seq_name),
                         col=sql.Identifier(col_name),
@@ -83,6 +100,38 @@ class TableAdminRepository(BaseRepository):
     def rollback_to_savepoint(self, name: str = "row_sp") -> None:
         stmt = sql.SQL("ROLLBACK TO SAVEPOINT {sp}").format(sp=sql.Identifier(name))
         self.cursor.execute(stmt)
+
+    def get_user_role(self, user_id: int) -> str | None:
+        row = self.fetch_one(
+            "SELECT role FROM users WHERE user_id = %s", (user_id,)
+        )
+        return row["role"] if row else None
+
+    def anonymize_user(self, user_id: int) -> bool:
+        """GDPR 'right to erasure' friendly counterpart to DELETE.
+
+        Replaces PII columns with deterministic placeholders and invalidates
+        the credential, but keeps the row so that audit-only FKs (matches.
+        terminated_by, reviews.reviewer_user_id, etc.) stay resolvable. The
+        password_hash is set to a non-verifying sentinel so no password will
+        ever match on login again.
+
+        Returns True when a row was updated, False when user_id is unknown.
+        """
+        placeholder_username = f"deleted_user_{user_id}"
+        self.cursor.execute(
+            """
+            UPDATE users SET
+                username = %s,
+                password_hash = 'ANONYMIZED',
+                display_name = 'Deleted User',
+                phone = NULL,
+                email = NULL
+            WHERE user_id = %s
+            """,
+            (placeholder_username, user_id),
+        )
+        return self.cursor.rowcount > 0
 
     def list_users(self) -> list[dict]:
         return self.fetch_all(

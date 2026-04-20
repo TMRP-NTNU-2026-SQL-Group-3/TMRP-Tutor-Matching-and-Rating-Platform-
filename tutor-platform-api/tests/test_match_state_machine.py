@@ -118,15 +118,18 @@ class TestActorPermissions:
 
 
 class TestDisagreeTermination:
-    def test_disagree_stays_in_terminating(self):
-        # The state machine returns TERMINATING (no-op on the status column).
-        # MatchAppService overrides this to revert to the pre-TERMINATING
-        # state via previous_status_before_terminating.
+    def test_disagree_returns_none_so_app_layer_reverts(self):
+        # The state machine encodes DISAGREE_TERMINATE as an explicit revert
+        # (new_status=None). MatchAppService computes the real next status
+        # from previous_status_before_terminating. Previously the table
+        # returned TERMINATING, which was semantically wrong: the match is
+        # not staying in TERMINATING, the row is being restored to its
+        # pre-termination status by clear_termination.
         result = _call(
             MatchStatus.TERMINATING, Action.DISAGREE_TERMINATE,
             actor_is_parent=True, actor_user_id=1, terminated_by=2,
         )
-        assert result == MatchStatus.TERMINATING
+        assert result is None
 
     def test_disagree_requires_terminated_by(self):
         # If terminated_by was never set, OTHER_PARTY validation must reject.

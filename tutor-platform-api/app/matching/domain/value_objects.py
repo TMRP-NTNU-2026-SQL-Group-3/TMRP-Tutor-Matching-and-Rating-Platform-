@@ -66,3 +66,27 @@ class Contract:
     trial_price: float | None = None
     trial_count: int | None = None
     contract_notes: str | None = None
+
+    def __post_init__(self) -> None:
+        # Invariants enforced here so a malformed Contract cannot reach the
+        # state machine or DB writes — the object is supposed to represent a
+        # concrete, signable agreement. Anything that would be non-sensical in
+        # a real contract (negative rate, zero sessions, trial priced without
+        # want_trial, end_date before start_date) is a bug upstream and must
+        # surface at construction time, not as a mystery NULL downstream.
+        if self.hourly_rate < 0:
+            raise ValueError("hourly_rate must be >= 0")
+        if self.sessions_per_week < 0:
+            raise ValueError("sessions_per_week must be >= 0")
+        if self.trial_price is not None and self.trial_price < 0:
+            raise ValueError("trial_price must be >= 0")
+        if self.trial_count is not None and self.trial_count < 0:
+            raise ValueError("trial_count must be >= 0")
+        if self.penalty_amount is not None and self.penalty_amount < 0:
+            raise ValueError("penalty_amount must be >= 0")
+        if (
+            self.start_date is not None
+            and self.end_date is not None
+            and self.end_date < self.start_date
+        ):
+            raise ValueError("end_date must not precede start_date")

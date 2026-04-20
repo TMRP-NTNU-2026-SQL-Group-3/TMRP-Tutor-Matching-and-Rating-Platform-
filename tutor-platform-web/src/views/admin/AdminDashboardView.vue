@@ -242,6 +242,13 @@ const seeding = ref(false)
 const seedResult = ref('')
 const resetting = ref(false)
 const resetResult = ref('')
+// Client-side throttle for the two-step reset flow. The backend already rate-
+// limits /admin/reset/*, but a cooldown here avoids burning a rate-limit
+// token on a stuck UI (e.g. admin double-clicking after a network blip) and
+// gives a clearer UX message than a generic 429. 30s is enough to absorb
+// accidental repeats without frustrating a legitimate retry.
+const RESET_COOLDOWN_MS = 30_000
+const lastResetAttemptAt = ref(0)
 const systemStatus = ref(null)
 const loadingStatus = ref(false)
 const error = ref('')
@@ -342,6 +349,12 @@ function cancelReset() {
 async function confirmResetFromModal() {
   if (resetting.value) return
   resetModalError.value = ''
+  const sinceLast = Date.now() - lastResetAttemptAt.value
+  if (lastResetAttemptAt.value && sinceLast < RESET_COOLDOWN_MS) {
+    const wait = Math.ceil((RESET_COOLDOWN_MS - sinceLast) / 1000)
+    resetModalError.value = `請稍候 ${wait} 秒後再試`
+    return
+  }
   if (resetConfirmText.value !== 'RESET') {
     resetModalError.value = '請輸入正確的確認文字「RESET」'
     return
@@ -350,6 +363,7 @@ async function confirmResetFromModal() {
     resetModalError.value = '請輸入 Admin 密碼'
     return
   }
+  lastResetAttemptAt.value = Date.now()
   resetting.value = true
   clearResults()
   try {

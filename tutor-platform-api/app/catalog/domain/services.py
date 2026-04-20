@@ -13,32 +13,38 @@ class TutorService:
         return tutor
 
     def apply_visibility(self, tutor: dict) -> dict:
-        """Mask non-public fields according to the tutor's privacy flags.
+        """Return a copy of `tutor` with non-public fields masked.
 
-        Honours: show_hourly_rate (per-subject rate), show_subjects (subjects list),
-        show_university, show_department, show_grade_year. Removes all show_*
-        flags from the resulting dict so they never leak to other users.
+        Does **not** mutate the input: a shallow copy of the dict and a
+        one-level copy of each `subjects` element are taken so nested `pop`
+        calls cannot leak rate information back to the shared row that
+        callers may pass along to logging, caching, or serialization.
+
+        Honours: show_hourly_rate (per-subject rate), show_subjects (subjects
+        list), show_university, show_department, show_grade_year. Removes
+        all show_* flags from the resulting dict so they never leak to
+        other users. PII (email/phone, active_student_count) is always
+        stripped — see HIGH-1.
         """
-        subjects = tutor.get("subjects") or []
-        if not tutor.get("show_hourly_rate", True):
-            for s in subjects:
-                if isinstance(s, dict):
-                    s.pop("hourly_rate", None)
-        tutor["subjects"] = subjects if tutor.get("show_subjects", True) else []
+        result = dict(tutor)
+        subjects = list(result.get("subjects") or [])
+        if not result.get("show_hourly_rate", True):
+            subjects = [
+                {k: v for k, v in s.items() if k != "hourly_rate"}
+                if isinstance(s, dict) else s
+                for s in subjects
+            ]
+        result["subjects"] = subjects if result.get("show_subjects", True) else []
 
-        if not tutor.get("show_university"):
-            tutor.pop("university", None)
-        if not tutor.get("show_department"):
-            tutor.pop("department", None)
-        if not tutor.get("show_grade_year"):
-            tutor.pop("grade_year", None)
-        # Active student count leaks roster size; treat as private and only
-        # expose it to the tutor themselves.
-        tutor.pop("active_student_count", None)
-        # HIGH-1: email/phone are PII. Never expose on the public-facing view;
-        # a match moving to active/trial is the only flow that unlocks them.
-        tutor.pop("email", None)
-        tutor.pop("phone", None)
-        for key in [k for k in tutor if k.startswith("show_")]:
-            del tutor[key]
-        return tutor
+        if not result.get("show_university"):
+            result.pop("university", None)
+        if not result.get("show_department"):
+            result.pop("department", None)
+        if not result.get("show_grade_year"):
+            result.pop("grade_year", None)
+        result.pop("active_student_count", None)
+        result.pop("email", None)
+        result.pop("phone", None)
+        for key in [k for k in result if k.startswith("show_")]:
+            del result[key]
+        return result
