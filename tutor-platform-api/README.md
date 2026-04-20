@@ -60,7 +60,7 @@ cp tutor-platform-api/.env.docker.example tutor-platform-api/.env.docker
 docker compose up -d --build
 ```
 
-Once healthy, the API is at <http://localhost:8000> and Swagger UI at <http://localhost:8000/docs>.
+Once healthy, the API is at <http://localhost:8001> and Swagger UI at <http://localhost:8001/docs>.
 
 The container's healthcheck (`GET /health`) only passes after:
 1. the connection pool is initialised,

@@ -89,7 +89,7 @@ The backend enforces all business rules — the status machine, rating visibilit
 | Backend framework | FastAPI | 0.115.6 |
 | ASGI server | Uvicorn | 0.34.0 |
 | Data validation | Pydantic | 2.10.4 |
-| Database driver | psycopg2 | 2.9.10 |
+| Database driver | psycopg2 | >=2.9.11 |
 | Password hashing | bcrypt | 4.2.1 |
 | JWT | PyJWT | 2.9.0 |
 | Task queue | huey | 2.5.2 |
@@ -136,9 +136,9 @@ Once the containers are healthy:
 | Service | URL |
 |---------|-----|
 | Frontend | http://localhost (host 80 → container 8080, Nginx runs non-root) |
-| API | http://localhost:8000 |
-| Swagger UI | http://localhost:8000/docs (only when `DEBUG=true`) |
-| PostgreSQL | 127.0.0.1:5432 (bound to loopback; credentials from repo-root `.env`) |
+| API | http://localhost:8001 |
+| Swagger UI | http://localhost:8001/docs (only when `DEBUG=true`) |
+| PostgreSQL | 127.0.0.1:5433 (bound to loopback; credentials from repo-root `.env`) |
 
 Stop and remove containers:
 
@@ -489,7 +489,7 @@ The `web` container listens on plain HTTP port 8080 because the official `nginx-
 
 Deployment rules:
 
-- In production, **you must terminate TLS before traffic reaches this container**. Exposing port 80 directly to the internet will ship auth cookies and JWTs in cleartext and silently neuter the HSTS header browsers will ignore it over HTTP).
+- In production, **you must terminate TLS before traffic reaches this container**. Exposing port 80 directly to the internet will ship auth cookies and JWTs in cleartext and silently neuter the HSTS header (browsers will ignore it over HTTP).
 - Set `COOKIE_SECURE=true` in the API environment so auth cookies carry the `Secure` attribute. The default is `false` to keep local `docker compose up` usable without a TLS cert.
 - Point the TLS proxy at `web:8080` (inside the compose/overlay network) and let it rewrite `X-Forwarded-Proto` to `https`. Uvicorn is launched with `--proxy-headers` (see MEDIUM-2) and will honour the forwarded scheme when generating redirects.
 
