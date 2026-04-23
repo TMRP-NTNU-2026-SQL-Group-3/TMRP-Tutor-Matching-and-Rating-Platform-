@@ -12,7 +12,7 @@ class MatchCreate(BaseModel):
     student_id: int = Field(..., description="學生 ID")
     subject_id: int = Field(..., description="科目 ID")
     hourly_rate: float = Field(..., gt=0, description="每小時費率")
-    sessions_per_week: int = Field(..., description="每週上課次數")
+    sessions_per_week: int = Field(..., ge=1, description="每週上課次數")
     want_trial: bool = Field(default=False, description="是否希望試教")
     invite_message: str | None = Field(default=None, max_length=1000, description="邀請訊息")
 

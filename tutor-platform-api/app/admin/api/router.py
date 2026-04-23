@@ -253,7 +253,7 @@ def system_status(
     )
 
 
-@router.post("/export-all", summary="一鍵匯出全部")
+@router.get("/export-all", summary="一鍵匯出全部")
 def export_all(
     user=Depends(require_role("admin")),
     service: AdminImportService = Depends(get_admin_import_service),
