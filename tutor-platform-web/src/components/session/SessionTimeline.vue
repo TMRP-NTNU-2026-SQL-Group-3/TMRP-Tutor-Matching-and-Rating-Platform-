@@ -234,22 +234,12 @@ async function confirmDelete(sessionId) {
   }
 }
 
-function getTimezoneAbbr() {
-  try {
-    return Intl.DateTimeFormat('zh-TW', { timeZoneName: 'short' })
-      .formatToParts(new Date())
-      .find(p => p.type === 'timeZoneName')?.value || ''
-  } catch {
-    return ''
-  }
-}
-
-const tzAbbr = getTimezoneAbbr()
-
 function formatDate(dt) {
   if (!dt) return ''
-  const dateStr = new Date(dt).toLocaleDateString('zh-TW')
-  return tzAbbr ? `${dateStr} (${tzAbbr})` : dateStr
+  // Session dates are calendar-only values; parse as local date to avoid
+  // off-by-one shifts caused by UTC interpretation of "YYYY-MM-DD" strings.
+  const [y, m, d] = String(dt).slice(0, 10).split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('zh-TW')
 }
 
 function formatDateTime(dt) {

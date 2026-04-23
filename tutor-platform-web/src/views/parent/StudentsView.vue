@@ -53,7 +53,7 @@
             <div>
               <label for="student-name" class="block text-sm font-medium text-gray-700 mb-1">姓名 *</label>
               <input id="student-name" v-model="form.name" type="text" required
-                :aria-invalid="!!error || null" aria-describedby="student-form-error"
+                :aria-invalid="!!nameError || null" aria-describedby="student-form-error"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -68,7 +68,8 @@
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
               </div>
             </div>
-            <p v-if="error" id="student-form-error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
+            <p v-if="nameError" id="student-form-error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ nameError }}</p>
+            <p v-else-if="error" id="student-form-error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
             <div class="flex gap-3">
               <button type="submit" :disabled="submitting"
                 class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
@@ -99,11 +100,17 @@ const loading = ref(false)
 const showForm = ref(false)
 const submitting = ref(false)
 const error = ref('')
+const nameError = ref('')
 const editingId = ref(null)
 const form = reactive({ name: '', school: '', grade: '' })
 
 // Clear previous errors when the form reopens so stale messages don't linger.
-watch(showForm, (v) => { if (v) error.value = '' })
+watch(showForm, (v) => {
+  if (v) {
+    error.value = ''
+    nameError.value = ''
+  }
+})
 
 async function fetchStudents() {
   loading.value = true
@@ -122,6 +129,7 @@ function resetForm() {
   form.school = ''
   form.grade = ''
   editingId.value = null
+  nameError.value = ''
 }
 
 function openAddForm() {
@@ -144,10 +152,15 @@ function closeForm() {
 
 async function handleSubmit() {
   error.value = ''
+  nameError.value = ''
+  if (!form.name?.trim()) {
+    nameError.value = '姓名為必填'
+    return
+  }
   submitting.value = true
   try {
     const payload = {
-      name: form.name,
+      name: form.name.trim(),
       school: form.school?.trim() || null,
       grade: form.grade?.trim() || null,
     }

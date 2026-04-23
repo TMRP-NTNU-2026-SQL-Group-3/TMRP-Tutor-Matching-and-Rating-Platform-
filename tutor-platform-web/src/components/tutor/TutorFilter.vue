@@ -35,7 +35,7 @@
       </div>
       <div class="flex flex-col gap-1">
         <label class="text-xs font-medium text-gray-500">學校</label>
-        <input v-model="local.school" type="text" placeholder="關鍵字" @input="onSchoolInput"
+        <input v-model="local.school" type="text" placeholder="關鍵字"
           class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
       </div>
       <div class="flex flex-col gap-1">
@@ -56,7 +56,7 @@
 </template>
 
 <script setup>
-import { reactive, watch, onUnmounted } from 'vue'
+import { reactive, watch } from 'vue'
 
 const props = defineProps({
   subjects: { type: Array, default: () => [] },
@@ -85,19 +85,7 @@ watch(() => props.initial, (val) => {
   })
 }, { deep: true })
 
-let debounceTimer = null
-
-function onSchoolInput() {
-  clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => {
-    emitSearch()
-  }, 300)
-}
-
 function emitSearch() {
-  clearTimeout(debounceTimer)
   emit('search', { ...local })
 }
-
-onUnmounted(() => clearTimeout(debounceTimer))
 </script>

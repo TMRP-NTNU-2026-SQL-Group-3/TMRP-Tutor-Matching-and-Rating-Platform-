@@ -45,7 +45,8 @@
           class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
         <label for="session-visible" class="text-sm text-gray-700">家長可見</label>
       </div>
-      <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
+      <p v-if="validationError" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ validationError }}</p>
+      <p v-else-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
       <div class="flex gap-3">
         <button @click="handleSubmit" :disabled="submitting"
           class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
@@ -61,7 +62,7 @@
 </template>
 
 <script setup>
-import { reactive, computed } from 'vue'
+import { reactive, ref, computed } from 'vue'
 
 defineProps({
   visible: { type: Boolean, default: false },
@@ -90,10 +91,26 @@ const form = reactive({
   visible_to_parent: true,
 })
 
+const validationError = ref('')
+
 function handleSubmit() {
+  validationError.value = ''
+  if (!form.session_date) {
+    validationError.value = '請選擇上課日期'
+    return
+  }
+  const h = Number(form.hours)
+  if (!h || h < 0.5 || h > 24) {
+    validationError.value = '時數需介於 0.5 至 24 小時之間'
+    return
+  }
+  if (!form.content_summary?.trim()) {
+    validationError.value = '教學內容為必填'
+    return
+  }
   emit('submit', {
     session_date: form.session_date,
-    hours: form.hours,
+    hours: h,
     content_summary: form.content_summary,
     homework: form.homework || null,
     student_performance: form.student_performance || null,
@@ -103,6 +120,7 @@ function handleSubmit() {
 }
 
 function reset() {
+  validationError.value = ''
   form.session_date = ''
   form.hours = 2
   form.content_summary = ''
