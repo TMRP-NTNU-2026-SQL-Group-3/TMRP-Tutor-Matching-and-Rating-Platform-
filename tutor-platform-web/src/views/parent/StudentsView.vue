@@ -11,6 +11,8 @@
     <div v-if="loading" class="text-center py-8 text-gray-500">載入中...</div>
 
     <div v-else>
+      <p v-if="error && !showForm" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3 mb-4">{{ error }}</p>
+
       <!-- Student table -->
       <div v-if="students.length" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
         <table class="w-full">
@@ -35,7 +37,7 @@
           </tbody>
         </table>
       </div>
-      <EmptyState v-else message="尚未新增子女" />
+      <EmptyState v-else-if="!error" message="尚未新增子女" />
 
       <!-- Add / edit form -->
       <Transition
@@ -105,6 +107,7 @@ watch(showForm, (v) => { if (v) error.value = '' })
 
 async function fetchStudents() {
   loading.value = true
+  error.value = ''
   try {
     students.value = await studentsApi.list()
   } catch (e) {

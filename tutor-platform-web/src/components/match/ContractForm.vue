@@ -25,9 +25,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 
-defineProps({
+const props = defineProps({
   visible: { type: Boolean, default: false },
   label: { type: String, default: '終止原因' },
   submitText: { type: String, default: '確認終止' },
@@ -37,6 +37,8 @@ defineProps({
 defineEmits(['submit', 'cancel'])
 
 const reason = ref('')
+
+watch(() => props.visible, (v) => { if (v) reason.value = '' })
 
 function reset() {
   reason.value = ''

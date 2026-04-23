@@ -215,6 +215,7 @@ async function saveEdit(sessionId) {
       visible_to_parent: editForm.visible_to_parent,
     })
     editingSessionId.value = null
+    delete editLogs[sessionId]
     emit('updated')
   } catch (e) {
     toast.error(e.message || '更新失敗')
