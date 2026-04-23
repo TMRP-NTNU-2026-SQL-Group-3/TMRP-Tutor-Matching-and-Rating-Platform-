@@ -11,7 +11,7 @@ class MatchCreate(BaseModel):
     tutor_id: int = Field(..., description="家教 ID")
     student_id: int = Field(..., description="學生 ID")
     subject_id: int = Field(..., description="科目 ID")
-    hourly_rate: float = Field(..., gt=0, description="每小時費率")
+    hourly_rate: float = Field(..., ge=1, le=9999, description="每小時費率")
     sessions_per_week: int = Field(..., ge=1, description="每週上課次數")
     want_trial: bool = Field(default=False, description="是否希望試教")
     invite_message: str | None = Field(default=None, max_length=1000, description="邀請訊息")
@@ -22,7 +22,7 @@ class MatchStatusUpdate(BaseModel):
     reason: str | None = Field(default=None, max_length=1000, description="原因說明")
     # Spec Module D: when transitioning trial → active, both parties confirm
     # the contract terms. Optional so other actions stay unchanged.
-    hourly_rate: float | None = Field(default=None, gt=0, description="正式合作時薪")
+    hourly_rate: float | None = Field(default=None, ge=1, le=9999, description="正式合作時薪")
     sessions_per_week: int | None = Field(default=None, ge=1, description="正式合作每週堂數")
     start_date: datetime | None = Field(default=None, description="正式合作起始日")
 

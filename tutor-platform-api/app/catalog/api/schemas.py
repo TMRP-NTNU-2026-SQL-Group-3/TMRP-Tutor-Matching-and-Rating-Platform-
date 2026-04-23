@@ -19,7 +19,7 @@ class TutorProfileUpdate(BaseModel):
 
 class SubjectItem(BaseModel):
     subject_id: int = Field(..., description="科目 ID")
-    hourly_rate: float = Field(gt=0, description="該科目每小時費率")
+    hourly_rate: float = Field(ge=1, le=9999, description="該科目每小時費率")
 
 
 class SubjectUpdate(BaseModel):

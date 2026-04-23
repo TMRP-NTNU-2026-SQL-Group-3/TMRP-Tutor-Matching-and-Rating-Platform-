@@ -54,18 +54,28 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
         )
         return self._row_to_entity(row) if row else None
 
-    def find_by_tutor_user_id(self, user_id: int) -> list[dict]:
+    def find_by_tutor_user_id(self, user_id: int, *, limit: int, offset: int) -> list[dict]:
         return self.fetch_all(
             """SELECT m.*, s.subject_name, st.name AS student_name
                FROM matches m
                INNER JOIN subjects s ON m.subject_id = s.subject_id
                INNER JOIN students st ON m.student_id = st.student_id
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
-               WHERE t.user_id = %s ORDER BY m.updated_at DESC""",
-            (user_id,),
+               WHERE t.user_id = %s ORDER BY m.updated_at DESC
+               LIMIT %s OFFSET %s""",
+            (user_id, limit, offset),
         )
 
-    def find_by_parent_user_id(self, user_id: int) -> list[dict]:
+    def count_by_tutor_user_id(self, user_id: int) -> int:
+        row = self.fetch_one(
+            """SELECT COUNT(*) AS cnt FROM matches m
+               INNER JOIN tutors t ON m.tutor_id = t.tutor_id
+               WHERE t.user_id = %s""",
+            (user_id,),
+        )
+        return int(row["cnt"]) if row else 0
+
+    def find_by_parent_user_id(self, user_id: int, *, limit: int, offset: int) -> list[dict]:
         return self.fetch_all(
             """SELECT m.*, s.subject_name, st.name AS student_name,
                       u.display_name AS tutor_display_name
@@ -74,18 +84,34 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
                INNER JOIN students st ON m.student_id = st.student_id
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
                INNER JOIN users u ON t.user_id = u.user_id
-               WHERE st.parent_user_id = %s ORDER BY m.updated_at DESC""",
-            (user_id,),
+               WHERE st.parent_user_id = %s ORDER BY m.updated_at DESC
+               LIMIT %s OFFSET %s""",
+            (user_id, limit, offset),
         )
 
-    def find_all(self) -> list[dict]:
+    def count_by_parent_user_id(self, user_id: int) -> int:
+        row = self.fetch_one(
+            """SELECT COUNT(*) AS cnt FROM matches m
+               INNER JOIN students st ON m.student_id = st.student_id
+               WHERE st.parent_user_id = %s""",
+            (user_id,),
+        )
+        return int(row["cnt"]) if row else 0
+
+    def find_all(self, *, limit: int, offset: int) -> list[dict]:
         return self.fetch_all(
             """SELECT m.*, s.subject_name, st.name AS student_name
                FROM matches m
                INNER JOIN subjects s ON m.subject_id = s.subject_id
                INNER JOIN students st ON m.student_id = st.student_id
-               ORDER BY m.updated_at DESC"""
+               ORDER BY m.updated_at DESC
+               LIMIT %s OFFSET %s""",
+            (limit, offset),
         )
+
+    def count_all(self) -> int:
+        row = self.fetch_one("SELECT COUNT(*) AS cnt FROM matches")
+        return int(row["cnt"]) if row else 0
 
     def create(self, tutor_id, student_id, subject_id, hourly_rate,
                sessions_per_week, want_trial, invite_message) -> int:

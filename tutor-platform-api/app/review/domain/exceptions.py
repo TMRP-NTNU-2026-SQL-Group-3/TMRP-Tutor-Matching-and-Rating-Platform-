@@ -47,3 +47,8 @@ class NotReviewOwnerError(PermissionDeniedError):
 class NotMatchParticipantError(PermissionDeniedError):
     def __init__(self):
         super().__init__("無權查看此配對的評價")
+
+
+class MatchHasNoSessionsError(DomainException):
+    def __init__(self):
+        super().__init__("尚無教學紀錄，請在至少一次課程後再提交評價")

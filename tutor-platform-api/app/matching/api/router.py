@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.identity.api.dependencies import get_current_user, is_admin, require_role
 from app.matching.api.dependencies import get_match_service
@@ -6,6 +6,7 @@ from app.matching.api.schemas import MatchCreate, MatchDetailResponse, MatchStat
 from app.matching.application.match_app_service import MatchAppService
 from app.matching.domain.value_objects import MatchStatus
 from app.middleware.rate_limit import check_and_record_bucket
+from app.shared.api.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.shared.api.schemas import ApiResponse
 from app.shared.domain.exceptions import TooManyRequestsError
 
@@ -43,11 +44,16 @@ def create_match(
 
 @router.get("", summary="列出我的配對", response_model=ApiResponse)
 def list_matches(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     user=Depends(get_current_user),
     service: MatchAppService = Depends(get_match_service),
 ):
-    matches = service.list_matches(user_id=int(user["sub"]), role=user["role"])
-    return ApiResponse(success=True, data=matches)
+    data = service.list_matches(
+        user_id=int(user["sub"]), role=user["role"],
+        page=page, page_size=page_size,
+    )
+    return ApiResponse(success=True, data=data)
 
 
 @router.get("/{match_id}", summary="取得配對詳情", response_model=ApiResponse)

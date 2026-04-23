@@ -8,6 +8,7 @@ from app.review.api.schemas import ReviewCreate, ReviewUpdate
 from app.review.domain.exceptions import (
     DuplicateReviewError,
     InvalidReviewTypeError,
+    MatchHasNoSessionsError,
     MatchNotReviewableError,
     NotMatchParticipantError,
     NotReviewOwnerError,
@@ -38,6 +39,8 @@ def create_review(body: ReviewCreate, user=Depends(get_current_user), conn=Depen
         raise ReviewMatchNotFoundError()
     if match["status"] not in REVIEWABLE_STATUSES:
         raise MatchNotReviewableError()
+    if match["session_count"] == 0:
+        raise MatchHasNoSessionsError()
     is_parent = match["parent_user_id"] == user_id
     is_tutor = match["tutor_user_id"] == user_id
     if body.review_type == "parent_to_tutor" and not is_parent:
