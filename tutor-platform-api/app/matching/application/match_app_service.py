@@ -130,7 +130,13 @@ class MatchAppService:
         if not is_parent and not is_tutor and not is_admin:
             raise MatchPermissionDeniedError("無權操作此配對")
 
-        action = Action(action_str)
+        try:
+            action = Action(action_str)
+        except ValueError:
+            valid = [a.value for a in Action]
+            raise InvalidTransitionError(
+                f"無效的操作「{action_str}」，可用操作為：{', '.join(valid)}"
+            )
         old_status = match.status
 
         new_status = state_machine.resolve_transition(

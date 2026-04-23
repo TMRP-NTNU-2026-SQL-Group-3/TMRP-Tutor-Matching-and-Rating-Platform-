@@ -58,6 +58,15 @@ class PostgresReviewRepository(BaseRepository, IReviewRepository):
             (match_id,),
         )
 
+    def count_by_tutor(self, tutor_id: int) -> int:
+        row = self.fetch_one(
+            """SELECT COUNT(*) AS cnt FROM reviews r
+               INNER JOIN matches m ON r.match_id = m.match_id
+               WHERE m.tutor_id = %s AND r.review_type = 'parent_to_tutor'""",
+            (tutor_id,),
+        )
+        return int(row["cnt"]) if row else 0
+
     def list_by_tutor(
         self, tutor_id: int, *, limit: int = 20, offset: int = 0,
     ) -> list[dict]:
@@ -81,7 +90,9 @@ class PostgresReviewRepository(BaseRepository, IReviewRepository):
 
     def get_for_update(self, review_id: int) -> dict | None:
         return self.fetch_one(
-            "SELECT reviewer_user_id, is_locked, created_at FROM reviews WHERE review_id = %s FOR UPDATE",
+            """SELECT reviewer_user_id, is_locked, created_at,
+                      rating_1, rating_2, rating_3, rating_4, comment
+               FROM reviews WHERE review_id = %s FOR UPDATE""",
             (review_id,),
         )
 

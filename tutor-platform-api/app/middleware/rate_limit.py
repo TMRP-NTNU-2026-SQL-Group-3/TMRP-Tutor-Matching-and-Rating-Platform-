@@ -209,6 +209,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not allowed:
             return JSONResponse(
                 status_code=429,
+                headers={"Retry-After": str(window)},
                 content={"success": False, "data": None, "message": "請求過於頻繁，請稍後再試"},
             )
 

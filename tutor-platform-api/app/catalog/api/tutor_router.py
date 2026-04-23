@@ -177,7 +177,19 @@ def get_tutor_reviews(
     # MEDIUM-8: bounded fetch + public-field projection happens in the repo.
     from app.review.infrastructure.postgres_review_repo import PostgresReviewRepository
     review_repo = PostgresReviewRepository(conn)
-    reviews = review_repo.list_by_tutor(
-        tutor_id, limit=page_size, offset=(page - 1) * page_size,
+    offset = (page - 1) * page_size
+    reviews = review_repo.list_by_tutor(tutor_id, limit=page_size, offset=offset)
+    total = review_repo.count_by_tutor(tutor_id)
+    total_pages = (total + page_size - 1) // page_size if total else 0
+    return ApiResponse(
+        success=True,
+        data={
+            "items": reviews,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        },
     )
-    return ApiResponse(success=True, data=reviews)

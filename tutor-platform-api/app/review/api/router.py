@@ -110,5 +110,25 @@ def update_review(review_id: int, body: ReviewUpdate, user=Depends(get_current_u
             raise ReviewLockedError()
         if past_cutoff:
             raise ReviewLockedError()
+        # MEDIUM-9: enforce low-rating comment rule on partial updates.
+        # The schema only validates when `comment` is explicitly sent; if the
+        # caller omits it, the merged comment (stored value + no new value)
+        # must still satisfy the floor. Fetch the stored comment here so we
+        # can evaluate the combined state before writing.
+        from app.review.api.schemas import _LOW_RATING_THRESHOLD, _LOW_RATING_MIN_COMMENT_LEN
+        merged_ratings = {
+            "rating_1": updates.get("rating_1", review.get("rating_1")),
+            "rating_2": updates.get("rating_2", review.get("rating_2")),
+            "rating_3": updates.get("rating_3", review.get("rating_3")),
+            "rating_4": updates.get("rating_4", review.get("rating_4")),
+        }
+        if any(r is not None and r <= _LOW_RATING_THRESHOLD for r in merged_ratings.values()):
+            merged_comment = (updates.get("comment") or review.get("comment") or "").strip()
+            if len(merged_comment) < _LOW_RATING_MIN_COMMENT_LEN:
+                from fastapi import HTTPException
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"評分 {_LOW_RATING_THRESHOLD} 星以下時必須填寫至少 {_LOW_RATING_MIN_COMMENT_LEN} 字的文字說明",
+                )
         repo.update(review_id, updates)
     return ApiResponse(success=True, data={"review_id": review_id}, message="評價已更新")
