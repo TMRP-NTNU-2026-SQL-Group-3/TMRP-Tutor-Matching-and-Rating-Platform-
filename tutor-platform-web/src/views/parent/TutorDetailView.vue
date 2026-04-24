@@ -1,5 +1,7 @@
 <template>
   <div>
+    <PageHeader :title="tutor?.display_name || '老師詳情'" show-back />
+
     <div v-if="loading" class="text-center py-8 text-gray-500">載入中...</div>
 
     <div v-else-if="tutor">
@@ -69,9 +71,9 @@
 
       <!-- Actions -->
       <div class="flex gap-3 mb-6">
-        <button @click="goMessage"
-          class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg px-4 py-2 text-sm font-medium transition-colors">
-          發送訊息
+        <button @click="goMessage" :disabled="messageSending"
+          class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          {{ messageSending ? '建立中...' : '發送訊息' }}
         </button>
         <button v-if="!showInviteForm" @click="showInviteForm = true"
           class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
@@ -105,6 +107,7 @@ import { tutorsApi } from '@/api/tutors'
 import { studentsApi } from '@/api/students'
 import { matchesApi } from '@/api/matches'
 import { messagesApi } from '@/api/messages'
+import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import RadarChart from '@/components/review/RadarChart.vue'
 import AvailabilityCalendar from '@/components/tutor/AvailabilityCalendar.vue'
@@ -122,6 +125,7 @@ const error = ref('')
 const showInviteForm = ref(false)
 const inviting = ref(false)
 const inviteError = ref('')
+const messageSending = ref(false)
 
 // 開啟邀請表單時清除舊錯誤
 watch(showInviteForm, (v) => { if (v) inviteError.value = '' })
@@ -135,11 +139,15 @@ const avgRating = computed(() => {
 })
 
 async function goMessage() {
+  if (messageSending.value) return
+  messageSending.value = true
   try {
     const conv = await messagesApi.createConversation(tutor.value.user_id)
     router.push('/messages/' + conv.conversation_id)
   } catch (e) {
     toast.error(e.message)
+  } finally {
+    messageSending.value = false
   }
 }
 

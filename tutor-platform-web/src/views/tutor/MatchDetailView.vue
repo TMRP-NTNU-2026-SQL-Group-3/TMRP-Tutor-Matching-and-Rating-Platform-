@@ -25,7 +25,13 @@
       <!-- Header with status -->
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-bold text-gray-900">配對詳情</h1>
-        <StatusBadge :status="match.status" :label="match.status_label" />
+        <div class="flex items-center gap-3">
+          <button @click="printPage" type="button"
+            class="text-sm text-gray-500 hover:text-gray-700 transition-colors print:hidden">
+            列印
+          </button>
+          <StatusBadge :status="match.status" :label="match.status_label" />
+        </div>
       </div>
 
       <!-- Basic info card -->
@@ -138,9 +144,24 @@
           @cancel="showSessionForm = false"
         />
 
-        <SessionTimeline :sessions="sessions" :show-visibility="true"
+        <SessionTimeline :sessions="paginatedSessions" :show-visibility="true"
           :editable="['active', 'trial'].includes(match.status)"
           @updated="onSessionUpdated" @deleted="onSessionDeleted" />
+
+        <nav v-if="sessionTotalPages > 1" aria-label="上課日誌分頁"
+          class="mt-4 flex items-center justify-between text-sm text-gray-500">
+          <span>共 {{ sessions.length }} 筆，第 {{ sessionPage }} / {{ sessionTotalPages }} 頁</span>
+          <div class="flex gap-2">
+            <button @click="sessionPage--" :disabled="sessionPage <= 1"
+              class="px-3 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              上一頁
+            </button>
+            <button @click="sessionPage++" :disabled="sessionPage >= sessionTotalPages"
+              class="px-3 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              下一頁
+            </button>
+          </div>
+        </nav>
       </div>
 
       <!-- Progress Chart -->
@@ -399,6 +420,19 @@ const showSessionForm = ref(false)
 const sessionSubmitting = ref(false)
 const sessionError = ref('')
 
+// Session pagination — client-side slice of the full sessions list.
+const SESSION_PAGE_SIZE = 10
+const sessionPage = ref(1)
+const sessionTotalPages = computed(() =>
+  Math.max(1, Math.ceil(sessions.value.length / SESSION_PAGE_SIZE))
+)
+const paginatedSessions = computed(() => {
+  const start = (sessionPage.value - 1) * SESSION_PAGE_SIZE
+  return sessions.value.slice(start, start + SESSION_PAGE_SIZE)
+})
+
+function printPage() { window.print() }
+
 // Exam form
 const showExamForm = ref(false)
 const examSubmitting = ref(false)
@@ -517,11 +551,13 @@ async function handleSubmitReview() {
 async function onSessionUpdated() {
   toast.success('上課紀錄已更新')
   await fetchMatch()
+  sessionPage.value = 1
 }
 
 async function onSessionDeleted() {
   toast.success('上課紀錄已刪除')
   await fetchMatch()
+  sessionPage.value = 1
 }
 
 async function submitSession(formData) {
@@ -544,6 +580,7 @@ async function submitSession(formData) {
     if (refreshed) {
       showSessionForm.value = false
       sessionFormRef.value?.reset()
+      sessionPage.value = 1
       toast.success('上課日誌已新增')
     } else {
       toast.success('上課日誌已新增，但列表更新失敗，請手動重新整理')

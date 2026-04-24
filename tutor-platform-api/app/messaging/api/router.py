@@ -4,9 +4,18 @@ from app.identity.api.dependencies import require_role
 from app.messaging.api.dependencies import get_message_service
 from app.messaging.api.schemas import ConversationCreate, MessageSend
 from app.messaging.application.message_service import MessageAppService
+from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
+from app.shared.domain.exceptions import TooManyRequestsError
 
 router = APIRouter(prefix="/api/messages", tags=["messages"])
+
+# I-04: per-conversation-per-user bucket so one user cannot flood a peer's
+# inbox. The global /api/messages/* path bucket would only catch bursts
+# across all conversations at once; this catches harassment targeting a
+# single counterparty.
+_MESSAGE_SEND_LIMIT = 30
+_MESSAGE_SEND_WINDOW = 60
 
 
 @router.post("/conversations", summary="建立對話", response_model=ApiResponse)
@@ -54,9 +63,13 @@ def send_message(
     user=Depends(require_role("parent", "tutor")),
     service: MessageAppService = Depends(get_message_service),
 ):
+    user_id = int(user["sub"])
+    bucket = f"message:send|conv={conversation_id}|user={user_id}"
+    if not check_and_record_bucket(bucket, _MESSAGE_SEND_LIMIT, _MESSAGE_SEND_WINDOW):
+        raise TooManyRequestsError("傳送訊息過於頻繁，請稍後再試")
     msg_id = service.send_message(
         conversation_id=conversation_id,
-        user_id=int(user["sub"]),
+        user_id=user_id,
         content=body.content,
     )
     return ApiResponse(success=True, data={"message_id": msg_id}, message="訊息已送出")

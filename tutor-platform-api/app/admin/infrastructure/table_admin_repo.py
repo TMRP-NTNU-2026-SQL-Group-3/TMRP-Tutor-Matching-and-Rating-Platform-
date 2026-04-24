@@ -25,7 +25,7 @@ class TableAdminRepository(BaseRepository):
         stmt = sql.SQL("SELECT COUNT(*) AS cnt FROM {tbl}").format(
             tbl=sql.Identifier(table)
         )
-        row = self.fetch_one(stmt)
+        row = self.fetch_one(stmt.as_string(self.conn), ())
         return (row and row["cnt"]) or 0
 
     def count_all(self, tables) -> dict:
@@ -106,6 +106,15 @@ class TableAdminRepository(BaseRepository):
             "SELECT role FROM users WHERE user_id = %s", (user_id,)
         )
         return row["role"] if row else None
+
+    def count_admins(self) -> int:
+        # Excludes anonymized rows (password_hash set to the sentinel), which
+        # retain role='admin' for FK integrity but can no longer authenticate.
+        row = self.fetch_one(
+            "SELECT COUNT(*) AS cnt FROM users "
+            "WHERE role = 'admin' AND password_hash <> 'ANONYMIZED'"
+        )
+        return int(row["cnt"]) if row else 0
 
     def anonymize_user(self, user_id: int) -> bool:
         """GDPR 'right to erasure' friendly counterpart to DELETE.

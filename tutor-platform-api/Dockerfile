@@ -35,7 +35,8 @@ HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
 # constructs DATABASE_URL at runtime, keeping credentials out of env vars.
 ENTRYPOINT ["./docker-entrypoint.sh"]
 
-# 預設啟動 API 伺服器（可在 docker-compose 中覆蓋為 huey worker）
+# Default entrypoint for the API container (docker-compose overrides to run
+# the huey worker instead).
 # MEDIUM-2: trust X-Forwarded-For/Proto only from the nginx sidecar.
 # uvicorn's ProxyHeadersMiddleware does exact-string IP match (no CIDR), so
 # we take the list from the FORWARDED_ALLOW_IPS env var — docker-compose
@@ -45,4 +46,11 @@ ENTRYPOINT ["./docker-entrypoint.sh"]
 # public internet.
 # `exec` replaces the shell with uvicorn so SIGTERM from `docker stop` reaches
 # uvicorn directly (otherwise the sh wrapper becomes PID 1 and swallows signals).
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips \"${FORWARDED_ALLOW_IPS:-127.0.0.1}\""]
+# I-01: --timeout-keep-alive bounds idle keep-alive connections so a slow
+#   client cannot occupy a worker indefinitely; --timeout-graceful-shutdown
+#   gives in-flight requests a deterministic window to finish on SIGTERM
+#   before the container is killed by docker stop (default 10s).
+# I-02: UVICORN_WORKERS (default 4) matches config.py's db_pool_min=5 so
+#   every worker has a DB connection available under load. Override to 1
+#   for constrained environments (single-vCPU dev boxes).
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips \"${FORWARDED_ALLOW_IPS:-127.0.0.1}\" --workers \"${UVICORN_WORKERS:-4}\" --timeout-keep-alive 30 --timeout-graceful-shutdown 30"]

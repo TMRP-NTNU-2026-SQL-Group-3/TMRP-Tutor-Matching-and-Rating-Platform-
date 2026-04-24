@@ -25,7 +25,13 @@
       <!-- Header with status -->
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-bold text-gray-900">配對詳情</h1>
-        <StatusBadge :status="match.status" :label="match.status_label" />
+        <div class="flex items-center gap-3">
+          <button @click="printPage" type="button"
+            class="text-sm text-gray-500 hover:text-gray-700 transition-colors print:hidden">
+            列印
+          </button>
+          <StatusBadge :status="match.status" :label="match.status_label" />
+        </div>
       </div>
 
       <!-- Basic info card -->
@@ -253,9 +259,12 @@ function handleTerminateCancel() {
   contractFormRef.value?.reset()
 }
 async function handleTerminateSubmit(reason) {
+  if (!window.confirm('確定要送出終止申請嗎？送出後，對方同意即會關閉配對。')) return
   await doTerminate(reason)
   contractFormRef.value?.reset()
 }
+
+function printPage() { window.print() }
 
 const reviewLabels = [
   { id: 'rating_1', label: '教學能力' },

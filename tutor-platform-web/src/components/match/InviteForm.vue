@@ -52,6 +52,7 @@
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"></textarea>
       </div>
       <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
+      <p v-if="!canSubmit && !submitting" class="text-xs text-gray-400">請填寫所有必填欄位（*）後才能送出</p>
       <div class="flex gap-3">
         <button type="submit" :disabled="submitting || !canSubmit"
           class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">

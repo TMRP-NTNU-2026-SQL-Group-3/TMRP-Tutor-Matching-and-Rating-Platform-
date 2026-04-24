@@ -20,3 +20,10 @@ class PostgresStudentRepository(BaseRepository, IStudentRepository):
 
     def update(self, student_id: int, updates: dict) -> None:
         self.safe_update("students", "student_id", student_id, updates, self.ALLOWED_COLUMNS)
+
+    def delete(self, student_id: int) -> bool:
+        self.execute(
+            "DELETE FROM students WHERE student_id = %s",
+            (student_id,),
+        )
+        return self.cursor.rowcount > 0

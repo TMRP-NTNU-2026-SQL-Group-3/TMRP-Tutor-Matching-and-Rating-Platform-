@@ -7,6 +7,7 @@ router layer only parses HTTP inputs and shapes responses.
 from app.messaging.domain.exceptions import (
     ConversationNotAllowedError,
     EmptyMessageError,
+    InvalidBeforeIdError,
     NotConversationParticipantError,
     SelfConversationError,
 )
@@ -71,6 +72,11 @@ class MessageAppService:
     ) -> list[dict]:
         if not self._conv_repo.user_is_participant(conversation_id, user_id):
             raise NotConversationParticipantError("查看")
+        # S-04: validate before_id belongs to this conversation so callers
+        # cannot probe global message ID ranges by supplying IDs from
+        # conversations they do not participate in.
+        if before_id is not None and not self._repo.message_in_conversation(before_id, conversation_id):
+            raise InvalidBeforeIdError()
         return self._repo.get_messages(conversation_id, limit=limit, before_id=before_id)
 
     def send_message(self, *, conversation_id: int, user_id: int, content: str) -> int:

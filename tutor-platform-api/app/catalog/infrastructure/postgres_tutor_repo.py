@@ -41,8 +41,7 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
             parts.append(psql.SQL(" WHERE "))
             parts.append(psql.SQL(" AND ").join(conditions))
         parts.append(psql.SQL(" ORDER BY t.tutor_id DESC"))
-        query = psql.Composed(parts).as_string(self.conn)
-        return self.fetch_all(query, tuple(params))
+        return self.fetch_all(psql.Composed(parts), tuple(params))
 
     def search_with_stats(
         self,
@@ -145,7 +144,7 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
             base=base_sql, filter=filter_sql,
         )
         count_sql = psql.SQL("SELECT COUNT(*) AS cnt FROM ({inner}) c").format(inner=filtered_sql)
-        count_row = self.fetch_one(count_sql.as_string(self.conn), tuple(params + having_params))
+        count_row = self.fetch_one(count_sql, tuple(params + having_params))
         total = count_row["cnt"] if count_row else 0
 
         page_sql = psql.SQL("{inner} ORDER BY {order} LIMIT {lim} OFFSET {off}").format(
@@ -156,7 +155,7 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
         )
         offset = (page - 1) * page_size
         rows = self.fetch_all(
-            page_sql.as_string(self.conn),
+            page_sql,
             tuple(params + having_params + [page_size, offset]),
         )
         return rows, total
@@ -285,7 +284,7 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
             psql.SQL(", ").join(set_parts)
         )
         params = list(flags.values()) + [tutor_id]
-        self.execute(query.as_string(self.conn), tuple(params))
+        self.execute(query, tuple(params))
 
     def update_profile(self, tutor_id: int, **fields) -> None:
         validate_columns(list(fields.keys()), self.PROFILE_COLUMNS)
@@ -296,4 +295,4 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
             psql.SQL(", ").join(set_parts)
         )
         params = list(fields.values()) + [tutor_id]
-        self.execute(query.as_string(self.conn), tuple(params))
+        self.execute(query, tuple(params))

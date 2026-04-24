@@ -2,10 +2,14 @@
   <div>
     <PageHeader title="支出統計" />
 
-    <div class="flex items-center gap-3 mb-6">
+    <div class="flex items-center gap-3 mb-6 flex-wrap">
       <label class="text-sm font-medium text-gray-700">選擇月份：</label>
       <input type="month" v-model="month" :max="maxMonth" @change="fetchData"
         class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
+      <button @click="printPage" type="button"
+        class="ml-auto text-sm text-gray-500 hover:text-gray-700 transition-colors print:hidden">
+        列印
+      </button>
     </div>
 
     <div v-if="loading" class="text-center py-8 text-gray-500">載入中...</div>
@@ -79,6 +83,8 @@ async function fetchData() {
     loading.value = false
   }
 }
+
+function printPage() { window.print() }
 
 onMounted(fetchData)
 </script>

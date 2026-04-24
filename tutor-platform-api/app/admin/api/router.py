@@ -48,7 +48,11 @@ def seed_data(
         raise
     if result.get("skipped"):
         return ApiResponse(success=True, data=result, message=result.get("message", "已跳過"))
-    repo.conn.commit()
+    try:
+        repo.conn.commit()
+    except Exception:
+        repo.conn.rollback()
+        raise
     total = sum(v for v in result.values() if isinstance(v, int))
     return ApiResponse(success=True, data=result, message=f"已產生 {total} 筆假資料")
 
@@ -222,6 +226,14 @@ def anonymize_user(
     target_role = repo.get_user_role(user_id)
     if target_role is None:
         raise HTTPException(status_code=404, detail="使用者不存在")
+    # I-03: if the target is admin, make sure it's not the last one standing.
+    # count_admins() excludes already-anonymized rows so repeated anonymization
+    # attempts cannot whittle the roster down to zero.
+    if target_role == "admin" and repo.count_admins() <= 1:
+        raise HTTPException(
+            status_code=400,
+            detail="無法匿名化系統中最後一位管理員",
+        )
     logger.warning(
         "Admin user_id=%s anonymizing user_id=%s (role=%s)",
         user.get("sub"), user_id, target_role,
@@ -229,7 +241,11 @@ def anonymize_user(
     updated = repo.anonymize_user(user_id)
     if not updated:
         raise HTTPException(status_code=404, detail="使用者不存在")
-    repo.conn.commit()
+    try:
+        repo.conn.commit()
+    except Exception:
+        repo.conn.rollback()
+        raise
     return ApiResponse(
         success=True,
         data={"user_id": user_id},
@@ -242,12 +258,21 @@ def system_status(
     user=Depends(require_role("admin")),
     repo: TableAdminRepository = Depends(get_admin_repo),
 ):
+    # I-13: surface pool utilisation alongside the other operator metrics
+    # so saturation is visible before requests start failing.
+    from app.shared.infrastructure.database import pool_stats
+    try:
+        db_pool = pool_stats()
+    except Exception:
+        logger.exception("pool_stats failed")
+        db_pool = {"error": "pool stats unavailable"}
     return ApiResponse(
         success=True,
         data={
             "table_counts": repo.count_all(ALLOWED_TABLES),
             "role_counts": repo.role_counts(),
             "match_statuses": repo.match_status_counts(),
+            "db_pool": db_pool,
         },
         message="系統狀態查詢完成",
     )
@@ -307,9 +332,25 @@ def get_task_status(task_id: str, user=Depends(require_role("admin"))):
     try:
         result = json.loads(raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else raw)
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        # I-11: corrupted payloads were previously returned with a generic
+        # "not valid JSON" message, leaving the admin with no next step.
+        # Surface (a) the decode error class so triage knows if this is a
+        # malformed UTF-8 vs structural JSON issue, and (b) an explicit
+        # recovery hint — the task row should be purged from huey.db so
+        # /tasks/{id} stops wedging on the same corrupt entry forever.
         logger.error("Non-JSON task payload task_id=%s: %s", task_id, e)
         return ApiResponse(
-            success=False, data={"task_id": task_id, "status": "corrupted"},
+            success=False,
+            data={
+                "task_id": task_id,
+                "status": "corrupted",
+                "error_type": type(e).__name__,
+                "hint": (
+                    "Task result payload is unreadable. Check the huey worker log "
+                    "for the originating task, then delete the row from the Huey "
+                    "SQLite store (huey_db_path) so subsequent polls recover."
+                ),
+            },
             message="Task result is not valid JSON",
         )
     if isinstance(result, dict) and result.get("__huey_error__"):

@@ -52,3 +52,8 @@ class NotMatchParticipantError(PermissionDeniedError):
 class MatchHasNoSessionsError(DomainException):
     def __init__(self):
         super().__init__("尚無教學紀錄，請在至少一次課程後再提交評價")
+
+
+class SelfReviewError(PermissionDeniedError):
+    def __init__(self):
+        super().__init__("評價者與被評價者不可為同一人")

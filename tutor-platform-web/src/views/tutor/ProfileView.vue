@@ -116,44 +116,49 @@
           </button>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
-            <input v-model="form.show_university" type="checkbox"
+          <label for="vis-university" class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
+            <input id="vis-university" v-model="form.show_university" type="checkbox"
+              aria-describedby="vis-university-desc"
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
             <div>
               <span class="text-sm font-medium text-gray-700">大學</span>
-              <p class="text-xs text-gray-400">{{ form.university || '未填寫' }}</p>
+              <p id="vis-university-desc" class="text-xs text-gray-400">{{ form.university || '未填寫' }}</p>
             </div>
           </label>
-          <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
-            <input v-model="form.show_department" type="checkbox"
+          <label for="vis-department" class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
+            <input id="vis-department" v-model="form.show_department" type="checkbox"
+              aria-describedby="vis-department-desc"
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
             <div>
               <span class="text-sm font-medium text-gray-700">科系</span>
-              <p class="text-xs text-gray-400">{{ form.department || '未填寫' }}</p>
+              <p id="vis-department-desc" class="text-xs text-gray-400">{{ form.department || '未填寫' }}</p>
             </div>
           </label>
-          <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
-            <input v-model="form.show_grade_year" type="checkbox"
+          <label for="vis-grade-year" class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
+            <input id="vis-grade-year" v-model="form.show_grade_year" type="checkbox"
+              aria-describedby="vis-grade-year-desc"
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
             <div>
               <span class="text-sm font-medium text-gray-700">年級</span>
-              <p class="text-xs text-gray-400">{{ form.grade_year ? `${form.grade_year} 年級` : '未填寫' }}</p>
+              <p id="vis-grade-year-desc" class="text-xs text-gray-400">{{ form.grade_year ? `${form.grade_year} 年級` : '未填寫' }}</p>
             </div>
           </label>
-          <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
-            <input v-model="form.show_hourly_rate" type="checkbox"
+          <label for="vis-hourly-rate" class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
+            <input id="vis-hourly-rate" v-model="form.show_hourly_rate" type="checkbox"
+              aria-describedby="vis-hourly-rate-desc"
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
             <div>
               <span class="text-sm font-medium text-gray-700">時薪</span>
-              <p class="text-xs text-gray-400">各科目的時薪費率</p>
+              <p id="vis-hourly-rate-desc" class="text-xs text-gray-400">各科目的時薪費率</p>
             </div>
           </label>
-          <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
-            <input v-model="form.show_subjects" type="checkbox"
+          <label for="vis-subjects" class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
+            <input id="vis-subjects" v-model="form.show_subjects" type="checkbox"
+              aria-describedby="vis-subjects-desc"
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
             <div>
               <span class="text-sm font-medium text-gray-700">授課科目</span>
-              <p class="text-xs text-gray-400">教授的科目列表</p>
+              <p id="vis-subjects-desc" class="text-xs text-gray-400">教授的科目列表</p>
             </div>
           </label>
         </div>
@@ -174,7 +179,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { tutorsApi } from '@/api/tutors'
 import { subjectsApi } from '@/api/subjects'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -217,8 +223,25 @@ let isMounted = true
 // unmounts mid-flight (otherwise the callback fires on a dead component).
 let successTimer = null
 let visibilityTimer = null
+
+const isDirty = ref(false)
+let _loaded = false
+
+function handleBeforeUnload(e) {
+  if (!isDirty.value) return
+  e.preventDefault()
+  e.returnValue = ''
+}
+
+onBeforeRouteLeave(() => {
+  if (isDirty.value) {
+    return confirm('您有未儲存的變更，確定要離開嗎？')
+  }
+})
+
 onUnmounted(() => {
   isMounted = false
+  window.removeEventListener('beforeunload', handleBeforeUnload)
   if (successTimer) {
     clearTimeout(successTimer)
     successTimer = null
@@ -242,6 +265,12 @@ const form = reactive({
   show_hourly_rate: true,
   show_subjects: true,
 })
+
+watch(
+  [() => ({ ...form }), subjectList, availabilityList],
+  () => { if (_loaded) isDirty.value = true },
+  { deep: true }
+)
 
 // U-11: The (tutor_id, subject_id) pair is a composite PK in tutor_subjects,
 // so duplicates are rejected by the DB. Filter them out before we even offer a
@@ -351,6 +380,7 @@ async function handleSave() {
       errors.push('時段設定失敗：' + e.message)
     }
 
+    isDirty.value = false
     if (errors.length) {
       error.value = '基本資料已儲存，但' + errors.join('；')
     } else {
@@ -372,6 +402,7 @@ async function handleSave() {
 }
 
 onMounted(async () => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
   loading.value = true
   try {
     const [detail, subjects] = await Promise.all([
@@ -404,6 +435,8 @@ onMounted(async () => {
       start_time: _hhmm(a.start_time),
       end_time: _hhmm(a.end_time),
     }))
+    await nextTick()
+    _loaded = true
   } catch (e) {
     if (isMounted) error.value = e.message
   } finally {

@@ -90,12 +90,23 @@ class BodySizeLimitMiddleware:
              "message": f"請求內容過大（上限 {mb} MB）"},
             ensure_ascii=False,
         ).encode("utf-8")
+        # I-10: BodySizeLimitMiddleware is registered after
+        # SecurityHeadersMiddleware, which means in the request chain it sits
+        # *outside* it — when we short-circuit here, the response never
+        # traverses SecurityHeadersMiddleware on the way back out, so its
+        # headers are missing. Attach the same set inline so 413 responses
+        # cannot be framed/sniffed. Keep the set in sync with
+        # SecurityHeadersMiddleware.
         await send({
             "type": "http.response.start",
             "status": 413,
             "headers": [
                 (b"content-type", b"application/json; charset=utf-8"),
                 (b"content-length", str(len(payload)).encode()),
+                (b"x-content-type-options", b"nosniff"),
+                (b"x-frame-options", b"DENY"),
+                (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                (b"cache-control", b"no-store"),
             ],
         })
         await send({"type": "http.response.body", "body": payload})

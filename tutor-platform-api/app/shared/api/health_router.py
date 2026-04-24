@@ -15,9 +15,9 @@ def health_check(conn=Depends(get_db)):
     # used to infer whether the caller is an admin.  Admin-only details
     # (database connectivity) are gated behind a separate admin endpoint.
     try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.fetchone()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
         return {"status": "ok"}
     except Exception:
         logger.exception("Health check failed")

@@ -26,3 +26,8 @@ class EmptyMessageError(DomainException):
 class NotConversationParticipantError(PermissionDeniedError):
     def __init__(self, action: str = "查看"):
         super().__init__(f"無權{action}此對話")
+
+
+class InvalidBeforeIdError(NotFoundError):
+    def __init__(self):
+        super().__init__("指定的訊息 ID 不存在於此對話")

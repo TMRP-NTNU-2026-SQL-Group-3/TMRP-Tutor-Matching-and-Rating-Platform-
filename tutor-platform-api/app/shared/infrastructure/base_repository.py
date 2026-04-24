@@ -63,7 +63,7 @@ class BaseRepository:
         values = list(updates.values()) + [id_val]
         self.execute(query.as_string(self.conn), values)
 
-    def fetch_one(self, sql: str, params: tuple = ()) -> dict | None:
+    def fetch_one(self, sql: "str | psql.Composable", params: tuple = ()) -> dict | None:
         self.cursor.execute(sql, params)
         row = self.cursor.fetchone()
         if row is None:
@@ -71,7 +71,7 @@ class BaseRepository:
         columns = [desc[0] for desc in self.cursor.description]
         return dict(zip(columns, row))
 
-    def fetch_all(self, sql: str, params: tuple = ()) -> list[dict]:
+    def fetch_all(self, sql: "str | psql.Composable", params: tuple = ()) -> list[dict]:
         self.cursor.execute(sql, params)
         rows = self.cursor.fetchall()
         columns = [desc[0] for desc in self.cursor.description]
@@ -80,7 +80,7 @@ class BaseRepository:
     def _in_transaction(self) -> bool:
         return _is_in_tx(self.conn)
 
-    def execute(self, sql: str, params: tuple = ()) -> None:
+    def execute(self, sql: "str | psql.Composable", params: tuple = ()) -> None:
         """INSERT / UPDATE / DELETE. Commits unless inside an outer transaction."""
         self.cursor.execute(sql, params)
         if not self._in_transaction():
@@ -97,7 +97,9 @@ class BaseRepository:
     def fetch_paginated(
         self, sql: str, params: tuple, page: int, page_size: int
     ) -> tuple[list[dict], int]:
-        count_sql = f"SELECT COUNT(*) AS cnt FROM ({sql}) AS _sub"
+        count_sql = psql.SQL("SELECT COUNT(*) AS cnt FROM ({inner}) AS _sub").format(
+            inner=psql.SQL(sql)
+        )
         self.cursor.execute(count_sql, params)
         total = self.cursor.fetchone()[0]
 

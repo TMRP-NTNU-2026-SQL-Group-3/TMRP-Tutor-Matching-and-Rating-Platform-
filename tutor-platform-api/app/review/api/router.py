@@ -15,6 +15,7 @@ from app.review.domain.exceptions import (
     ReviewLockedError,
     ReviewMatchNotFoundError,
     ReviewNotFoundError,
+    SelfReviewError,
     WrongReviewerRoleError,
 )
 from app.review.infrastructure.postgres_review_repo import PostgresReviewRepository
@@ -47,6 +48,11 @@ def create_review(body: ReviewCreate, user=Depends(get_current_user), conn=Depen
         raise WrongReviewerRoleError(body.review_type)
     if body.review_type in ("tutor_to_parent", "tutor_to_student") and not is_tutor:
         raise WrongReviewerRoleError(body.review_type)
+    # S-03: a user holding both roles on the same match (parent_user_id ==
+    # tutor_user_id) would pass either role check above and submit a
+    # self-review. Block it explicitly before we reach the DB.
+    if is_parent and is_tutor:
+        raise SelfReviewError()
     # Rely on idx_reviews_unique (match_id, reviewer_user_id, review_type)
     # to enforce "one review per reviewer per type per match" atomically at
     # the DB layer. A prior find_existing + INSERT pair was racy — two

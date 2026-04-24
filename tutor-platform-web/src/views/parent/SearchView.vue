@@ -55,7 +55,7 @@
       </nav>
     </template>
 
-    <EmptyState v-else message="沒有符合條件的老師" />
+    <EmptyState v-else :message="hasActiveFilters ? '沒有符合條件的老師' : '目前尚無老師資料'" />
   </div>
 </template>
 
@@ -77,6 +77,15 @@ const loading = ref(false)
 const page = ref(1)
 const total = ref(0)
 const lastFilters = ref({})
+
+const hasActiveFilters = computed(() => {
+  const f = lastFilters.value
+  return (f.subject_id != null && f.subject_id !== '')
+    || (f.min_rate != null && f.min_rate !== '')
+    || (f.max_rate != null && f.max_rate !== '')
+    || (f.min_rating != null && f.min_rating !== '')
+    || !!f.school
+})
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 

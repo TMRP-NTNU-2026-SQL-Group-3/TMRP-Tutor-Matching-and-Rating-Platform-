@@ -177,8 +177,11 @@ async function handleSend() {
 
 function startPolling() {
   stopPolling()
+  // Don't start the interval while the tab is hidden — it would fire immediately
+  // on every tick without doing any work, wasting CPU. onVisibilityChange restarts
+  // polling when the tab becomes visible again.
+  if (typeof document !== 'undefined' && document.hidden) return
   pollTimer = setInterval(() => {
-    if (typeof document !== 'undefined' && document.hidden) return
     if (typeof navigator !== 'undefined' && !navigator.onLine) return
     fetchMessages()
   }, 5000)
@@ -191,10 +194,15 @@ function stopPolling() {
   }
 }
 
-// Bug #21: 切換回分頁時立即拉一次最新訊息，補齊隱藏期間的更新
+// Stop the interval when the tab is hidden (saves CPU/battery); fetch immediately
+// and restart polling when the tab becomes visible again to catch up.
 function onVisibilityChange() {
-  if (typeof document !== 'undefined' && !document.hidden) {
+  if (typeof document === 'undefined') return
+  if (document.hidden) {
+    stopPolling()
+  } else {
     fetchMessages()
+    startPolling()
   }
 }
 

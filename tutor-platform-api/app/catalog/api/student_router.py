@@ -42,3 +42,15 @@ def update_student(student_id: int, body: StudentUpdate, user=Depends(require_ro
         raise DomainException("沒有提供任何要更新的欄位")
     repo.update(student_id, updates)
     return ApiResponse(success=True, data={"student_id": student_id}, message="學生資料已更新")
+
+
+@router.delete("/{student_id}", summary="刪除子女資料", response_model=ApiResponse)
+def delete_student(student_id: int, user=Depends(require_role("parent")), conn=Depends(get_db)):
+    repo = PostgresStudentRepository(conn)
+    student = repo.find_by_id(student_id)
+    if not student:
+        raise NotFoundError("找不到此學生")
+    if student["parent_user_id"] != int(user["sub"]):
+        raise PermissionDeniedError("只能刪除自己的子女資料")
+    repo.delete(student_id)
+    return ApiResponse(success=True, data={"student_id": student_id}, message="學生資料已刪除")

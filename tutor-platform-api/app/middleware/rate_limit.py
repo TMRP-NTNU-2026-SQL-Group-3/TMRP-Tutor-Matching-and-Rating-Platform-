@@ -207,6 +207,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         )
 
         if not allowed:
+            # I-09: emit a log line for every 429 so SOC tooling / log search
+            # can surface brute-force and scraping patterns. We deliberately
+            # log IP + path + method only — no request body, no user_id —
+            # so the signal is useful without becoming a PII sink.
+            logger.warning(
+                "rate_limit: 429 path=%s method=%s ip=%s bucket=%s limit=%d/%ds",
+                path, request.method, ip, bucket_key, max_attempts, window,
+            )
             return JSONResponse(
                 status_code=429,
                 headers={"Retry-After": str(window)},

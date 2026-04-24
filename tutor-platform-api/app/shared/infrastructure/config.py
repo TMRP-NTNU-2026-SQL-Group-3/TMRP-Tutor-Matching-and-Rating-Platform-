@@ -10,12 +10,34 @@ class Settings(BaseSettings):
     # Pool min should be >= number of uvicorn workers to avoid starvation
     # under burst load. Default 5 covers a typical 2–4 worker deployment.
     db_pool_min: int = 5
-    db_pool_max: int = 10
+    # I-06: headroom for bursts. Rate-limit checks, handler queries and
+    # explicit transactions can each lease one connection concurrently from
+    # a single request, so the old cap of 10 was at risk of exhaustion
+    # under modest load. Raised to 20; couple this with Postgres max_connections
+    # >= (workers * db_pool_max + slack for admin/ops).
+    db_pool_max: int = 20
+    # I-07: cap the fraction of the pool one user can hold open concurrently.
+    # Prevents a single caller from monopolising every connection and
+    # starving others (pool-level DoS). Expressed as an absolute count so
+    # the bound is obvious in logs.
+    db_per_user_quota: int = 5
 
     # JWT — secret is required; Settings() construction fails without it in env/.env
     jwt_secret_key: str = Field(..., min_length=32)
     # Previous key accepted during rotation so in-flight sessions are not
     # force-logged-out. Empty disables the grace path.
+    #
+    # Recommended rotation schedule (S-05):
+    #   1. Generate a new key:
+    #        python -c "import secrets; print(secrets.token_hex(32))"
+    #   2. In .env.docker, move JWT_SECRET_KEY to JWT_SECRET_KEY_PREVIOUS and
+    #      set JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT to NOW + 7 days (ISO 8601 UTC).
+    #   3. Set JWT_SECRET_KEY to the new value and redeploy.
+    #   4. After the expiry date passes (at most 7 days), clear both
+    #      JWT_SECRET_KEY_PREVIOUS and JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT and
+    #      redeploy again to stop accepting tokens signed by the old key.
+    # Recommended frequency: rotate every 90 days or immediately upon any
+    # suspected exposure.
     jwt_secret_key_previous: str = ""
     # Hard deadline (ISO 8601 UTC, e.g. "2026-05-01T00:00:00Z") after which the
     # previous key is no longer accepted. Required when jwt_secret_key_previous

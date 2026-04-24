@@ -15,6 +15,7 @@ from app.middleware.body_size_limit import BodySizeLimitMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.middleware.user_quota import UserConcurrencyQuotaMiddleware
 
 # Routers from each bounded context
 from app.shared.api.health_router import router as health_router
@@ -265,8 +266,14 @@ app = FastAPI(
 )
 
 # ─── Middleware (Starlette: last registered = outermost; requests flow outer-in) ───
-# 6. Rate limiting (closest to the route -> registered first -> innermost)
+# 7. Rate limiting (closest to the route -> registered first -> innermost)
 app.add_middleware(RateLimitMiddleware)
+# 6. Per-user concurrency quota (I-07). Registered after RateLimitMiddleware
+#    so in the request path it runs just outside the per-path bucket: any
+#    unauthenticated flood still hits RateLimitMiddleware, and any single
+#    authenticated caller is additionally bounded so they cannot monopolise
+#    DB pool slots across paths.
+app.add_middleware(UserConcurrencyQuotaMiddleware)
 # 5. Access logging (needs request_id, so it lives inside RequestID)
 app.add_middleware(AccessLogMiddleware)
 # 4. Security headers

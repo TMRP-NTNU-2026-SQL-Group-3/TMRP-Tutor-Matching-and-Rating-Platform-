@@ -18,3 +18,6 @@ class IMessageRepository(ABC):
 
     @abstractmethod
     def send_message(self, conversation_id: int, sender_user_id: int, content: str) -> int: ...
+
+    @abstractmethod
+    def message_in_conversation(self, message_id: int, conversation_id: int) -> bool: ...

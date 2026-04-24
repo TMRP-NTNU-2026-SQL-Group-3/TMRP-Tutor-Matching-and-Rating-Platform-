@@ -13,10 +13,19 @@ _pool: pool.ThreadedConnectionPool | None = None
 def init_pool():
     """Initialize the PostgreSQL connection pool. Call once at app startup."""
     global _pool
+    # I-12: TCP keepalives so NAT timeouts, transient network hiccups, or a
+    # restarted Postgres node cause connections to be detected as dead and
+    # discarded, rather than sitting in the pool as zombies that surface as
+    # OperationalError on the next lease. Postgres docs recommend 60/10/3
+    # as a conservative default.
     _pool = pool.ThreadedConnectionPool(
         minconn=settings.db_pool_min,
         maxconn=settings.db_pool_max,
         dsn=settings.database_url,
+        keepalives=1,
+        keepalives_idle=60,
+        keepalives_interval=10,
+        keepalives_count=3,
     )
 
 
@@ -72,6 +81,26 @@ def release_connection(conn):
     except Exception:
         logger.exception("Rollback failed while releasing background-task connection")
     _require_pool().putconn(conn)
+
+
+def pool_stats() -> dict:
+    """Snapshot of pool utilisation for operator visibility (I-13).
+
+    psycopg2's ThreadedConnectionPool does not expose a public stats API,
+    so we read the internal structures under its lock. Values are a
+    point-in-time snapshot — "in_use" may change the moment we return.
+    """
+    p = _require_pool()
+    with p._lock:  # noqa: SLF001 — no public accessor
+        total = len(p._used) + len(p._pool)
+        return {
+            "min": p.minconn,
+            "max": p.maxconn,
+            "in_use": len(p._used),
+            "idle": len(p._pool),
+            "total": total,
+            "utilization": round(len(p._used) / p.maxconn, 3) if p.maxconn else 0.0,
+        }
 
 
 if __name__ == "__main__":
