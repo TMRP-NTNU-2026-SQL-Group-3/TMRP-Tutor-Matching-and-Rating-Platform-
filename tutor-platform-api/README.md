@@ -60,7 +60,7 @@ cp tutor-platform-api/.env.docker.example tutor-platform-api/.env.docker
 docker compose up -d --build
 ```
 
-Once healthy, the API is at <http://localhost:8001> and Swagger UI at <http://localhost:8001/docs>.
+Once healthy, the API is at <http://localhost:8000> and Swagger UI at <http://localhost:8000/docs>.
 
 The container's healthcheck (`GET /health`) only passes after:
 1. the connection pool is initialised,
@@ -116,6 +116,7 @@ Loaded by pydantic-settings from `.env` (local) or `.env.docker` (container).
 | `DATABASE_URL` | **required** | PostgreSQL connection string (no default — must be set). In compose, built from the repo-root `.env`. |
 | `DB_POOL_MIN` | `2` | Minimum size of the psycopg2 connection pool |
 | `DB_POOL_MAX` | `10` | Maximum pool size |
+| `DB_PER_USER_QUOTA` | `5` | Maximum number of simultaneous in-flight requests a single authenticated user may hold open. Enforced per worker process in memory. Excess requests receive 429 with `Retry-After: 1`. |
 | `JWT_SECRET_KEY` | **required**, >= 32 chars | HMAC secret for signing JWTs. Placeholder values (`change-me`, `change-me-in-production`) are rejected at startup. |
 | `JWT_SECRET_KEY_PREVIOUS` | `""` | Optional prior key for rotation windows. If set, verification accepts tokens signed by either key. Must be >= 32 chars and differ from the current key. |
 | `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
@@ -182,7 +183,8 @@ tutor-platform-api/
 │   │   ├── body_size_limit.py  # Reject oversized request bodies before handlers read them
 │   │   ├── security_headers.py # CSP, HSTS, X-Frame-Options, ...
 │   │   ├── access_log.py       # Structured request/response logs
-│   │   └── rate_limit.py       # DB-backed token bucket (rate_limit_hits)
+│   │   ├── rate_limit.py       # DB-backed token bucket (rate_limit_hits)
+│   │   └── user_quota.py       # Per-user in-flight request cap (DB_PER_USER_QUOTA, default 5)
 │   │
 │   ├── tasks/                  # huey tasks: import_export, scheduled, seed_tasks, stats_tasks
 │   └── utils/                  # csv_handler, logger, security helpers
@@ -218,6 +220,7 @@ Browser
   │                                 inside RequestID so the rejection log carries request_id)
   ▼ SecurityHeadersMiddleware      (adds CSP, HSTS, X-Frame-Options, ...)
   ▼ AccessLogMiddleware            (structured log with request_id + timing)
+  ▼ UserConcurrencyQuotaMiddleware (per-user in-flight cap; 429 + Retry-After: 1 when exceeded)
   ▼ RateLimitMiddleware            (innermost — uses rate_limit_hits table, shared across workers)
   ▼ Router
      └─ Dependency injection: current_user, role guard, DB cursor
@@ -315,7 +318,7 @@ If any step fails, the lifespan hook re-raises and the server refuses to serve r
 
 Business (13): `users`, `tutors`, `students`, `subjects`, `tutor_subjects`, `tutor_availability`, `conversations`, `messages`, `matches`, `sessions`, `session_edit_logs`, `exams`, `reviews`.
 
-Support (2): `refresh_token_blacklist`, `rate_limit_hits`. These back auth and rate-limit state so state is consistent across multiple API workers.
+Support (3): `refresh_token_blacklist`, `rate_limit_hits`, `audit_log`. The first two back auth and rate-limit state so it is consistent across multiple API workers. `audit_log` records privileged-action history (actor, action, resource type/ID, old/new values); `actor_user_id` uses `ON DELETE SET NULL` and `resource_id` carries no FK so the trail survives both account removal and row deletion.
 
 Unique indexes enforce: one username per user, one subject per name, one tutor row per user, one conversation per user pair, and one review per `(match_id, reviewer_user_id, review_type)`.
 

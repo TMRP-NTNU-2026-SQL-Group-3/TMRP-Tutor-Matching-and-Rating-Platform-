@@ -136,8 +136,8 @@ Once the containers are healthy:
 | Service | URL |
 |---------|-----|
 | Frontend | http://localhost (host 80 → container 8080, Nginx runs non-root) |
-| API | http://localhost:8001 |
-| Swagger UI | http://localhost:8001/docs (only when `DEBUG=true`) |
+| API | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs (only when `DEBUG=true`) |
 | PostgreSQL | 127.0.0.1:5433 (bound to loopback; credentials from repo-root `.env`) |
 
 Stop and remove containers:
@@ -231,7 +231,7 @@ project-root/
 │   │   ├── messaging/           # BC: conversations and messages
 │   │   ├── analytics/           # BC: income / expense statistics
 │   │   ├── admin/               # BC: CSV import-export, seed, task status
-│   │   ├── middleware/          # request_id, body_size_limit, security_headers, access_log, rate_limit
+│   │   ├── middleware/          # request_id, body_size_limit, security_headers, access_log, rate_limit, user_quota
 │   │   ├── tasks/               # Huey background tasks
 │   │   └── utils/               # csv_handler, security, logger
 │   ├── seed/                    # Fake data generator
@@ -276,7 +276,7 @@ Four processes, connected by HTTP and a shared PostgreSQL database:
   FastAPI (api container)  ◄──────────────────────────────────────────┘
        │   JWT auth, domain services, repositories
        │   middleware (outer → inner):
-       │     CORS → request_id → body_size_limit → security_headers → access_log → rate_limit
+       │     CORS → request_id → body_size_limit → security_headers → access_log → user_quota → rate_limit
        ▼
   PostgreSQL 16 (db container, volume: pgdata)
        ▲
@@ -291,7 +291,7 @@ The API container's `lifespan` hook initialises the connection pool, runs the sc
 
 ## Database Design
 
-15 tables on PostgreSQL 16. 13 are business tables; 2 support cross-worker auth and rate limiting.
+16 tables on PostgreSQL 16. 13 are business tables; 3 support cross-worker auth, rate limiting, and auditing.
 
 ### Business tables
 
@@ -344,10 +344,11 @@ The API container's `lifespan` hook initialises the connection pool, runs the sc
 |-------|---------|
 | refresh_token_blacklist | Revoked refresh-token JTIs; shared across API workers |
 | rate_limit_hits | Hit counters for the rate-limit middleware; shared across workers |
+| audit_log | Privileged-action audit trail: actor, action, resource type/ID, old/new values. `actor_user_id` uses `ON DELETE SET NULL` so records survive account removal; `resource_id` is a soft reference with no FK so records survive row deletion. |
 
 ### Key constraints
 
-- All primary keys are `SERIAL` (auto-incrementing integer)
+- Most primary keys are `SERIAL` (auto-incrementing integer); `rate_limit_hits` and `audit_log` use `BIGSERIAL` for high-volume inserts, and `refresh_token_blacklist` uses a `VARCHAR(64)` JTI as its primary key
 - `tutor_subjects` uses a composite primary key `(tutor_id, subject_id)`
 - `conversations` has a unique index on `(user_a_id, user_b_id)` to prevent duplicate threads
 - `reviews` has a unique index on `(match_id, reviewer_user_id, review_type)` — one review per reviewer per match per direction
@@ -475,11 +476,12 @@ Admin-triggered tasks return a `task_id` immediately. The frontend polls `GET /a
 The backend ships with several middleware layers (innermost → outermost):
 
 1. **RateLimitMiddleware** — per-IP and per-user rate limits, persisted in `rate_limit_hits` so limits are consistent across API replicas.
-2. **AccessLogMiddleware** — structured JSON access logs, tagged with the request ID.
-3. **SecurityHeadersMiddleware** — sets `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Strict-Transport-Security`, and a conservative CSP.
-4. **BodySizeLimitMiddleware** — rejects oversized request bodies before the handler reads them (cap from `MAX_REQUEST_BODY_BYTES`, default 50 MB).
-5. **RequestIDMiddleware** — injects an `X-Request-ID` into every request and response; propagated into logs and 500 error bodies.
-6. **CORSMiddleware** — origin allow-list driven by the `CORS_ORIGINS` environment variable.
+2. **UserConcurrencyQuotaMiddleware** — caps the number of simultaneous in-flight requests a single authenticated user may hold open (default 5, configurable via `DB_PER_USER_QUOTA`). Prevents one caller from monopolising all database pool slots; returns 429 with `Retry-After: 1` when the limit is hit.
+3. **AccessLogMiddleware** — structured JSON access logs, tagged with the request ID.
+4. **SecurityHeadersMiddleware** — sets `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Strict-Transport-Security`, and a conservative CSP.
+5. **BodySizeLimitMiddleware** — rejects oversized request bodies before the handler reads them (cap from `MAX_REQUEST_BODY_BYTES`, default 50 MB).
+6. **RequestIDMiddleware** — injects an `X-Request-ID` into every request and response; propagated into logs and 500 error bodies.
+7. **CORSMiddleware** — origin allow-list driven by the `CORS_ORIGINS` environment variable.
 
 Nginx in the `web` container adds an edge-layer `limit_req_zone` (20 r/s, burst 40) in front of `/api/*`, plus global security headers and a CSP applied to every `location`.
 
