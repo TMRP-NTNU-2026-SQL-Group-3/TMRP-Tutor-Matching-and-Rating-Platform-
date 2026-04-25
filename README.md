@@ -515,6 +515,7 @@ See `docs/production-hardening-plan.md` for the full checklist and rollout plan.
 ## Documentation
 
 - **`docs/project-spec.md` (v5.1)** — Full system specification. Sections 1–5 are accessible to all team members; sections 6–13 are the technical reference (DB schema, API endpoints, frontend routes, async tasks).
+- **[`docs/database-schema.md`](docs/database-schema.md)** — Complete database schema reference with table structure, relationships, and constraints.
 - **`docs/production-hardening-plan.md`** — Security, observability, and operational hardening steps for making the stack production-ready.
 
 ---
