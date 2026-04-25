@@ -6,7 +6,7 @@ class PostgresStatsRepository(BaseRepository):
     def get_tutor_by_user(self, user_id: int) -> dict | None:
         return self.fetch_one("SELECT tutor_id FROM tutors WHERE user_id = %s", (user_id,))
 
-    def income_summary(self, tutor_id: int, year: int, month: int) -> dict:
+    def income_summary(self, tutor_id: int, year: int, month: int, tz: str = "Asia/Taipei") -> dict:
         # `missing_rate_count` surfaces sessions whose match has a NULL
         # hourly_rate — otherwise SUM(se.hours * m.hourly_rate) silently
         # drops those rows and the caller can't tell a legitimately low
@@ -18,12 +18,12 @@ class PostgresStatsRepository(BaseRepository):
                       COUNT(*) FILTER (WHERE m.hourly_rate IS NULL) AS missing_rate_count
                FROM sessions se INNER JOIN matches m ON se.match_id = m.match_id
                WHERE m.tutor_id = %s
-                 AND EXTRACT(YEAR FROM se.session_date) = %s
-                 AND EXTRACT(MONTH FROM se.session_date) = %s""",
-            (tutor_id, year, month),
+                 AND EXTRACT(YEAR FROM se.session_date AT TIME ZONE %s) = %s
+                 AND EXTRACT(MONTH FROM se.session_date AT TIME ZONE %s) = %s""",
+            (tutor_id, tz, year, tz, month),
         )
 
-    def income_breakdown(self, tutor_id: int, year: int, month: int) -> list[dict]:
+    def income_breakdown(self, tutor_id: int, year: int, month: int, tz: str = "Asia/Taipei") -> list[dict]:
         return self.fetch_all(
             """SELECT st.name AS student_name, sub.subject_name,
                       SUM(se.hours) AS hours, SUM(se.hours * m.hourly_rate) AS income
@@ -32,13 +32,13 @@ class PostgresStatsRepository(BaseRepository):
                INNER JOIN students st ON m.student_id = st.student_id
                INNER JOIN subjects sub ON m.subject_id = sub.subject_id
                WHERE m.tutor_id = %s
-                 AND EXTRACT(YEAR FROM se.session_date) = %s
-                 AND EXTRACT(MONTH FROM se.session_date) = %s
+                 AND EXTRACT(YEAR FROM se.session_date AT TIME ZONE %s) = %s
+                 AND EXTRACT(MONTH FROM se.session_date AT TIME ZONE %s) = %s
                GROUP BY st.name, sub.subject_name""",
-            (tutor_id, year, month),
+            (tutor_id, tz, year, tz, month),
         )
 
-    def expense_summary(self, parent_user_id: int, year: int, month: int) -> dict:
+    def expense_summary(self, parent_user_id: int, year: int, month: int, tz: str = "Asia/Taipei") -> dict:
         # See income_summary: surface the NULL-rate row count so the
         # caller can distinguish low expense from missing rate data.
         return self.fetch_one(
@@ -50,12 +50,12 @@ class PostgresStatsRepository(BaseRepository):
                INNER JOIN matches m ON se.match_id = m.match_id
                INNER JOIN students st ON m.student_id = st.student_id
                WHERE st.parent_user_id = %s
-                 AND EXTRACT(YEAR FROM se.session_date) = %s
-                 AND EXTRACT(MONTH FROM se.session_date) = %s""",
-            (parent_user_id, year, month),
+                 AND EXTRACT(YEAR FROM se.session_date AT TIME ZONE %s) = %s
+                 AND EXTRACT(MONTH FROM se.session_date AT TIME ZONE %s) = %s""",
+            (parent_user_id, tz, year, tz, month),
         )
 
-    def expense_breakdown(self, parent_user_id: int, year: int, month: int) -> list[dict]:
+    def expense_breakdown(self, parent_user_id: int, year: int, month: int, tz: str = "Asia/Taipei") -> list[dict]:
         return self.fetch_all(
             """SELECT u.display_name AS tutor_display_name, sub.subject_name,
                       st.name AS student_name, SUM(se.hours) AS hours,
@@ -67,10 +67,10 @@ class PostgresStatsRepository(BaseRepository):
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
                INNER JOIN users u ON t.user_id = u.user_id
                WHERE st.parent_user_id = %s
-                 AND EXTRACT(YEAR FROM se.session_date) = %s
-                 AND EXTRACT(MONTH FROM se.session_date) = %s
+                 AND EXTRACT(YEAR FROM se.session_date AT TIME ZONE %s) = %s
+                 AND EXTRACT(MONTH FROM se.session_date AT TIME ZONE %s) = %s
                GROUP BY u.display_name, sub.subject_name, st.name""",
-            (parent_user_id, year, month),
+            (parent_user_id, tz, year, tz, month),
         )
 
     def get_student(self, student_id: int) -> dict | None:

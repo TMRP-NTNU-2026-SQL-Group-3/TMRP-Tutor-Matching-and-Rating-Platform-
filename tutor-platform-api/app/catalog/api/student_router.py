@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.catalog.api.schemas import StudentCreate, StudentUpdate
 from app.catalog.infrastructure.postgres_student_repo import PostgresStudentRepository
 from app.identity.api.dependencies import get_db, require_role
+from app.shared.api.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.shared.api.schemas import ApiResponse
 from app.shared.domain.exceptions import DomainException, NotFoundError, PermissionDeniedError
 
@@ -10,10 +11,30 @@ router = APIRouter(prefix="/api/students", tags=["students"])
 
 
 @router.get("", summary="列出我的子女", response_model=ApiResponse)
-def list_students(user=Depends(require_role("parent")), conn=Depends(get_db)):
+def list_students(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    user=Depends(require_role("parent")),
+    conn=Depends(get_db),
+):
     repo = PostgresStudentRepository(conn)
-    students = repo.find_by_parent(int(user["sub"]))
-    return ApiResponse(success=True, data=students)
+    parent_id = int(user["sub"])
+    offset = (page - 1) * page_size
+    students = repo.find_by_parent(parent_id, limit=page_size, offset=offset)
+    total = repo.count_by_parent(parent_id)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    return ApiResponse(
+        success=True,
+        data={
+            "items": students,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        },
+    )
 
 
 @router.post("", summary="新增子女", response_model=ApiResponse)

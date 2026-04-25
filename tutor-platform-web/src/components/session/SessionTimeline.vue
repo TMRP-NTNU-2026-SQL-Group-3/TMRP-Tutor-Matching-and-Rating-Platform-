@@ -128,6 +128,7 @@
 import { ref, reactive } from 'vue'
 import { sessionsApi } from '@/api/sessions'
 import { useToastStore } from '@/stores/toast'
+import { formatLocalDate, formatDateTimeFull } from '@/utils/format'
 
 const toast = useToastStore()
 
@@ -234,20 +235,6 @@ async function confirmDelete(sessionId) {
   }
 }
 
-function formatDate(dt) {
-  if (!dt) return ''
-  // Session dates are calendar-only values; parse as local date to avoid
-  // off-by-one shifts caused by UTC interpretation of "YYYY-MM-DD" strings.
-  const [y, m, d] = String(dt).slice(0, 10).split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('zh-TW')
-}
-
-function formatDateTime(dt) {
-  if (!dt) return ''
-  return new Date(dt).toLocaleString('zh-TW', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit',
-    timeZoneName: 'short',
-  })
-}
+const formatDate = formatLocalDate
+const formatDateTime = formatDateTimeFull
 </script>

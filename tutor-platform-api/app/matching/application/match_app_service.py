@@ -14,7 +14,8 @@ from app.matching.domain.exceptions import (
     TutorNotFoundError,
 )
 from app.matching.domain.ports import ICatalogQuery, IMatchRepository, IUnitOfWork
-from app.matching.domain.value_objects import Action, MatchStatus
+from app.matching.domain.value_objects import Action, Contract, MatchStatus
+from app.shared.api.constants import MAX_PAGE_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ class MatchAppService:
             )
 
     def list_matches(self, *, user_id: int, role: str, page: int = 1, page_size: int = 20) -> dict:
+        page_size = min(page_size, MAX_PAGE_SIZE)
         limit = page_size
         offset = (page - 1) * page_size
         if role == "tutor":
@@ -93,7 +95,7 @@ class MatchAppService:
         for m in matches:
             m["status_label"] = MatchStatus(m["status"]).label
 
-        total_pages = (total + page_size - 1) // page_size if total else 0
+        total_pages = max(1, (total + page_size - 1) // page_size)
         return {
             "items": matches,
             "total": total,
@@ -192,12 +194,25 @@ class MatchAppService:
                     if active >= max_s:
                         raise CapacityExceededError()
                 if has_terms:
+                    new_rate = contract_terms.get("hourly_rate")
+                    new_spw = contract_terms.get("sessions_per_week")
+                    new_start = contract_terms.get("start_date")
+                    try:
+                        Contract(
+                            hourly_rate=float(new_rate) if new_rate is not None else match.contract.hourly_rate,
+                            sessions_per_week=int(new_spw) if new_spw is not None else match.contract.sessions_per_week,
+                            want_trial=match.contract.want_trial,
+                            start_date=new_start if new_start is not None else match.contract.start_date,
+                            end_date=match.contract.end_date,
+                        )
+                    except ValueError as exc:
+                        raise InvalidTransitionError(str(exc)) from exc
                     self._match_repo.confirm_trial_with_terms(
                         match_id=match_id,
                         new_status=new_status.value,
-                        hourly_rate=contract_terms.get("hourly_rate"),
-                        sessions_per_week=contract_terms.get("sessions_per_week"),
-                        start_date=contract_terms.get("start_date"),
+                        hourly_rate=new_rate,
+                        sessions_per_week=new_spw,
+                        start_date=new_start,
                     )
                 else:
                     self._match_repo.update_status(match_id, new_status.value)
@@ -225,10 +240,27 @@ class MatchAppService:
                 )
         else:
             with self._uow.begin():
+                # Lock the match row so concurrent state changes (e.g. a
+                # simultaneous ACCEPT that flips want_trial → TRIAL vs ACTIVE)
+                # are serialised. Recompute new_status from the locked row so
+                # the transition always reflects committed data.
+                fresh = self._match_repo.find_by_id_for_update(match_id)
+                if fresh is None:
+                    raise MatchNotFoundError()
+                new_status = state_machine.resolve_transition(
+                    current=fresh.status,
+                    action=action,
+                    actor_is_parent=is_parent,
+                    actor_is_tutor=is_tutor,
+                    actor_is_admin=is_admin,
+                    actor_user_id=user_id,
+                    terminated_by=fresh.terminated_by,
+                    want_trial=fresh.contract.want_trial,
+                )
                 self._match_repo.update_status(match_id, new_status.value)
                 self._audit_admin_transition(
                     match_id, user_id, is_admin, action,
-                    old_status.value, new_status.value, reason,
+                    fresh.status.value, new_status.value, reason,
                 )
 
         return {

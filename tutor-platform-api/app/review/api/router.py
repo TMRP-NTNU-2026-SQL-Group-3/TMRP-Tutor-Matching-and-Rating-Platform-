@@ -1,10 +1,16 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg2.errors import UniqueViolation
 
 from app.identity.api.dependencies import get_current_user, get_db, is_admin
-from app.review.api.schemas import ReviewCreate, ReviewUpdate
+from app.review.api.schemas import (
+    ReviewCreate,
+    ReviewUpdate,
+    _LOW_RATING_MIN_COMMENT_LEN,
+    _LOW_RATING_THRESHOLD,
+)
 from app.review.domain.exceptions import (
     DuplicateReviewError,
     InvalidReviewTypeError,
@@ -22,6 +28,8 @@ from app.review.infrastructure.postgres_review_repo import PostgresReviewReposit
 from app.shared.api.schemas import ApiResponse
 from app.shared.infrastructure.config import settings
 from app.shared.infrastructure.database_tx import transaction
+
+logger = logging.getLogger("app.review")
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
@@ -75,7 +83,7 @@ def create_review(body: ReviewCreate, user=Depends(get_current_user), conn=Depen
 def list_reviews(match_id: int = Query(...), user=Depends(get_current_user), conn=Depends(get_db)):
     repo = PostgresReviewRepository(conn)
     user_id = int(user["sub"])
-    match = repo.get_match_participants(match_id)
+    match = repo.get_match_for_create(match_id)
     if not match:
         raise ReviewMatchNotFoundError()
     is_participant = match["tutor_user_id"] == user_id or match["parent_user_id"] == user_id
@@ -105,15 +113,21 @@ def update_review(review_id: int, body: ReviewUpdate, user=Depends(get_current_u
         # created_at is TIMESTAMPTZ so psycopg2 returns an aware datetime;
         # the naive-fallback branch guards legacy rows imported before the
         # tzinfo migration. Any TypeError from the final compare maps to
-        # ReviewLockedError (HTTP 423) rather than a bare 500 — refusing
+        # ReviewLockedError (HTTP 400) rather than a bare 500 — refusing
         # the edit is safer than silently allowing it when we cannot prove
         # the row is inside the edit window.
         if isinstance(created_at, datetime) and created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
         try:
             past_cutoff = created_at < cutoff
-        except TypeError:
-            raise ReviewLockedError()
+        except TypeError as exc:
+            # S-H4: log before swallowing so data-integrity issues surface in
+            # structured logs rather than silently resolving to a lock refusal.
+            logger.error(
+                "Unexpected created_at type in review lock check: %s (value=%r, review_id=%s)",
+                exc, created_at, review_id,
+            )
+            raise ReviewLockedError() from exc
         if past_cutoff:
             raise ReviewLockedError()
         # MEDIUM-9: enforce low-rating comment rule on partial updates.
@@ -121,7 +135,6 @@ def update_review(review_id: int, body: ReviewUpdate, user=Depends(get_current_u
         # caller omits it, the merged comment (stored value + no new value)
         # must still satisfy the floor. Fetch the stored comment here so we
         # can evaluate the combined state before writing.
-        from app.review.api.schemas import _LOW_RATING_THRESHOLD, _LOW_RATING_MIN_COMMENT_LEN
         merged_ratings = {
             "rating_1": updates.get("rating_1", review.get("rating_1")),
             "rating_2": updates.get("rating_2", review.get("rating_2")),
@@ -131,7 +144,6 @@ def update_review(review_id: int, body: ReviewUpdate, user=Depends(get_current_u
         if any(r is not None and r <= _LOW_RATING_THRESHOLD for r in merged_ratings.values()):
             merged_comment = (updates.get("comment") or review.get("comment") or "").strip()
             if len(merged_comment) < _LOW_RATING_MIN_COMMENT_LEN:
-                from fastapi import HTTPException
                 raise HTTPException(
                     status_code=422,
                     detail=f"評分 {_LOW_RATING_THRESHOLD} 星以下時必須填寫至少 {_LOW_RATING_MIN_COMMENT_LEN} 字的文字說明",

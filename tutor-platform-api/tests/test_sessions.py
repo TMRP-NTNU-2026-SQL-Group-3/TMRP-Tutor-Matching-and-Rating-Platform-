@@ -204,7 +204,7 @@ class TestListSessions:
 
         assert resp.status_code == 200
         assert len(resp.json()["data"]) == 2
-        repo.list_by_match.assert_called_once_with(1, parent_only=False)
+        repo.list_by_match.assert_called_once_with(1, visible_only=False)
 
     def test_list_as_parent_filtered(self, client, parent_headers, mock_conn):
         """Parent sees only visible_to_parent=true rows."""
@@ -223,7 +223,7 @@ class TestListSessions:
             )
 
         assert resp.status_code == 200
-        repo.list_by_match.assert_called_once_with(1, parent_only=True)
+        repo.list_by_match.assert_called_once_with(1, visible_only=True)
 
 
 # ━━━━━━━━━━ Edit-log retrieval ━━━━━━━━━━

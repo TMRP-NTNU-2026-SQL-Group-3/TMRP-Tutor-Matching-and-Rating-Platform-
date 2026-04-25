@@ -59,7 +59,7 @@ def search_tutors(
         for t in rows
     ]
 
-    total_pages = (total + page_size - 1) // page_size if total else 0
+    total_pages = max(1, (total + page_size - 1) // page_size)
     return ApiResponse(
         success=True,
         data={
@@ -180,7 +180,7 @@ def get_tutor_reviews(
     offset = (page - 1) * page_size
     reviews = review_repo.list_by_tutor(tutor_id, limit=page_size, offset=offset)
     total = review_repo.count_by_tutor(tutor_id)
-    total_pages = (total + page_size - 1) // page_size if total else 0
+    total_pages = max(1, (total + page_size - 1) // page_size)
     return ApiResponse(
         success=True,
         data={

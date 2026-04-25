@@ -53,7 +53,13 @@
         </button>
       </div>
 
-      <p v-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3 mt-2">{{ error }}</p>
+      <div v-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3 mt-2 flex items-center justify-between gap-3">
+        <span>{{ error }}</span>
+        <button @click="handleSend" :disabled="sending"
+          class="shrink-0 text-sm font-medium text-primary-600 hover:text-primary-800 transition-colors whitespace-nowrap disabled:opacity-50">
+          重試
+        </button>
+      </div>
     </template>
   </div>
 </template>
@@ -65,6 +71,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { messagesApi } from '@/api/messages'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { formatTimeOnly } from '@/utils/format'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -95,11 +102,7 @@ let inFlightFetch = null
 
 const userId = computed(() => auth.user?.user_id)
 
-function formatTime(dt) {
-  if (!dt) return ''
-  const d = new Date(dt)
-  return d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
-}
+const formatTime = formatTimeOnly
 
 function scrollToBottom() {
   nextTick(() => {
@@ -161,9 +164,11 @@ async function handleSend() {
   scrollToBottom()
   try {
     await messagesApi.sendMessage(route.params.id, text)
-    // 送出後強制一輪新 fetch，避免落入既有 in-flight poll 的舊快照；
-    // refetch 會以伺服器版本（含真正的 message_id）覆蓋 messages，移除 temp。
+    // Force a fresh fetch so the server-confirmed message (with its real ID)
+    // replaces the optimistic entry. fetchMessages preserves pending bubbles
+    // during the fetch, so we must explicitly remove the temp entry afterward.
     await fetchMessages({ dedupe: false })
+    messages.value = messages.value.filter(m => m.message_id !== tempId)
   } catch (e) {
     // Roll back the optimistic entry so the user can retry without a phantom.
     messages.value = messages.value.filter(m => m.message_id !== tempId)

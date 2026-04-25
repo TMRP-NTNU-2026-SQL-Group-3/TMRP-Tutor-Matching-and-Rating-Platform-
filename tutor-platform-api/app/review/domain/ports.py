@@ -6,9 +6,6 @@ class IReviewRepository(ABC):
     def get_match_for_create(self, match_id: int) -> dict | None: ...
 
     @abstractmethod
-    def get_match_participants(self, match_id: int) -> dict | None: ...
-
-    @abstractmethod
     def find_existing(self, match_id: int, reviewer_user_id: int, review_type: str) -> dict | None: ...
 
     @abstractmethod

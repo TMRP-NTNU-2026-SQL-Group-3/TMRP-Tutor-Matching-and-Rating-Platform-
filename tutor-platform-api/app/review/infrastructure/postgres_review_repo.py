@@ -15,16 +15,6 @@ class PostgresReviewRepository(BaseRepository, IReviewRepository):
             (match_id,),
         )
 
-    def get_match_participants(self, match_id: int) -> dict | None:
-        return self.fetch_one(
-            """SELECT m.match_id, t.user_id AS tutor_user_id, st.parent_user_id
-               FROM matches m
-               INNER JOIN tutors t ON m.tutor_id = t.tutor_id
-               INNER JOIN students st ON m.student_id = st.student_id
-               WHERE m.match_id = %s""",
-            (match_id,),
-        )
-
     def find_existing(self, match_id, reviewer_user_id, review_type) -> dict | None:
         return self.fetch_one(
             "SELECT review_id FROM reviews WHERE match_id = %s AND reviewer_user_id = %s AND review_type = %s",

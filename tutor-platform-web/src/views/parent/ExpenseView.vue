@@ -75,6 +75,7 @@ const error = ref('')
 async function fetchData() {
   loading.value = true
   error.value = ''
+  data.value = null
   try {
     data.value = await statsApi.getExpense({ month: month.value })
   } catch (e) {

@@ -22,6 +22,9 @@
     </div>
 
     <div v-else-if="match">
+      <div v-if="refetching" aria-live="polite"
+           class="text-xs text-gray-400 text-center mb-3 animate-pulse">正在更新...</div>
+
       <!-- Header with status -->
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-bold text-gray-900">配對詳情</h1>
@@ -141,7 +144,7 @@
           :submitting="sessionSubmitting"
           :error="sessionError"
           @submit="submitSession"
-          @cancel="showSessionForm = false"
+          @cancel="handleSessionFormCancel"
         />
 
         <SessionTimeline :sessions="paginatedSessions" :show-visibility="true"
@@ -176,6 +179,9 @@
             class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors">
             + 新增
           </button>
+          <span v-else-if="!['active', 'trial'].includes(match.status)"
+            title="配對非進行中，考試紀錄為唯讀"
+            class="text-xs text-gray-400 bg-gray-100 rounded-full px-2.5 py-1">唯讀</span>
         </div>
 
         <!-- Exam form -->
@@ -282,7 +288,7 @@
                       <button @click="startExamEdit(e)"
                         class="text-xs text-primary-600 hover:text-primary-800 font-medium">編輯</button>
                       <button @click="confirmDeleteExam(e.exam_id)"
-                        class="text-xs text-red-600 hover:text-red-800 font-medium">刪除</button>
+                        class="text-xs bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 font-medium rounded px-2 py-0.5 transition-colors">刪除</button>
                     </div>
                   </td>
                 </template>
@@ -378,7 +384,7 @@ const toast = useToastStore()
 
 const {
   match, sessions, exams, reviews,
-  loading, error, actionLoading,
+  loading, refetching, error, actionLoading,
   showTerminate, showContractConfirm, userId, displayReason,
   fetchMatch, doAction, doTerminate, doConfirmTrial,
   showReviewForm, reviewSubmitting, reviewError, submitReview,
@@ -551,13 +557,23 @@ async function handleSubmitReview() {
 async function onSessionUpdated() {
   toast.success('上課紀錄已更新')
   await fetchMatch()
-  sessionPage.value = 1
+  // Edit doesn't change the list length; stay on the current page.
 }
 
 async function onSessionDeleted() {
   toast.success('上課紀錄已刪除')
   await fetchMatch()
-  sessionPage.value = 1
+  // Clamp to the new last page if the deletion removed the current page's only entry.
+  if (sessionPage.value > sessionTotalPages.value) {
+    sessionPage.value = Math.max(1, sessionTotalPages.value)
+  }
+}
+
+function handleSessionFormCancel() {
+  if (sessionFormRef.value?.hasDirtyData?.() && !window.confirm('確定要取消？已輸入的資料將不會儲存。')) return
+  sessionError.value = ''
+  showSessionForm.value = false
+  sessionFormRef.value?.reset()
 }
 
 async function submitSession(formData) {
@@ -572,18 +588,14 @@ async function submitSession(formData) {
       match_id: match.value.match_id,
       ...formData,
     })
-    // Only close the form once the refetch confirms the new session is in the
-    // list. fetchMatch swallows its own errors (sets error.value + toasts) and
-    // returns false on failure, so if we closed unconditionally the user could
-    // see the form vanish without their entry appearing anywhere.
     const refreshed = await fetchMatch()
+    showSessionForm.value = false
+    sessionFormRef.value?.reset()
     if (refreshed) {
-      showSessionForm.value = false
-      sessionFormRef.value?.reset()
       sessionPage.value = 1
       toast.success('上課日誌已新增')
     } else {
-      toast.success('上課日誌已新增，但列表更新失敗，請手動重新整理')
+      toast.warning('上課日誌已新增，但列表更新失敗，請手動重新整理')
     }
   } catch (e) {
     sessionError.value = e.message
@@ -599,7 +611,7 @@ async function submitExam() {
     examError.value = '日期為必填'
     return
   }
-  if (examForm.score < 0 || examForm.score > 100) {
+  if (!Number.isFinite(examForm.score) || examForm.score < 0 || examForm.score > 100) {
     examError.value = '分數必須在 0-100 之間'
     return
   }

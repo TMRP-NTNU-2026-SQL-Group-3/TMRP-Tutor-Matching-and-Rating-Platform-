@@ -143,6 +143,10 @@ async function goMessage() {
   messageSending.value = true
   try {
     const conv = await messagesApi.createConversation(tutor.value.user_id)
+    if (!conv?.conversation_id) {
+      toast.error('建立對話失敗，請稍候再試')
+      return
+    }
     router.push('/messages/' + conv.conversation_id)
   } catch (e) {
     toast.error(e.message)

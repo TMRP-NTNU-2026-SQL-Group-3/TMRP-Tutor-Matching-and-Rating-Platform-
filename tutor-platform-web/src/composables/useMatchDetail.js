@@ -21,6 +21,7 @@ export function useMatchDetail() {
   const exams = ref([])
   const reviews = ref([])
   const loading = ref(false)
+  const refetching = ref(false)
   const error = ref('')
   const showTerminate = ref(false)
   const showContractConfirm = ref(false)
@@ -58,8 +59,8 @@ export function useMatchDetail() {
       return false
     }
 
-    // 首次載入才顯示 skeleton，後續重新整理不閃爍
     if (!match.value) loading.value = true
+    else refetching.value = true
     error.value = ''
     try {
       const detail = await matchesApi.getDetail(matchId, { signal })
@@ -94,6 +95,7 @@ export function useMatchDetail() {
     } finally {
       if (currentFetchId === _fetchId) {
         loading.value = false
+        refetching.value = false
         _activeController = null
       }
     }
@@ -183,7 +185,7 @@ export function useMatchDetail() {
 
   return {
     match, sessions, exams, reviews,
-    loading, error, actionLoading,
+    loading, refetching, error, actionLoading,
     showTerminate, showContractConfirm, userId, displayReason,
     fetchMatch, doAction, doTerminate, doConfirmTrial,
     showReviewForm, reviewSubmitting, reviewError, submitReview,

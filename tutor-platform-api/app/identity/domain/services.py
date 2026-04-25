@@ -63,10 +63,10 @@ class AuthService:
         source_ip: str | None = None,
         user_agent: str | None = None,
     ) -> dict:
+        # S-M2: strip CR/LF and cap length to prevent log injection and unbounded growth.
+        user_agent = (user_agent or "").replace("\r", "").replace("\n", "")[:256]
         user = self._repo.find_by_username(username)
         if not user or not verify_password(password, user["password_hash"]):
-            # LOW-2: defence in depth — strip CR/LF and truncate before logging
-            # in case a caller bypassed the schema validator.
             safe_username = (username or "").replace("\r", "").replace("\n", "")[:64]
             _audit_logger.warning(
                 "login_failed username=%s ip=%s ua=%s",
@@ -94,6 +94,7 @@ class AuthService:
         source_ip: str | None = None,
         user_agent: str | None = None,
     ) -> dict:
+        user_agent = (user_agent or "").replace("\r", "").replace("\n", "")[:256]
         payload = decode_refresh_token(refresh_token)
         if payload is None:
             # A failed refresh is a defensive signal (stolen/replayed token,

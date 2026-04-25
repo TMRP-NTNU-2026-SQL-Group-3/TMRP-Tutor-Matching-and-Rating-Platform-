@@ -35,7 +35,10 @@
       </div>
     </div>
 
-    <EmptyState v-else message="尚無配對紀錄" />
+    <EmptyState v-else-if="!fetchError" message="尚無配對紀錄" />
+    <p v-else role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-4">
+      載入配對資料失敗：{{ fetchError }}
+    </p>
   </div>
 </template>
 
@@ -51,12 +54,15 @@ const auth = useAuthStore()
 const toast = useToastStore()
 const matches = ref([])
 const loading = ref(false)
+const fetchError = ref('')
 
 onMounted(async () => {
   loading.value = true
+  fetchError.value = ''
   try {
     matches.value = await matchesApi.list()
   } catch (e) {
+    fetchError.value = e.message
     toast.error('載入配對資料失敗')
   } finally {
     loading.value = false

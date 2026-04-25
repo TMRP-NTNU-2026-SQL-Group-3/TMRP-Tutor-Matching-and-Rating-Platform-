@@ -16,7 +16,7 @@
         <div class="grid grid-cols-1 gap-4">
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">每小時費用 *</label>
-            <input ref="firstFieldEl" v-model.number="form.hourly_rate" type="number" required min="1" step="1"
+            <input ref="firstFieldEl" v-model.number="form.hourly_rate" type="number" required min="1" max="99999" step="1"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
           </div>
           <div>
@@ -119,8 +119,8 @@ watch(() => props.visible, (v) => {
 
 function handleSubmit() {
   localError.value = ''
-  if (form.hourly_rate == null || form.hourly_rate <= 0) {
-    localError.value = '時薪需大於 0'
+  if (form.hourly_rate == null || form.hourly_rate <= 0 || form.hourly_rate > 99999) {
+    localError.value = '時薪必須介於 1 至 99,999 之間'
     return
   }
   if (form.sessions_per_week == null || form.sessions_per_week < 1) {

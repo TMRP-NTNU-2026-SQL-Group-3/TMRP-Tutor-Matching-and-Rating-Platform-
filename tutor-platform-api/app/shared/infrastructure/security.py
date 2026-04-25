@@ -108,6 +108,16 @@ def _decode_with_rotation(token: str) -> dict | None:
     The grace window is bounded by JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT so a
     retired key cannot stay trusted indefinitely.
     """
+    # S-C1: explicit rejection of alg=none before decode so PyJWT's algorithm
+    # allowlist check is not the sole line of defence against this attack class.
+    try:
+        header = jwt.get_unverified_header(token)
+    except JWTError:
+        logger.warning("JWT header decode failed — malformed token")
+        return None
+    if header.get("alg", "").lower() == "none":
+        logger.warning("JWT with alg=none rejected")
+        return None
     try:
         return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
     except JWTError as primary_err:

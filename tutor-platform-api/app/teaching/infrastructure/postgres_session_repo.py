@@ -42,8 +42,8 @@ class PostgresSessionRepository(BaseRepository, ISessionRepository):
              student_performance, next_plan, visible_to_parent),
         )
 
-    def list_by_match(self, match_id: int, parent_only: bool = False) -> list[dict]:
-        if parent_only:
+    def list_by_match(self, match_id: int, visible_only: bool = False) -> list[dict]:
+        if visible_only:
             return self.fetch_all(
                 "SELECT * FROM sessions WHERE match_id = %s AND visible_to_parent = TRUE ORDER BY session_date DESC",
                 (match_id,),
@@ -58,7 +58,7 @@ class PostgresSessionRepository(BaseRepository, ISessionRepository):
 
     def update(self, session_id: int, fields: dict) -> None:
         self.safe_update("sessions", "session_id", session_id, fields,
-                         self._ALLOWED_UPDATE_COLUMNS, extra_set="updated_at = NOW()")
+                         self._ALLOWED_UPDATE_COLUMNS, update_timestamp=True)
 
     def insert_edit_log(self, session_id, field_name, old_value, new_value) -> None:
         self.execute(

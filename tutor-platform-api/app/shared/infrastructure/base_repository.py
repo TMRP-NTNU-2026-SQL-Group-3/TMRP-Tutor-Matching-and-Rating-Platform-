@@ -49,19 +49,19 @@ class BaseRepository:
             logger.exception("Failed to close cursor")
 
     def safe_update(self, table: str, id_col: str, id_val, updates: dict,
-                    allowed_columns: set, extra_set: str = "") -> None:
+                    allowed_columns: set, update_timestamp: bool = False) -> None:
         """Parameterised UPDATE with mandatory column whitelist."""
         validate_columns(list(updates.keys()), allowed_columns)
         set_parts = [psql.SQL("{} = %s").format(psql.Identifier(col)) for col in updates]
-        if extra_set:
-            set_parts.append(psql.SQL(extra_set))
+        if update_timestamp:
+            set_parts.append(psql.SQL("updated_at = NOW()"))
         query = psql.SQL("UPDATE {} SET {} WHERE {} = %s").format(
             psql.Identifier(table),
             psql.SQL(", ").join(set_parts),
             psql.Identifier(id_col),
         )
         values = list(updates.values()) + [id_val]
-        self.execute(query.as_string(self.conn), values)
+        self.execute(query, values)
 
     def fetch_one(self, sql: "str | psql.Composable", params: tuple = ()) -> dict | None:
         self.cursor.execute(sql, params)

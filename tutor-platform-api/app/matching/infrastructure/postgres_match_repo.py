@@ -54,6 +54,22 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
         )
         return self._row_to_entity(row) if row else None
 
+    def find_by_id_for_update(self, match_id: int) -> Match | None:
+        row = self.fetch_one(
+            """SELECT m.*, s.subject_name,
+                      st.name AS student_name, st.parent_user_id,
+                      t.user_id AS tutor_user_id,
+                      u.display_name AS tutor_display_name
+               FROM matches m
+               INNER JOIN subjects s ON m.subject_id = s.subject_id
+               INNER JOIN students st ON m.student_id = st.student_id
+               INNER JOIN tutors t ON m.tutor_id = t.tutor_id
+               INNER JOIN users u ON t.user_id = u.user_id
+               WHERE m.match_id = %s FOR UPDATE""",
+            (match_id,),
+        )
+        return self._row_to_entity(row) if row else None
+
     def find_by_tutor_user_id(self, user_id: int, *, limit: int, offset: int) -> list[dict]:
         return self.fetch_all(
             """SELECT m.*, s.subject_name, st.name AS student_name
@@ -178,7 +194,7 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
             psql.Identifier("match_id"),
             psql.Placeholder(),
         )
-        self.execute(query.as_string(self.conn), tuple(params))
+        self.execute(query, tuple(params))
 
     # Hard ceiling on the combined "{previous_status}|{reason}" payload that
     # `clear_termination` later reverses by splitting on "|". A bad-actor

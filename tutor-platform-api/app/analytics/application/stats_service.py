@@ -52,7 +52,7 @@ class StatsAppService:
     def __init__(self, repo: PostgresStatsRepository):
         self._repo = repo
 
-    def income_stats(self, *, user_id: int, year: int, month: int) -> dict:
+    def income_stats(self, *, user_id: int, year: int, month: int, tz: str = "Asia/Taipei") -> dict:
         tutor = self._repo.get_tutor_by_user(user_id)
         if not tutor:
             return {
@@ -63,16 +63,16 @@ class StatsAppService:
         tutor_id = tutor["tutor_id"]
         return _shape_period_report(
             year=year, month=month,
-            summary=self._repo.income_summary(tutor_id, year, month),
-            breakdown=self._repo.income_breakdown(tutor_id, year, month),
+            summary=self._repo.income_summary(tutor_id, year, month, tz),
+            breakdown=self._repo.income_breakdown(tutor_id, year, month, tz),
             amount_key="income",
         )
 
-    def expense_stats(self, *, parent_user_id: int, year: int, month: int) -> dict:
+    def expense_stats(self, *, parent_user_id: int, year: int, month: int, tz: str = "Asia/Taipei") -> dict:
         return _shape_period_report(
             year=year, month=month,
-            summary=self._repo.expense_summary(parent_user_id, year, month),
-            breakdown=self._repo.expense_breakdown(parent_user_id, year, month),
+            summary=self._repo.expense_summary(parent_user_id, year, month, tz),
+            breakdown=self._repo.expense_breakdown(parent_user_id, year, month, tz),
             amount_key="expense",
         )
 

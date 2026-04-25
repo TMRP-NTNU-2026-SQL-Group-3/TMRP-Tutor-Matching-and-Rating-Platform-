@@ -33,7 +33,9 @@ def create_exam(body: ExamCreate, user=Depends(get_current_user), conn=Depends(g
     if not student:
         raise NotFoundError("找不到此學生")
     is_parent = role == "parent" and student["parent_user_id"] == user_id
-    is_tutor = role == "tutor" and bool(repo.get_active_match_for_tutor(body.student_id, user_id))
+    is_tutor = role == "tutor" and bool(
+        repo.get_active_match_for_tutor_subject(body.student_id, user_id, body.subject_id)
+    )
     if not is_parent and not is_tutor:
         raise PermissionDeniedError("無權為此學生新增考試紀錄")
     bucket = f"exam:create|student={body.student_id}|user={user_id}"
@@ -56,10 +58,18 @@ def list_exams(student_id: int = Query(...), user=Depends(get_current_user), con
     if not student:
         raise NotFoundError("找不到此學生")
     is_parent = student["parent_user_id"] == user_id
-    is_tutor = bool(repo.get_active_match_for_tutor(student_id, user_id))
-    if not is_parent and not is_tutor and not is_admin(user):
+    # S-H6: use role to gate the tutor path, not any-subject match presence.
+    # list_by_student_for_tutor enforces subject-level access via the
+    # JOIN on matches.subject_id — a tutor only sees exams for subjects they
+    # are actively matched on, regardless of other matches for this student.
+    is_tutor_role = user["role"] == "tutor"
+    has_match = is_tutor_role and bool(repo.get_active_match_for_tutor(student_id, user_id))
+    if not is_parent and not has_match and not is_admin(user):
         raise PermissionDeniedError("無權查看此學生的考試紀錄")
-    exams = repo.list_by_student(student_id, parent_only=is_parent and not is_tutor)
+    if has_match and not is_parent and not is_admin(user):
+        exams = repo.list_by_student_for_tutor(student_id, user_id)
+    else:
+        exams = repo.list_by_student(student_id, parent_only=is_parent and not is_admin(user))
     return ApiResponse(success=True, data=exams)
 
 

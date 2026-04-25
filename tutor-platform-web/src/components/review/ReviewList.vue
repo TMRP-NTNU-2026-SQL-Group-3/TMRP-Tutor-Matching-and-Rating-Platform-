@@ -6,13 +6,13 @@
         <span class="px-2 py-0.5 bg-gray-200 text-gray-600 text-xs rounded-full">{{ typeLabel(r.review_type) }}</span>
       </div>
       <div class="flex items-center gap-1 text-amber-500 text-sm mb-2">
-        <span>★ {{ r.rating_1 }}</span>
+        <span>★ {{ r.rating_1 ?? '-' }}</span>
         <span class="text-gray-300">/</span>
-        <span>{{ r.rating_2 }}</span>
+        <span>{{ r.rating_2 ?? '-' }}</span>
         <span class="text-gray-300">/</span>
-        <span>{{ r.rating_3 || '-' }}</span>
+        <span>{{ r.rating_3 ?? '-' }}</span>
         <span class="text-gray-300">/</span>
-        <span>{{ r.rating_4 || '-' }}</span>
+        <span>{{ r.rating_4 ?? '-' }}</span>
       </div>
       <p v-if="r.personality_comment" class="text-sm text-gray-600">{{ r.personality_comment }}</p>
       <p v-if="r.comment" class="text-sm text-gray-600 mt-1">{{ r.comment }}</p>

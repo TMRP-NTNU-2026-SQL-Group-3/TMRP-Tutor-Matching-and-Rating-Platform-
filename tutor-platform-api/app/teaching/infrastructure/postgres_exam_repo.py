@@ -19,6 +19,17 @@ class PostgresExamRepository(BaseRepository, IExamRepository):
             (student_id, tutor_user_id),
         )
 
+    def get_active_match_for_tutor_subject(
+        self, student_id: int, tutor_user_id: int, subject_id: int
+    ) -> dict | None:
+        return self.fetch_one(
+            """SELECT 1 FROM matches m
+               INNER JOIN tutors t ON m.tutor_id = t.tutor_id
+               WHERE m.student_id = %s AND t.user_id = %s AND m.subject_id = %s
+                 AND m.status IN ('active', 'trial')""",
+            (student_id, tutor_user_id, subject_id),
+        )
+
     def create(self, student_id, subject_id, added_by_user_id, exam_date,
                exam_type, score, visible_to_parent) -> int:
         return self.execute_returning_id(
@@ -41,6 +52,18 @@ class PostgresExamRepository(BaseRepository, IExamRepository):
 
     def delete(self, exam_id: int) -> None:
         self.execute("DELETE FROM exams WHERE exam_id = %s", (exam_id,))
+
+    def list_by_student_for_tutor(self, student_id: int, tutor_user_id: int) -> list[dict]:
+        return self.fetch_all(
+            """SELECT e.*, s.subject_name FROM exams e
+               INNER JOIN subjects s ON e.subject_id = s.subject_id
+               INNER JOIN matches m ON e.student_id = m.student_id AND e.subject_id = m.subject_id
+               INNER JOIN tutors t ON m.tutor_id = t.tutor_id
+               WHERE e.student_id = %s AND t.user_id = %s
+                 AND m.status IN ('active', 'trial')
+               ORDER BY e.exam_date DESC""",
+            (student_id, tutor_user_id),
+        )
 
     def list_by_student(self, student_id: int, parent_only: bool = False) -> list[dict]:
         if parent_only:

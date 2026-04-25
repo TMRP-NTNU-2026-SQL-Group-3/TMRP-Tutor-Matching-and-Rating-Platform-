@@ -28,7 +28,7 @@ class InvalidReviewTypeError(DomainException):
 
 class MatchNotReviewableError(DomainException):
     def __init__(self):
-        super().__init__("只能對進行中或已結束的配對提交評價")
+        super().__init__("只能對進行中、暫停或已結束的配對提交評價")
 
 
 class WrongReviewerRoleError(PermissionDeniedError):

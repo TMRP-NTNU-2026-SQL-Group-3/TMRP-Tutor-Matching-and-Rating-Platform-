@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # deployments cannot silently ship with a guessable literal like 'admin'.
     # Complexity is enforced by reject_weak_admin_password below.
     admin_username: str = Field(..., min_length=3)
-    admin_password: str = Field(..., min_length=12)
+    admin_password: str = Field(..., min_length=16)
 
     # Reviews become immutable after this many days.
     review_lock_days: int = 7
@@ -136,11 +136,8 @@ class Settings(BaseSettings):
                 )
         if self.admin_password in {"admin123", "admin", "password"}:
             raise ValueError("ADMIN_PASSWORD must not be a known placeholder value.")
-        # HIGH: enforce complexity in addition to the 12-char minimum. A 12-char
-        # password drawn from a single class (e.g. all lowercase) is still in
-        # reach of an offline attacker; require at least three of the four
-        # character classes so a bootstrapped admin account meaningfully
-        # resists credential stuffing and dictionary attacks.
+        # S-H1: 16-char minimum and all four character classes required.
+        # 3-of-4 at 12 chars is reachable by offline dictionary attack.
         pw = self.admin_password
         classes = sum([
             any(c.islower() for c in pw),
@@ -148,10 +145,10 @@ class Settings(BaseSettings):
             any(c.isdigit() for c in pw),
             any(not c.isalnum() for c in pw),
         ])
-        if classes < 3:
+        if classes < 4:
             raise ValueError(
-                "ADMIN_PASSWORD must contain at least three of: lowercase, "
-                "uppercase, digit, symbol."
+                "ADMIN_PASSWORD must contain all four character classes: "
+                "lowercase, uppercase, digit, and symbol."
             )
         # INFO-2: auth cookies must carry the Secure flag in production so they
         # are never transmitted over plain HTTP. debug=False is our proxy for

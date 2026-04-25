@@ -1,4 +1,6 @@
+import re
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Query
 
@@ -10,8 +12,20 @@ from app.shared.domain.exceptions import DomainException
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
+_TZ_RE = re.compile(r"^[A-Za-z0-9/_+\-]+$")
 
-def _parse_month(month: str | None) -> tuple[int, int]:
+
+def _validate_tz(tz: str) -> str:
+    if not _TZ_RE.match(tz):
+        raise DomainException("無效的時區格式")
+    try:
+        ZoneInfo(tz)
+    except ZoneInfoNotFoundError:
+        raise DomainException(f"不支援的時區：{tz}")
+    return tz
+
+
+def _parse_month(month: str | None, tz: str = "Asia/Taipei") -> tuple[int, int]:
     if month:
         year, mon = map(int, month.split("-"))
         if not (1 <= mon <= 12):
@@ -19,7 +33,7 @@ def _parse_month(month: str | None) -> tuple[int, int]:
         if not (2000 <= year <= 2100):
             raise DomainException("無效的年份值（2000-2100）")
     else:
-        now = datetime.now()
+        now = datetime.now(ZoneInfo(tz))
         year, mon = now.year, now.month
     return year, mon
 
@@ -27,22 +41,26 @@ def _parse_month(month: str | None) -> tuple[int, int]:
 @router.get("/income", summary="家教收入統計", response_model=ApiResponse)
 def get_income_stats(
     month: str = Query(None, pattern=r"^\d{4}-\d{2}$"),
+    tz: str = Query("Asia/Taipei"),
     user=Depends(require_role("tutor")),
     service: StatsAppService = Depends(get_stats_service),
 ):
-    year, mon = _parse_month(month)
-    data = service.income_stats(user_id=int(user["sub"]), year=year, month=mon)
+    tz = _validate_tz(tz)
+    year, mon = _parse_month(month, tz)
+    data = service.income_stats(user_id=int(user["sub"]), year=year, month=mon, tz=tz)
     return ApiResponse(success=True, data=data)
 
 
 @router.get("/expense", summary="家長支出統計", response_model=ApiResponse)
 def get_expense_stats(
     month: str = Query(None, pattern=r"^\d{4}-\d{2}$"),
+    tz: str = Query("Asia/Taipei"),
     user=Depends(require_role("parent")),
     service: StatsAppService = Depends(get_stats_service),
 ):
-    year, mon = _parse_month(month)
-    data = service.expense_stats(parent_user_id=int(user["sub"]), year=year, month=mon)
+    tz = _validate_tz(tz)
+    year, mon = _parse_month(month, tz)
+    data = service.expense_stats(parent_user_id=int(user["sub"]), year=year, month=mon, tz=tz)
     return ApiResponse(success=True, data=data)
 
 

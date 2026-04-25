@@ -67,6 +67,7 @@
         <p v-if="hasDuplicateSubjects" role="alert"
           class="text-xs text-red-600">同一科目不能重複加入，請先移除或更改重複項。</p>
         <button type="button" @click="addSubjectRow" :disabled="!hasFreeSubject"
+          :title="!hasFreeSubject ? '已達科目上限，請先移除現有科目再新增' : undefined"
           class="text-primary-600 hover:text-primary-700 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
           + 新增科目
         </button>
@@ -233,9 +234,11 @@ function handleBeforeUnload(e) {
   e.returnValue = ''
 }
 
-onBeforeRouteLeave(() => {
-  if (isDirty.value) {
-    return confirm('您有未儲存的變更，確定要離開嗎？')
+onBeforeRouteLeave((to, from, next) => {
+  if (isDirty.value && !window.confirm('您有未儲存的變更，確定要離開嗎？')) {
+    next(false)
+  } else {
+    next()
   }
 })
 
@@ -354,9 +357,15 @@ async function handleSave() {
   }
   saving.value = true
   try {
-    await tutorsApi.updateProfile(form)
-
     const errors = []
+    let profileSaved = false
+
+    try {
+      await tutorsApi.updateProfile(form)
+      profileSaved = true
+    } catch (e) {
+      errors.push('基本資料儲存失敗：' + e.message)
+    }
 
     const validSubjects = subjectList.value
       .filter(s => s.subject_id && s.hourly_rate)
@@ -380,9 +389,11 @@ async function handleSave() {
       errors.push('時段設定失敗：' + e.message)
     }
 
-    isDirty.value = false
+    if (profileSaved) isDirty.value = false
     if (errors.length) {
-      error.value = '基本資料已儲存，但' + errors.join('；')
+      error.value = profileSaved
+        ? '基本資料已儲存，但' + errors.join('；')
+        : errors.join('；')
     } else {
       success.value = '個人檔案已更新'
     }
@@ -394,8 +405,6 @@ async function handleSave() {
       success.value = ''
       successTimer = null
     }, 3000)
-  } catch (e) {
-    error.value = e.message
   } finally {
     saving.value = false
   }

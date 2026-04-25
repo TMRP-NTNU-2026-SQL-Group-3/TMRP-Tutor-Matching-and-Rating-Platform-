@@ -22,6 +22,9 @@
     </div>
 
     <div v-else-if="match">
+      <div v-if="refetching" aria-live="polite"
+           class="text-xs text-gray-400 text-center mb-3 animate-pulse">正在更新...</div>
+
       <!-- Header with status -->
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-bold text-gray-900">配對詳情</h1>
@@ -227,7 +230,7 @@ import ProgressChart from '@/components/stats/ProgressChart.vue'
 
 const {
   match, sessions, exams, reviews,
-  loading, error, actionLoading,
+  loading, refetching, error, actionLoading,
   showTerminate, showContractConfirm, userId, displayReason,
   fetchMatch, doAction, doTerminate, doConfirmTrial,
   showReviewForm, reviewSubmitting, reviewError, submitReview,
@@ -262,6 +265,7 @@ async function handleTerminateSubmit(reason) {
   if (!window.confirm('確定要送出終止申請嗎？送出後，對方同意即會關閉配對。')) return
   await doTerminate(reason)
   contractFormRef.value?.reset()
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 function printPage() { window.print() }

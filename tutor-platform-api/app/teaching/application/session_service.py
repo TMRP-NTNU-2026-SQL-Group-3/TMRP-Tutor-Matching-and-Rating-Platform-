@@ -63,6 +63,8 @@ class SessionAppService:
         match = self._repo.get_match_for_create(match_id)
         if not match:
             raise NotFoundError("找不到此配對")
+        # S-H2: ownership check — the service independently verifies the caller
+        # is the tutor on this match, not just any authenticated tutor.
         if match["tutor_user_id"] != tutor_user_id:
             raise PermissionDeniedError("只有此配對的老師可以新增上課日誌")
         if match["status"] not in _ACTIVE_SESSION_STATUSES:
@@ -84,7 +86,7 @@ class SessionAppService:
         if not is_tutor and not is_parent and not is_admin:
             raise PermissionDeniedError("無權查看此配對的上課日誌")
         # Parents only see entries the tutor flagged visible.
-        return self._repo.list_by_match(match_id, parent_only=is_parent and not is_tutor)
+        return self._repo.list_by_match(match_id, visible_only=is_parent and not is_tutor)
 
     def update(self, *, session_id: int, tutor_user_id: int, updates: dict) -> dict:
         session = self._repo.get_by_id(session_id)

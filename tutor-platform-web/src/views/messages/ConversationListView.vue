@@ -8,11 +8,14 @@
         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
       <span v-if="searching" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">搜尋中...</span>
     </div>
+    <p v-if="searchFallback" role="status" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+      伺服器搜尋暫時無法使用，目前僅顯示本機快取結果，部分對話可能未列出。
+    </p>
 
     <div v-if="loading" class="text-center py-8 text-gray-500">載入中...</div>
 
     <div v-else-if="filteredConversations.length" class="space-y-2">
-      <div v-for="c in filteredConversations" :key="c.conversation_id ?? `missing-${c.other_user_id}`"
+      <div v-for="c in pagedConversations" :key="c.conversation_id ?? `missing-${c.other_user_id}`"
            :class="[
              'bg-white rounded-lg shadow-sm border border-gray-100 p-4 transition-colors flex items-center gap-4',
              c.conversation_id != null
@@ -26,10 +29,10 @@
           {{ (c.other_name || '?').charAt(0) }}
         </div>
         <div class="flex-1 min-w-0">
-          <p class="font-medium text-gray-900 truncate">{{ c.other_name }}</p>
-          <p v-if="c.last_message_content" class="text-sm text-gray-600 truncate mt-0.5">
-            {{ formatPreview(c) }}
-          </p>
+          <p class="font-medium text-gray-900 truncate"
+             v-html="searchQuery.trim() ? highlight(c.other_name, searchQuery.trim()) : escapeHtml(c.other_name)"></p>
+          <p v-if="c.last_message_content" class="text-sm text-gray-600 truncate mt-0.5"
+             v-html="searchQuery.trim() ? highlight(formatPreview(c), searchQuery.trim()) : escapeHtml(formatPreview(c))"></p>
           <p v-else-if="c.last_message_at" class="text-xs text-gray-400 italic mt-0.5">已建立對話</p>
           <p v-else class="text-xs text-gray-300 mt-0.5 italic">尚無訊息</p>
         </div>
@@ -38,9 +41,15 @@
           <span class="text-gray-300">{{ formatDate(c.last_message_at) }}</span>
         </div>
       </div>
+      <div v-if="filteredConversations.length > pagedConversations.length" class="mt-3 text-center">
+        <button @click="displayPage++"
+                class="text-sm text-primary-600 hover:text-primary-800 font-medium">
+          載入更多（還有 {{ filteredConversations.length - pagedConversations.length }} 筆）
+        </button>
+      </div>
     </div>
 
-    <p v-else-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
+    <p v-else-if="error && !conversations.length" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
     <EmptyState v-else-if="!conversations.length" message="尚無對話" />
     <EmptyState v-else message="沒有符合的對話" />
   </div>
@@ -52,6 +61,7 @@ import { messagesApi } from '@/api/messages'
 import { useAuthStore } from '@/stores/auth'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import { formatDateTimeShort } from '@/utils/format'
 
 const auth = useAuthStore()
 const conversations = ref([])
@@ -60,17 +70,22 @@ const error = ref('')
 const searchQuery = ref('')
 const serverSearchResults = ref(null)
 const searching = ref(false)
+const searchFallback = ref(false)
+const displayPage = ref(1)
 
 const PREVIEW_MAX = 50
+const PAGE_SIZE = 20
 
 let searchTimer = null
 let searchSeq = 0
 watch(searchQuery, (q) => {
+  displayPage.value = 1
   if (searchTimer) clearTimeout(searchTimer)
   const trimmed = q.trim()
   if (!trimmed) {
     searchSeq++
     serverSearchResults.value = null
+    searchFallback.value = false
     searching.value = false
     return
   }
@@ -79,10 +94,15 @@ watch(searchQuery, (q) => {
   searchTimer = setTimeout(async () => {
     try {
       const results = await messagesApi.search(trimmed)
-      if (seq === searchSeq) serverSearchResults.value = results
+      if (seq === searchSeq) {
+        serverSearchResults.value = results
+        searchFallback.value = false
+      }
     } catch {
-      // Server-side search not available, fall back to local filtering
-      if (seq === searchSeq) serverSearchResults.value = null
+      if (seq === searchSeq) {
+        serverSearchResults.value = null
+        searchFallback.value = true
+      }
     } finally {
       if (seq === searchSeq) searching.value = false
     }
@@ -101,10 +121,32 @@ const filteredConversations = computed(() => {
   )
 })
 
-function formatDate(dt) {
-  if (!dt) return ''
-  const d = new Date(dt)
-  return d.toLocaleDateString('zh-TW') + ' ' + d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
+const pagedConversations = computed(() =>
+  filteredConversations.value.slice(0, displayPage.value * PAGE_SIZE)
+)
+
+const formatDate = formatDateTimeShort
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function highlight(text, query) {
+  if (!query || !text) return escapeHtml(text || '')
+  const lower = text.toLowerCase()
+  const lowerQ = query.toLowerCase()
+  const parts = []
+  let pos = 0
+  let idx
+  while ((idx = lower.indexOf(lowerQ, pos)) !== -1) {
+    parts.push(escapeHtml(text.slice(pos, idx)))
+    parts.push(`<mark class="bg-yellow-100 text-gray-900 rounded-sm px-0.5">${escapeHtml(text.slice(idx, idx + query.length))}</mark>`)
+    pos = idx + query.length
+  }
+  parts.push(escapeHtml(text.slice(pos)))
+  return parts.join('')
 }
 
 function formatPreview(c) {

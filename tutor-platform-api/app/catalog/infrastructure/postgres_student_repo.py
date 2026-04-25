@@ -4,8 +4,15 @@ from app.shared.infrastructure.base_repository import BaseRepository
 
 class PostgresStudentRepository(BaseRepository, IStudentRepository):
 
-    def find_by_parent(self, parent_user_id: int) -> list[dict]:
-        return self.fetch_all("SELECT * FROM students WHERE parent_user_id = %s ORDER BY student_id", (parent_user_id,))
+    def find_by_parent(self, parent_user_id: int, limit: int = 100, offset: int = 0) -> list[dict]:
+        return self.fetch_all(
+            "SELECT * FROM students WHERE parent_user_id = %s ORDER BY student_id LIMIT %s OFFSET %s",
+            (parent_user_id, limit, offset),
+        )
+
+    def count_by_parent(self, parent_user_id: int) -> int:
+        row = self.fetch_one("SELECT COUNT(*) AS cnt FROM students WHERE parent_user_id = %s", (parent_user_id,))
+        return int(row["cnt"]) if row else 0
 
     def find_by_id(self, student_id: int) -> dict | None:
         return self.fetch_one("SELECT * FROM students WHERE student_id = %s", (student_id,))

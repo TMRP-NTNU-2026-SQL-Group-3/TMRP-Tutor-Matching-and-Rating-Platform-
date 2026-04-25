@@ -88,6 +88,9 @@ def _check_permission(
     actor_user_id: int,
     terminated_by: int | None,
 ) -> None:
+    # Admins bypass all actor checks except OTHER_PARTY transitions, which
+    # require the non-initiating party to confirm. The carve-out is intentional:
+    # an admin cannot unilaterally finalise a termination on behalf of a party.
     if actor_is_admin and allowed != AllowedActor.OTHER_PARTY:
         return
 

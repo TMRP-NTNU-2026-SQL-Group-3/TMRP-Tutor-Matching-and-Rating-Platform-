@@ -130,5 +130,16 @@ function reset() {
   form.visible_to_parent = true
 }
 
-defineExpose({ reset })
+function hasDirtyData() {
+  return (
+    !!form.session_date ||
+    form.hours !== 2 ||
+    !!form.content_summary ||
+    !!form.homework ||
+    !!form.student_performance ||
+    !!form.next_plan
+  )
+}
+
+defineExpose({ reset, hasDirtyData })
 </script>

@@ -13,3 +13,10 @@ class PostgresUnitOfWork(IUnitOfWork):
 
     def begin(self) -> AbstractContextManager:
         return transaction(self._conn)
+
+    def __enter__(self):
+        self._ctx = self.begin()
+        return self._ctx.__enter__()
+
+    def __exit__(self, exc_type, exc, tb):
+        return self._ctx.__exit__(exc_type, exc, tb)

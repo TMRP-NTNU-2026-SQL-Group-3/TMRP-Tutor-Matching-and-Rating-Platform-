@@ -7,7 +7,11 @@ from app.shared.api.validators import OptionalStr
 
 
 class RegisterRequest(BaseModel):
-    username: str = Field(..., description="使用者帳號", examples=["parent01"])
+    username: str = Field(
+        ..., description="使用者帳號", examples=["parent01"],
+        min_length=1, max_length=64,
+        pattern=r"^[A-Za-z0-9_]([A-Za-z0-9_.\-@]*[A-Za-z0-9_])?$",
+    )
     password: str = Field(..., description="使用者密碼", examples=["P@ssw0rd123"])
     display_name: str = Field(..., description="顯示名稱", examples=["王小明"])
     role: Literal["parent", "tutor"] = Field(..., description="使用者角色（parent 或 tutor）", examples=["parent"])
@@ -44,7 +48,7 @@ class LoginRequest(BaseModel):
     username: str = Field(
         ..., description="使用者帳號", examples=["parent01"],
         min_length=1, max_length=64,
-        pattern=r"^[A-Za-z0-9_.\-@]+$",
+        pattern=r"^[A-Za-z0-9_]([A-Za-z0-9_.\-@]*[A-Za-z0-9_])?$",
     )
     password: str = Field(..., description="使用者密碼", examples=["P@ssw0rd123"], max_length=128)
 

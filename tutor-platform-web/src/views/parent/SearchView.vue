@@ -2,6 +2,8 @@
   <div>
     <PageHeader title="搜尋老師" />
 
+    <p v-if="subjectsLoading" class="text-xs text-gray-400 mb-2">科目載入中...</p>
+    <p v-if="subjectsError" role="alert" class="text-xs text-amber-600 mb-2">{{ subjectsError }}</p>
     <TutorFilter :subjects="subjects" @search="onFiltersChanged" />
 
     <!-- Results -->
@@ -73,6 +75,8 @@ import { PAGE_SIZE } from '@/constants'
 const toast = useToastStore()
 const tutors = ref([])
 const subjects = ref([])
+const subjectsLoading = ref(false)
+const subjectsError = ref('')
 const loading = ref(false)
 const page = ref(1)
 const total = ref(0)
@@ -136,6 +140,7 @@ async function doSearch(filters = {}, targetPage = 1) {
 function onFiltersChanged(filters = {}) {
   lastFilters.value = { ...filters }
   doSearch(filters, 1)
+  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 function goToPage(num) {
@@ -145,10 +150,14 @@ function goToPage(num) {
 }
 
 onMounted(async () => {
+  subjectsLoading.value = true
   try {
     subjects.value = await subjectsApi.list()
   } catch (e) {
+    subjectsError.value = '科目載入失敗，篩選器可能不完整'
     toast.error('載入科目失敗')
+  } finally {
+    subjectsLoading.value = false
   }
   await doSearch()
 })

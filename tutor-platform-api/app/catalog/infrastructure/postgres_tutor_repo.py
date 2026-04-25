@@ -295,4 +295,5 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
             psql.SQL(", ").join(set_parts)
         )
         params = list(fields.values()) + [tutor_id]
-        self.execute(query, tuple(params))
+        with transaction(self.conn):
+            self.cursor.execute(query, tuple(params))

@@ -168,6 +168,14 @@
             <label for="clear-first" class="text-sm text-gray-600">匯入前先清空資料表</label>
           </div>
           <p v-if="importAllResult" class="text-sm text-green-700 bg-green-50 rounded-lg p-3">{{ importAllResult }}</p>
+          <div v-if="importAllErrors.length" class="text-sm bg-red-50 border border-red-200 rounded-lg p-3 space-y-1">
+            <p class="font-semibold text-red-700">匯入失敗明細：</p>
+            <ul class="list-disc list-inside space-y-0.5">
+              <li v-for="e in importAllErrors" :key="e.table" class="text-red-600">
+                <span class="font-medium">{{ e.table }}</span>：{{ e.messages.join('；') }}
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
@@ -210,9 +218,9 @@
                 class="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium transition-colors">
                 取消
               </button>
-              <button @click="confirmResetFromModal" :disabled="resetting"
+              <button @click="confirmResetFromModal" :disabled="resetting || inCooldown"
                 class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
-                {{ resetting ? '清空中...' : '確認清空' }}
+                {{ resetting ? '清空中...' : inCooldown ? '冷卻中...' : '確認清空' }}
               </button>
             </div>
           </div>
@@ -260,6 +268,7 @@ const importResult = ref('')
 const fileInput = ref(null)
 const importingAll = ref(false)
 const importAllResult = ref('')
+const importAllErrors = ref([])
 const importAllClearFirst = ref(false)
 const zipFileInput = ref(null)
 
@@ -270,11 +279,16 @@ const showResetModal = ref(false)
 const resetConfirmText = ref('')
 const resetPassword = ref('')
 const resetModalError = ref('')
+const inCooldown = ref(false)
+// Persists the token from requestReset() so confirmReset() can be retried if
+// it times out or fails without requiring a new requestReset() call.
+const pendingResetToken = ref('')
 
 function clearResults() {
   seedResult.value = ''
   importResult.value = ''
   importAllResult.value = ''
+  importAllErrors.value = []
   resetResult.value = ''
   error.value = ''
 }
@@ -343,16 +357,21 @@ function cancelReset() {
   resetConfirmText.value = ''
   resetPassword.value = ''
   resetModalError.value = ''
+  pendingResetToken.value = ''
+  inCooldown.value = false
   toast.info('已取消清空資料庫')
 }
 
 async function confirmResetFromModal() {
-  if (resetting.value) return
+  if (resetting.value || inCooldown.value) return
   resetModalError.value = ''
   const sinceLast = Date.now() - lastResetAttemptAt.value
   if (lastResetAttemptAt.value && sinceLast < RESET_COOLDOWN_MS) {
-    const wait = Math.ceil((RESET_COOLDOWN_MS - sinceLast) / 1000)
+    const remaining = RESET_COOLDOWN_MS - sinceLast
+    const wait = Math.ceil(remaining / 1000)
     resetModalError.value = `請稍候 ${wait} 秒後再試`
+    inCooldown.value = true
+    setTimeout(() => { inCooldown.value = false }, remaining)
     return
   }
   if (resetConfirmText.value !== 'RESET') {
@@ -367,8 +386,14 @@ async function confirmResetFromModal() {
   resetting.value = true
   clearResults()
   try {
-    const { reset_token } = await adminApi.requestReset()
-    const result = await adminApi.confirmReset(reset_token, resetPassword.value)
+    // Reuse the token from a prior attempt that failed at the confirmReset step
+    // so the admin can retry the password without restarting the whole flow.
+    if (!pendingResetToken.value) {
+      const { reset_token } = await adminApi.requestReset()
+      pendingResetToken.value = reset_token
+    }
+    const result = await adminApi.confirmReset(pendingResetToken.value, resetPassword.value)
+    pendingResetToken.value = ''
     const deleted = result?.deleted || {}
     const total = Object.values(deleted).reduce((a, v) => a + (Number(v) || 0), 0)
     resetResult.value = result?.backup
@@ -380,8 +405,11 @@ async function confirmResetFromModal() {
     resetConfirmText.value = ''
     await Promise.all([fetchUsers(), fetchSystemStatus()])
   } catch (e) {
-    // Keep modal open so the user can correct and retry
-    resetModalError.value = e.message
+    // Keep modal open so the user can correct and retry.
+    // If a token is held, the confirm step failed — let the user retry the password.
+    resetModalError.value = pendingResetToken.value
+      ? e.message + '；請重試密碼確認'
+      : e.message
     resetPassword.value = ''
   } finally {
     resetting.value = false
@@ -448,6 +476,10 @@ async function handleImportAll() {
     const errorCount = Object.values(errors).reduce((a, v) => a + (Array.isArray(v) ? v.length : 1), 0)
     importAllResult.value = `已匯入 ${tableCount} 張資料表，共 ${totalRows} 筆資料`
       + (errorCount ? `（${errorCount} 筆失敗）` : '')
+    importAllErrors.value = Object.entries(errors).map(([table, errs]) => ({
+      table,
+      messages: Array.isArray(errs) ? errs : [String(errs)],
+    }))
     if (zipFileInput.value) zipFileInput.value.value = ''
     await fetchUsers()
   } catch (e) {

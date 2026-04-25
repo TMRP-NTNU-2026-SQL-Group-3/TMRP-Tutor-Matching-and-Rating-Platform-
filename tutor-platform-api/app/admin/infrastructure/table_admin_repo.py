@@ -143,8 +143,11 @@ class TableAdminRepository(BaseRepository):
         return self.cursor.rowcount > 0
 
     def list_users(self) -> list[dict]:
+        # S-H5: phone and email are PII and are omitted from bulk listing.
+        # Individual account detail or export endpoints can expose them under
+        # tighter audit controls when there is a legitimate operational need.
         return self.fetch_all(
-            "SELECT user_id, username, role, display_name, phone, email, created_at "
+            "SELECT user_id, username, role, display_name, created_at "
             "FROM users ORDER BY user_id"
         )
 

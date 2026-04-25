@@ -73,6 +73,7 @@ const error = ref('')
 async function fetchData() {
   loading.value = true
   error.value = ''
+  data.value = null
   try {
     data.value = await statsApi.getIncome({ month: month.value })
   } catch (e) {

@@ -10,6 +10,9 @@ class IMatchRepository(ABC):
     def find_by_id(self, match_id: int) -> Match | None: ...
 
     @abstractmethod
+    def find_by_id_for_update(self, match_id: int) -> Match | None: ...
+
+    @abstractmethod
     def find_by_tutor_user_id(self, user_id: int, *, limit: int, offset: int) -> list[dict]: ...
 
     @abstractmethod
