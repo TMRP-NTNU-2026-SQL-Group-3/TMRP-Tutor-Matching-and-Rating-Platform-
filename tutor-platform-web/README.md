@@ -180,7 +180,7 @@ Route definitions live in `src/router/index.js`. A global `beforeEach` guard:
 2. Enforces role restrictions on role-scoped routes (e.g. `/parent/*` requires `role === 'parent'`).
 3. Redirects logged-in users away from `/login` and `/register` to their role's dashboard.
 
-Role detection reads from the Pinia `auth` store, which rehydrates JWT state from `localStorage` on app boot.
+Role detection reads from the Pinia `auth` store. On app boot the store rehydrates cached user info (role, display name) from `localStorage`; auth tokens themselves live in HttpOnly cookies and are never accessible to JavaScript. Route guards call `ensureVerified()`, which hits `GET /api/auth/me` to obtain an authoritative role from the server before trusting the cached value.
 
 ---
 
@@ -262,4 +262,4 @@ Intentional. The API sets `DEBUG=false` by default, which suppresses `/docs`, `/
 `main.js` must mount the toast container (usually via `<Toast />` in `App.vue`). Check that the `toast` Pinia store is being read by a rendered component.
 
 **Role-based redirect loops**
-Happens if the auth store thinks the user is logged in but the backend rejects the token. Clear `localStorage` and log in again. Root cause is usually a stale token after the backend's `JWT_SECRET_KEY` was rotated.
+Happens if the auth store thinks the user is logged in but the backend rejects the session. Clear `localStorage` *and* delete the `access_token` / `refresh_token` cookies via the browser's DevTools (Application → Cookies), then reload and log in again. Root cause is usually a stale cookie after the backend's `JWT_SECRET_KEY` was rotated. Note: tokens are in HttpOnly cookies — clearing `localStorage` alone is not sufficient.

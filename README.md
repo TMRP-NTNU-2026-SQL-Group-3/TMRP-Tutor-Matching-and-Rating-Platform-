@@ -119,7 +119,7 @@ cp secrets/admin_password.txt.example  secrets/admin_password.txt
 # Populate each file with a real value:
 #   jwt_secret_key.txt  — at least 32 hex chars:
 #       python -c "import secrets; print(secrets.token_hex(32))" > secrets/jwt_secret_key.txt
-#   admin_password.txt  — a strong password (min 8 chars, not 'admin' or 'admin123')
+#   admin_password.txt  — min 16 chars, must include lowercase, uppercase, digit, and symbol
 #   db_password.txt     — any strong password
 
 # 4. Prepare the backend env file (non-secret settings only)
@@ -396,7 +396,7 @@ Protected endpoints require a JWT bearer token:
 Authorization: Bearer <access_token>
 ```
 
-Access tokens expire after `JWT_EXPIRE_MINUTES` (default **5 minutes**, hard-capped at 15 by a lifespan check) and are refreshed through the refresh-token flow. Revoked refresh tokens are recorded in `refresh_token_blacklist` so the check is consistent across API workers. `JWT_SECRET_KEY_PREVIOUS` can optionally hold the prior signing key during a rotation window so in-flight sessions don't 401. Role enforcement uses a `require_role()` dependency that returns 403 on mismatch.
+Access tokens are delivered as HttpOnly cookies (`access_token`, path `/api`; `refresh_token`, path `/api/auth`). They expire after `JWT_EXPIRE_MINUTES` (default **5 minutes**, hard-capped at 10 by a lifespan check) and are refreshed through the refresh-token flow. Revoked refresh tokens are recorded in `refresh_token_blacklist` so the check is consistent across API workers. `JWT_SECRET_KEY_PREVIOUS` can optionally hold the prior signing key during a rotation window (must also set `JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT` to a UTC deadline no more than 7 days out) so in-flight sessions don't 401. Role enforcement uses a `require_role()` dependency that returns 403 on mismatch.
 
 ### Notable design decisions
 
@@ -500,11 +500,12 @@ The full deployment checklist lives in `docs/production-hardening-plan.md`.
 
 Additional guardrails:
 
-- Startup validation in `Settings` refuses to boot with a placeholder `JWT_SECRET_KEY` or `ADMIN_PASSWORD`, and rejects a `JWT_SECRET_KEY_PREVIOUS` that is too short or equal to the current key.
+- Startup validation in `Settings` refuses to boot with a placeholder `JWT_SECRET_KEY` or `ADMIN_PASSWORD`, and rejects a `JWT_SECRET_KEY_PREVIOUS` that is too short, equal to the current key, or missing the required `JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT` deadline.
+- `ADMIN_PASSWORD` must be at least 16 characters and include all four character classes (lowercase, uppercase, digit, symbol). `COOKIE_SECURE` must be `true` when `DEBUG=false` (enforced at startup).
 - Passwords are hashed with bcrypt (cost factor tuned in `shared/infrastructure/security.py`).
-- JWT access tokens are short-lived (default 5 min, capped at 15); refresh tokens can be revoked via the blacklist table.
+- JWT access tokens are short-lived (default 5 min, hard-capped at 10); refresh tokens can be revoked via the blacklist table.
+- Auth uses HttpOnly cookies (`access_token`, `refresh_token`) with `SameSite=Lax`. CORS runs with `allow_credentials=True` so the browser sends cookies on cross-origin requests. Bearer-header fallback is kept for Swagger UI. `COOKIE_SECURE=true` must be set so cookies carry the `Secure` attribute in production.
 - `DEBUG=false` (the default) suppresses `/docs`, `/redoc`, and `/openapi.json` so the route list is not exposed to anonymous scanners.
-- CORS runs with `allow_credentials=False` because auth is Bearer-token in the `Authorization` header, not cookies.
 - The API container's healthcheck only passes once schema init + admin bootstrap + verification succeed, so dependent services never see a half-initialised database.
 
 See `docs/production-hardening-plan.md` for the full checklist and rollout plan.

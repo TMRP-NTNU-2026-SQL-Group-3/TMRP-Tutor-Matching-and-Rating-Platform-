@@ -114,15 +114,16 @@ Loaded by pydantic-settings from `.env` (local) or `.env.docker` (container).
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `DATABASE_URL` | **required** | PostgreSQL connection string (no default — must be set). In compose, built from the repo-root `.env`. |
-| `DB_POOL_MIN` | `2` | Minimum size of the psycopg2 connection pool |
-| `DB_POOL_MAX` | `10` | Maximum pool size |
+| `DB_POOL_MIN` | `5` | Minimum size of the psycopg2 connection pool |
+| `DB_POOL_MAX` | `20` | Maximum pool size |
 | `DB_PER_USER_QUOTA` | `5` | Maximum number of simultaneous in-flight requests a single authenticated user may hold open. Enforced per worker process in memory. Excess requests receive 429 with `Retry-After: 1`. |
 | `JWT_SECRET_KEY` | **required**, >= 32 chars | HMAC secret for signing JWTs. Placeholder values (`change-me`, `change-me-in-production`) are rejected at startup. |
-| `JWT_SECRET_KEY_PREVIOUS` | `""` | Optional prior key for rotation windows. If set, verification accepts tokens signed by either key. Must be >= 32 chars and differ from the current key. |
+| `JWT_SECRET_KEY_PREVIOUS` | `""` | Optional prior key for rotation windows. If set, verification accepts tokens signed by either key. Must be >= 32 chars and differ from the current key. Requires `JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT` to be set. |
+| `JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT` | `""` | ISO 8601 UTC deadline after which the previous key stops being accepted (e.g. `"2026-05-01T00:00:00Z"`). Required when `JWT_SECRET_KEY_PREVIOUS` is set; must not exceed 7 days from now. |
 | `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
-| `JWT_EXPIRE_MINUTES` | `5` | Access token TTL in minutes. Hard-capped at 15 by a lifespan check because access tokens are not revoked on logout. |
-| `ADMIN_USERNAME` | `admin` | Super-admin login |
-| `ADMIN_PASSWORD` | **required**, >= 8 chars | Super-admin password. Known placeholders (`admin`, `admin123`, `password`) are rejected at startup. |
+| `JWT_EXPIRE_MINUTES` | `5` | Access token TTL in minutes. Hard-capped at 10 by a lifespan check because access tokens are not revoked on logout. |
+| `ADMIN_USERNAME` | `admin` | Super-admin login. Must not be `admin` or the onboarding placeholder when `DEBUG=false`. |
+| `ADMIN_PASSWORD` | **required**, >= 16 chars | Super-admin password. Must contain all four character classes (lowercase, uppercase, digit, symbol). Known placeholders (`admin`, `admin123`, `password`) are rejected at startup. |
 | `REVIEW_LOCK_DAYS` | `7` | Days after which a review locks |
 | `ADMIN_MAX_UPLOAD_BYTES` | `52428800` | Upper bound on admin CSV/ZIP import size (50 MB) |
 | `ADMIN_MAX_IMPORT_ROWS_PER_TABLE` | `50000` | Row cap per table for admin imports |
@@ -131,8 +132,9 @@ Loaded by pydantic-settings from `.env` (local) or `.env.docker` (container).
 | `LOG_FILE` | `logs/app.log` | Rotating log file path |
 | `LOG_LEVEL` | `INFO` | Log level |
 | `LOG_FORMAT` | `json` | `json` or `text` |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated list of allowed origins. For local Vite dev override to `http://localhost:5273` (Vite port is 5273 in this project). |
-| `DEBUG` | `false` | When `false`, FastAPI suppresses `/docs`, `/redoc`, and `/openapi.json`. |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated list of allowed origins. For local Vite dev override to `http://localhost:5273` (Vite port is 5273 in this project). Must use `https://` in non-debug mode. |
+| `COOKIE_SECURE` | `false` | Sets the `Secure` attribute on auth cookies. Must be `true` when `DEBUG=false` (enforced at startup). Leave `false` for local HTTP development only. |
+| `DEBUG` | `false` | When `false`, FastAPI suppresses `/docs`, `/redoc`, and `/openapi.json`. Also enforces `COOKIE_SECURE=true` and `https://` CORS origins. |
 
 > **Security:** the `Settings` model validator fails fast on placeholder secrets, short keys, and a `JWT_SECRET_KEY_PREVIOUS` that equals the current key. The server refuses to boot rather than silently running with insecure defaults.
 
@@ -183,7 +185,7 @@ tutor-platform-api/
 │   │   ├── body_size_limit.py  # Reject oversized request bodies before handlers read them
 │   │   ├── security_headers.py # CSP, HSTS, X-Frame-Options, ...
 │   │   ├── access_log.py       # Structured request/response logs
-│   │   ├── rate_limit.py       # DB-backed token bucket (rate_limit_hits)
+│   │   ├── rate_limit.py       # DB-backed sliding window (rate_limit_hits; per-path limits, fail-closed on sensitive endpoints)
 │   │   └── user_quota.py       # Per-user in-flight request cap (DB_PER_USER_QUOTA, default 5)
 │   │
 │   ├── tasks/                  # huey tasks: import_export, scheduled, seed_tasks, stats_tasks
@@ -214,7 +216,8 @@ Middleware is registered in `app/main.py` in this order. Starlette wraps middlew
 Browser
   │
   ▼ CORSMiddleware                 (outermost — handles preflight, attaches CORS headers;
-  │                                 allow_credentials=False — auth is Bearer token, not cookies)
+  │                                 allow_credentials=True — auth uses HttpOnly cookies; Bearer header
+  │                                 accepted as fallback for Swagger UI)
   ▼ RequestIDMiddleware            (assigns X-Request-ID; value threaded into logs + 500 bodies)
   ▼ BodySizeLimitMiddleware        (rejects payloads over MAX_REQUEST_BODY_BYTES;
   │                                 inside RequestID so the rejection log carries request_id)
@@ -264,17 +267,13 @@ All paths are prefixed with `/api` except `/health`. Full Pydantic schemas are v
 
 ```http
 POST /api/auth/register
-POST /api/auth/login        → { access_token, refresh_token }
-POST /api/auth/refresh      → new access token (refresh-token blacklist checked)
-POST /api/auth/logout       → revokes refresh token (adds jti to blacklist)
+POST /api/auth/login        → sets HttpOnly cookies (access_token, refresh_token); body carries user info only
+POST /api/auth/refresh      → rotates both cookies; refresh token read from cookie only
+POST /api/auth/logout       → revokes refresh token (adds jti to blacklist), clears cookies
 GET  /api/auth/me
 ```
 
-Protected endpoints require:
-
-```http
-Authorization: Bearer <access_token>
-```
+Auth tokens are delivered as HttpOnly cookies (`access_token` scoped to `/api`, `refresh_token` scoped to `/api/auth`). Protected endpoints read from the cookie first; a `Bearer` header is accepted as fallback for Swagger UI. Pass tokens via cookie in production — using the Bearer fallback from a browser page bypasses CSRF mitigations.
 
 Role enforcement is declarative:
 
@@ -362,14 +361,14 @@ Existing coverage includes `test_auth.py`, `test_matches.py`, `test_match_state_
 
 ## Troubleshooting
 
-**"JWT_SECRET_KEY 必須在 .env 中設定安全的密鑰"** at startup
-The server refuses to run with the default secret. Generate one:
+**`ValueError: JWT_SECRET_KEY must be a real secret.`** at startup
+The server refuses to run with a placeholder key. Generate one:
 ```bash
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-**"ADMIN_PASSWORD 必須在 .env 中設定強密碼"** at startup
-Same idea — replace the placeholder in `.env`.
+**`ValueError: ADMIN_PASSWORD must contain all four character classes`** at startup
+Replace the placeholder in `.env`. The password must be at least 16 characters and include lowercase, uppercase, a digit, and a symbol.
 
 **`psycopg2.OperationalError: could not connect to server`**
 The API booted before PostgreSQL was accepting connections. In Docker, `depends_on: db.condition: service_healthy` should prevent this; if you see it in compose, check `docker compose logs db`. Locally, make sure PostgreSQL is running and `DATABASE_URL` is correct.
