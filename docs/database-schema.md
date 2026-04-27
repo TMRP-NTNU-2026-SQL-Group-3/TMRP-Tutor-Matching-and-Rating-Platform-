@@ -1,7 +1,7 @@
 # TMRP Database Schema Reference
 
 **Platform:** PostgreSQL 16  
-**Tables:** 16  
+**Tables:** 17  
 **Materialized Views:** 2  
 **Triggers / Functions:** 5  
 
@@ -31,7 +31,7 @@
 
 | Domain | Tables | Description |
 |--------|--------|-------------|
-| Identity & Authorization | `users`, `tutors`, `students`, `refresh_token_blacklist` | Accounts, role profiles, JWT revocation |
+| Identity & Authorization | `users`, `tutors`, `students`, `refresh_token_blacklist`, `password_history` | Accounts, role profiles, JWT revocation, password reuse prevention |
 | Teaching Catalog | `subjects`, `tutor_subjects`, `tutor_availability` | Subject taxonomy, tutor pricing, weekly schedule |
 | Messaging | `conversations`, `messages` | Direct messaging between any two users |
 | Matching & Contracts | `matches` | Full tutoring engagement lifecycle (pending → ended) |
@@ -199,6 +199,13 @@ erDiagram
         timestamptz created_at
     }
 
+    password_history {
+        int history_id PK
+        int user_id FK
+        varchar password_hash
+        timestamptz changed_at
+    }
+
     rate_limit_hits {
         bigint id PK
         varchar bucket_key
@@ -220,6 +227,7 @@ erDiagram
     %% Identity & Profiles
     users ||--o| tutors : "has tutor profile"
     users ||--o{ students : "is parent of"
+    users ||--o{ password_history : "has history"
 
     %% Teaching Catalog
     tutors ||--o{ tutor_subjects : "teaches"
@@ -333,6 +341,21 @@ Shared revocation list for JWT refresh tokens, consulted by all API workers.
 | `created_at` | `TIMESTAMPTZ` | NOT NULL | `NOW()` | |
 
 **No foreign keys.** Standalone infrastructure table.
+
+---
+
+#### `password_history`
+
+Recent bcrypt hashes per user, retained for password reuse enforcement. At most five entries are kept per user; older rows are pruned on every write.
+
+| Column | Type | Constraints | Default | Notes |
+|--------|------|-------------|---------|-------|
+| `history_id` | `SERIAL` | PK | auto | |
+| `user_id` | `INTEGER` | NOT NULL, FK → `users` | — | `idx_pw_history_user`; CASCADE delete |
+| `password_hash` | `VARCHAR(255)` | NOT NULL | — | Bcrypt hash of a previous password |
+| `changed_at` | `TIMESTAMPTZ` | NOT NULL | `NOW()` | `idx_pw_history_user (user_id, changed_at DESC)` |
+
+**On delete:** `ON DELETE CASCADE` from `users` — deleting an account removes all history entries.
 
 ---
 
@@ -585,21 +608,24 @@ Pre-aggregated average ratings per tutor, refreshed synchronously by trigger aft
 
 ```sql
 SELECT m.tutor_id,
-       AVG(r.rating_1)  AS avg_r1,
-       AVG(r.rating_2)  AS avg_r2,
-       AVG(r.rating_3)  AS avg_r3,
-       AVG(r.rating_4)  AS avg_r4,
-       COUNT(*)          AS review_count,
-       -- weighted average across non-null dimensions
-       COALESCE(
-         (COALESCE(AVG(r.rating_1),0) + COALESCE(AVG(r.rating_2),0)
-        + COALESCE(AVG(r.rating_3),0) + COALESCE(AVG(r.rating_4),0))
+       AVG(r.rating_1) AS avg_r1,
+       AVG(r.rating_2) AS avg_r2,
+       AVG(r.rating_3) AS avg_r3,
+       AVG(r.rating_4) AS avg_r4,
+       COUNT(*)        AS review_count,
+       -- Mean of whichever dimensions were actually rated.
+       -- Returns NULL (not 0) when no rated reviews exist, so unreviewed
+       -- tutors are not ranked below tutors with genuine low scores.
+       CASE WHEN COUNT(r.review_id) = 0 THEN NULL ELSE
+         (COALESCE(AVG(r.rating_1), 0) + COALESCE(AVG(r.rating_2), 0)
+        + COALESCE(AVG(r.rating_3), 0) + COALESCE(AVG(r.rating_4), 0))
         / NULLIF(
             (CASE WHEN AVG(r.rating_1) IS NOT NULL THEN 1 ELSE 0 END)
           + (CASE WHEN AVG(r.rating_2) IS NOT NULL THEN 1 ELSE 0 END)
           + (CASE WHEN AVG(r.rating_3) IS NOT NULL THEN 1 ELSE 0 END)
-          + (CASE WHEN AVG(r.rating_4) IS NOT NULL THEN 1 ELSE 0 END), 0)
-       , 0)              AS avg_rating
+          + (CASE WHEN AVG(r.rating_4) IS NOT NULL THEN 1 ELSE 0 END)
+        , 0)
+       END AS avg_rating
 FROM reviews r
 INNER JOIN matches m ON r.match_id = m.match_id
 WHERE r.review_type = 'parent_to_tutor'
@@ -700,6 +726,7 @@ GROUP BY tutor_id
 | `idx_audit_log_actor` | `audit_log` | `(actor_user_id, created_at)` | Actor history lookup |
 | `idx_rl_bucket_hit_at` | `rate_limit_hits` | `(bucket_key, hit_at)` | Sliding-window count |
 | `idx_rt_blacklist_exp` | `refresh_token_blacklist` | `expires_at` | Expired token pruning |
+| `idx_pw_history_user` | `password_history` | `(user_id, changed_at DESC)` | Most-recent N hashes per user |
 
 ---
 
@@ -746,6 +773,7 @@ GROUP BY tutor_id
 | `exams` | `added_by_user_id` | `users` | `user_id` | RESTRICT | Audit — who recorded |
 | `reviews` | `match_id` | `matches` | `match_id` | CASCADE | Reviews follow match |
 | `reviews` | `reviewer_user_id` | `users` | `user_id` | RESTRICT | Preserve reviewer audit trail |
+| `password_history` | `user_id` | `users` | `user_id` | CASCADE | Remove history with account |
 | `audit_log` | `actor_user_id` | `users` | `user_id` | SET NULL | Record survives actor deletion |
 
 ---

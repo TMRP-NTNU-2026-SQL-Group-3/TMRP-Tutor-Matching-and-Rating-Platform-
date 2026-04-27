@@ -47,6 +47,10 @@ The `JWT_SECRET_KEY_PREVIOUS` and `JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT` environme
 
 Login attempts are tracked per username (case-insensitive) in PostgreSQL, shared across all API workers. Five failed attempts within any 15-minute window lock out further attempts with a `429 Too Many Requests` response and a `Retry-After` header. The check runs before bcrypt comparison to prevent cost-amplification denial-of-service.
 
+### Password Reuse Prevention
+
+Password changes (`PUT /api/auth/password`) reject any new password that matches one of the user's last five bcrypt hashes. History entries are stored in `password_history`, trimmed to the five most recent on every write. The table is removed with the account (`ON DELETE CASCADE`).
+
 ---
 
 ## Authorization
@@ -69,6 +73,7 @@ The following middleware layers are applied in order (outermost first):
 | SecurityHeaders | Sets `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Cache-Control: no-store`, and a restrictive Content-Security-Policy |
 | AccessLog | Structured JSON logging with client IP, method, path, status, and duration |
 | UserConcurrencyQuota | Per-authenticated-user DB connection cap (default 5, `DB_PER_USER_QUOTA`); returns `429` with `Retry-After: 1` when exceeded |
+| CSRFMiddleware | Double-submit cookie pattern: every mutating request must present an `X-CSRF-Token` header whose value matches the `csrf_token` cookie set on login. An invalid or missing CSRF token is rejected before the per-path rate-limit bucket is debited. |
 | RateLimitMiddleware | Per-path limits (login: 10/60 s, register: 5/60 s, refresh: 20/60 s, admin reset: 5/3600 s, subjects: 30/60 s, default: 60/60 s); fail-closed on critical paths |
 
 Nginx applies an additional edge limit of 20 r/s with a burst of 40 before requests reach FastAPI.
@@ -155,7 +160,6 @@ The following items represent acknowledged gaps relative to a fully hardened pro
 - PKCE or OAuth 2.0 for third-party login.
 - Asymmetric JWT signing (RS256/ES256) for multi-service deployments.
 - Automated vulnerability scanning in CI.
-- Password history enforcement (prevents reuse of the last N passwords).
 - Multi-factor authentication.
 
 These are not design oversights; they are deferred work that falls outside the scope of the course deliverable.

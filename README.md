@@ -210,7 +210,7 @@ project-root/
 ├── .env.example                 # Repo-root env template (DB credentials for compose)
 ├── docs/                        # Specifications and design notes
 │   ├── project-spec.md          # Full system specification (v5.1)
-│   └── production-hardening-plan.md
+│   └── database-schema.md       # Complete database schema reference
 │
 ├── tutor-platform-api/          # Python backend (FastAPI)
 │   ├── Dockerfile
@@ -276,7 +276,7 @@ Four processes, connected by HTTP and a shared PostgreSQL database:
   FastAPI (api container)  ◄──────────────────────────────────────────┘
        │   JWT auth, domain services, repositories
        │   middleware (outer → inner):
-       │     CORS → request_id → body_size_limit → security_headers → access_log → user_quota → rate_limit
+       │     CORS → request_id → body_size_limit → security_headers → access_log → user_quota → csrf → rate_limit
        ▼
   PostgreSQL 16 (db container, volume: pgdata)
        ▲
@@ -291,7 +291,7 @@ The API container's `lifespan` hook initialises the connection pool, runs the sc
 
 ## Database Design
 
-16 tables on PostgreSQL 16. 13 are business tables; 3 support cross-worker auth, rate limiting, and auditing.
+17 tables on PostgreSQL 16. 14 are business tables; 3 support cross-worker auth, rate limiting, and auditing.
 
 ### Business tables
 
@@ -302,6 +302,7 @@ The API container's `lifespan` hook initialises the connection pool, runs the sc
 | users | Core account: username, password hash, role (parent/tutor/admin), display name, contact |
 | tutors | Tutor profile: university, department, grade year, bio, visibility flags |
 | students | Children managed by a parent: name, school, grade, target school, notes |
+| password_history | Last five bcrypt hashes per user; checked on password change to prevent reuse |
 
 **Subjects and availability**
 
@@ -495,7 +496,7 @@ Deployment rules:
 - Set `COOKIE_SECURE=true` in the API environment so auth cookies carry the `Secure` attribute. The default is `false` to keep local `docker compose up` usable without a TLS cert.
 - Point the TLS proxy at `web:8080` (inside the compose/overlay network) and let it rewrite `X-Forwarded-Proto` to `https`. Uvicorn is launched with `--proxy-headers` (see MEDIUM-2) and will honour the forwarded scheme when generating redirects.
 
-The full deployment checklist lives in `docs/production-hardening-plan.md`.
+The full deployment checklist is documented in `SECURITY.md`.
 
 
 Additional guardrails:
@@ -505,10 +506,10 @@ Additional guardrails:
 - Passwords are hashed with bcrypt (cost factor tuned in `shared/infrastructure/security.py`).
 - JWT access tokens are short-lived (default 5 min, hard-capped at 10); refresh tokens can be revoked via the blacklist table.
 - Auth uses HttpOnly cookies (`access_token`, `refresh_token`) with `SameSite=Lax`. CORS runs with `allow_credentials=True` so the browser sends cookies on cross-origin requests. Bearer-header fallback is kept for Swagger UI. `COOKIE_SECURE=true` must be set so cookies carry the `Secure` attribute in production.
-- `DEBUG=false` (the default) suppresses `/docs`, `/redoc`, and `/openapi.json` so the route list is not exposed to anonymous scanners.
+- `ENABLE_DOCS=false` (the default) suppresses `/docs`, `/redoc`, and `/openapi.json` so the route list is not exposed to anonymous scanners. The startup validator rejects `ENABLE_DOCS=true` when `DEBUG=false`, so schema endpoints cannot be enabled in a production deployment.
 - The API container's healthcheck only passes once schema init + admin bootstrap + verification succeed, so dependent services never see a half-initialised database.
 
-See `docs/production-hardening-plan.md` for the full checklist and rollout plan.
+See `SECURITY.md` for the full checklist and environment configuration requirements.
 
 ---
 
@@ -516,7 +517,7 @@ See `docs/production-hardening-plan.md` for the full checklist and rollout plan.
 
 - **`docs/project-spec.md` (v5.1)** — Full system specification. Sections 1–5 are accessible to all team members; sections 6–13 are the technical reference (DB schema, API endpoints, frontend routes, async tasks).
 - **[`docs/database-schema.md`](docs/database-schema.md)** — Complete database schema reference with table structure, relationships, and constraints.
-- **`docs/production-hardening-plan.md`** — Security, observability, and operational hardening steps for making the stack production-ready.
+- **`SECURITY.md`** — Security controls, known limitations, required production environment configuration, and token rotation procedure.
 
 ---
 

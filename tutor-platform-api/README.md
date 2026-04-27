@@ -60,7 +60,7 @@ cp tutor-platform-api/.env.docker.example tutor-platform-api/.env.docker
 docker compose up -d --build
 ```
 
-Once healthy, the API is at <http://localhost:8000> and Swagger UI at <http://localhost:8000/docs>.
+Once healthy, the API is at <http://localhost:8000>. Swagger UI at <http://localhost:8000/docs> is only available when `ENABLE_DOCS=true` (and `DEBUG=true` — the startup validator rejects `ENABLE_DOCS=true` when `DEBUG=false`).
 
 The container's healthcheck (`GET /health`) only passes after:
 1. the connection pool is initialised,
@@ -134,7 +134,8 @@ Loaded by pydantic-settings from `.env` (local) or `.env.docker` (container).
 | `LOG_FORMAT` | `json` | `json` or `text` |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated list of allowed origins. For local Vite dev override to `http://localhost:5273` (Vite port is 5273 in this project). Must use `https://` in non-debug mode. |
 | `COOKIE_SECURE` | `false` | Sets the `Secure` attribute on auth cookies. Must be `true` when `DEBUG=false` (enforced at startup). Leave `false` for local HTTP development only. |
-| `DEBUG` | `false` | When `false`, FastAPI suppresses `/docs`, `/redoc`, and `/openapi.json`. Also enforces `COOKIE_SECURE=true` and `https://` CORS origins. |
+| `DEBUG` | `false` | When `false`, enforces `COOKIE_SECURE=true`, `https://` CORS origins, and rejects `ENABLE_DOCS=true`. |
+| `ENABLE_DOCS` | `false` | When `true`, exposes `/docs`, `/redoc`, and `/openapi.json`. The startup validator rejects `ENABLE_DOCS=true` when `DEBUG=false`, so schema endpoints can only be enabled in debug (development/staging) deployments. |
 
 > **Security:** the `Settings` model validator fails fast on placeholder secrets, short keys, and a `JWT_SECRET_KEY_PREVIOUS` that equals the current key. The server refuses to boot rather than silently running with insecure defaults.
 
@@ -224,6 +225,9 @@ Browser
   ▼ SecurityHeadersMiddleware      (adds CSP, HSTS, X-Frame-Options, ...)
   ▼ AccessLogMiddleware            (structured log with request_id + timing)
   ▼ UserConcurrencyQuotaMiddleware (per-user in-flight cap; 429 + Retry-After: 1 when exceeded)
+  ▼ CSRFMiddleware                 (double-submit: validates X-CSRF-Token header == csrf_token cookie
+  │                                 on all mutating requests; rejected before the rate-limit bucket
+  │                                 is debited, preserving the victim's remaining tokens)
   ▼ RateLimitMiddleware            (innermost — uses rate_limit_hits table, shared across workers)
   ▼ Router
      └─ Dependency injection: current_user, role guard, DB cursor
@@ -267,13 +271,15 @@ All paths are prefixed with `/api` except `/health`. Full Pydantic schemas are v
 
 ```http
 POST /api/auth/register
-POST /api/auth/login        → sets HttpOnly cookies (access_token, refresh_token); body carries user info only
-POST /api/auth/refresh      → rotates both cookies; refresh token read from cookie only
+POST /api/auth/login        → sets HttpOnly cookies (access_token, refresh_token, csrf_token); body carries user info only
+POST /api/auth/refresh      → rotates all three cookies; refresh token read from cookie only
 POST /api/auth/logout       → revokes refresh token (adds jti to blacklist), clears cookies
 GET  /api/auth/me
+PUT  /api/auth/me           → update display_name, phone, email
+PUT  /api/auth/password     → change password (validates current; rejects last 5 hashes)
 ```
 
-Auth tokens are delivered as HttpOnly cookies (`access_token` scoped to `/api`, `refresh_token` scoped to `/api/auth`). Protected endpoints read from the cookie first; a `Bearer` header is accepted as fallback for Swagger UI. Pass tokens via cookie in production — using the Bearer fallback from a browser page bypasses CSRF mitigations.
+Auth tokens are delivered as HttpOnly cookies (`access_token` scoped to `/api`, `refresh_token` scoped to `/api/auth`). Login also sets a readable `csrf_token` cookie (scoped to `/`); every mutating request must echo it in the `X-CSRF-Token` header — `CSRFMiddleware` rejects requests where the values do not match. Protected endpoints read from the cookie first; a `Bearer` header is accepted as fallback for Swagger UI. Pass tokens via cookie in production — using the Bearer fallback from a browser page bypasses CSRF mitigations.
 
 Role enforcement is declarative:
 
@@ -315,7 +321,7 @@ If any step fails, the lifespan hook re-raises and the server refuses to serve r
 
 ### Tables created
 
-Business (13): `users`, `tutors`, `students`, `subjects`, `tutor_subjects`, `tutor_availability`, `conversations`, `messages`, `matches`, `sessions`, `session_edit_logs`, `exams`, `reviews`.
+Business (14): `users`, `tutors`, `students`, `subjects`, `tutor_subjects`, `tutor_availability`, `conversations`, `messages`, `matches`, `sessions`, `session_edit_logs`, `exams`, `reviews`, `password_history`.
 
 Support (3): `refresh_token_blacklist`, `rate_limit_hits`, `audit_log`. The first two back auth and rate-limit state so it is consistent across multiple API workers. `audit_log` records privileged-action history (actor, action, resource type/ID, old/new values); `actor_user_id` uses `ON DELETE SET NULL` and `resource_id` carries no FK so the trail survives both account removal and row deletion.
 
