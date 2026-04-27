@@ -4,7 +4,7 @@
 
     <p v-if="subjectsLoading" class="text-xs text-gray-400 mb-2">科目載入中...</p>
     <p v-if="subjectsError" role="alert" class="text-xs text-amber-600 mb-2">{{ subjectsError }}</p>
-    <TutorFilter :subjects="subjects" @search="onFiltersChanged" />
+    <TutorFilter :subjects="subjects" :initial="filterInitial" @search="onFiltersChanged" />
 
     <!-- Results -->
     <div v-if="loading" class="animate-pulse grid gap-4 md:grid-cols-2"
@@ -57,12 +57,20 @@
       </nav>
     </template>
 
-    <EmptyState v-else :message="hasActiveFilters ? '沒有符合條件的老師' : '目前尚無老師資料'" />
+    <EmptyState v-else
+      :icon="hasActiveFilters ? '🔍' : '📭'"
+      :message="hasActiveFilters ? '沒有符合條件的老師' : '目前尚無老師資料'">
+      <button v-if="hasActiveFilters" @click="resetFilters"
+        class="text-sm text-primary-600 hover:text-primary-700 font-medium transition-colors">
+        清除篩選條件
+      </button>
+    </EmptyState>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useToastStore } from '@/stores/toast'
 import { tutorsApi } from '@/api/tutors'
 import { subjectsApi } from '@/api/subjects'
@@ -72,6 +80,8 @@ import TutorFilter from '@/components/tutor/TutorFilter.vue'
 import TutorCard from '@/components/tutor/TutorCard.vue'
 import { PAGE_SIZE } from '@/constants'
 
+const route = useRoute()
+const router = useRouter()
 const toast = useToastStore()
 const tutors = ref([])
 const subjects = ref([])
@@ -81,6 +91,7 @@ const loading = ref(false)
 const page = ref(1)
 const total = ref(0)
 const lastFilters = ref({})
+const filterInitial = ref({ sort_by: route.query.sort_by || 'rating' })
 
 const hasActiveFilters = computed(() => {
   const f = lastFilters.value
@@ -130,11 +141,24 @@ async function doSearch(filters = {}, targetPage = 1) {
     tutors.value = res.items || []
     total.value = Number(res.total ?? 0)
     page.value = targetPage
+    router.replace({
+      query: {
+        ...(params.sort_by !== 'rating' ? { sort_by: params.sort_by } : {}),
+        ...(targetPage > 1 ? { page: String(targetPage) } : {}),
+      },
+    }).catch(() => {})
   } catch (e) {
     toast.error('搜尋失敗：' + e.message)
   } finally {
     loading.value = false
   }
+}
+
+function resetFilters() {
+  filterInitial.value = {}
+  lastFilters.value = {}
+  doSearch({}, 1)
+  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 function onFiltersChanged(filters = {}) {
@@ -159,6 +183,9 @@ onMounted(async () => {
   } finally {
     subjectsLoading.value = false
   }
-  await doSearch()
+  const startPage = route.query.page ? Math.max(1, parseInt(route.query.page) || 1) : 1
+  const initialFilters = { sort_by: filterInitial.value.sort_by }
+  lastFilters.value = { ...initialFilters }
+  await doSearch(initialFilters, startPage)
 })
 </script>

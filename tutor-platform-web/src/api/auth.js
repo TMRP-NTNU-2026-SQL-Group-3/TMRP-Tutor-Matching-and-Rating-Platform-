@@ -10,6 +10,12 @@ export const authApi = {
   getMe() {
     return api.get('/api/auth/me')
   },
+  updateMe(data) {
+    return api.put('/api/auth/me', data)
+  },
+  changePassword(data) {
+    return api.put('/api/auth/password', data)
+  },
   // SEC-C02: refresh_token is sent via HttpOnly cookie automatically.
   logout() {
     return api.post('/api/auth/logout')

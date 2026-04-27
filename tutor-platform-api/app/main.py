@@ -12,6 +12,7 @@ from app.shared.infrastructure.config import settings
 from app.shared.domain.exceptions import DomainException
 from app.middleware.access_log import AccessLogMiddleware
 from app.middleware.body_size_limit import BodySizeLimitMiddleware
+from app.middleware.csrf import CSRFMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -240,13 +241,14 @@ tags_metadata = [
     {"name": "health", "description": "健康檢查：API 與資料庫連線狀態"},
 ]
 
-if settings.debug:
-    # DEBUG=true exposes /docs, /redoc and /openapi.json — these publish the
-    # full route inventory and schemas and MUST NOT be enabled in production.
-    # Log loudly at startup so a misconfigured deploy is obvious in the logs
-    # rather than silently shipping an introspectable attack surface.
+if settings.enable_docs:
+    # SEC-13: ENABLE_DOCS=true exposes /docs, /redoc and /openapi.json.
+    # This flag is intentionally decoupled from DEBUG so that enabling debug
+    # mode does not automatically publish the full route inventory. The
+    # startup validator already rejects ENABLE_DOCS=true when DEBUG=false, so
+    # this branch only fires in development/staging environments.
     logger.warning(
-        "DEBUG=true: /docs, /redoc, /openapi.json are PUBLIC. "
+        "ENABLE_DOCS=true: /docs, /redoc, /openapi.json are PUBLIC. "
         "Never enable this in production — the full route and schema "
         "inventory is exposed to anonymous callers."
     )
@@ -258,16 +260,22 @@ app = FastAPI(
     version="0.2.0",
     openapi_tags=tags_metadata,
     lifespan=lifespan,
-    # Disable interactive docs in production unless DEBUG=true is set explicitly.
-    # Avoids exposing the full route inventory to anonymous scanners.
-    docs_url="/docs" if settings.debug else None,
-    redoc_url="/redoc" if settings.debug else None,
-    openapi_url="/openapi.json" if settings.debug else None,
+    # SEC-13: schema endpoints gated on a dedicated ENABLE_DOCS flag, not on
+    # DEBUG, so debug mode alone cannot accidentally expose the route inventory.
+    docs_url="/docs" if settings.enable_docs else None,
+    redoc_url="/redoc" if settings.enable_docs else None,
+    openapi_url="/openapi.json" if settings.enable_docs else None,
 )
 
 # ─── Middleware (Starlette: last registered = outermost; requests flow outer-in) ───
-# 7. Rate limiting (closest to the route -> registered first -> innermost)
+# 8. Rate limiting (closest to the route -> registered first -> innermost)
 app.add_middleware(RateLimitMiddleware)
+# 7. CSRF validation (SEC-03). Registered after RateLimitMiddleware so in the
+#    request flow it runs between UserConcurrencyQuota (outer) and
+#    RateLimitMiddleware (inner): UserQuota → CSRF → RateLimit → Route.
+#    An invalid CSRF request is rejected before the per-path rate-limit bucket
+#    is debited, preserving the victim's remaining rate-limit tokens.
+app.add_middleware(CSRFMiddleware)
 # 6. Per-user concurrency quota (I-07). Registered after RateLimitMiddleware
 #    so in the request path it runs just outside the per-path bucket: any
 #    unauthenticated flood still hits RateLimitMiddleware, and any single
@@ -292,11 +300,10 @@ app.add_middleware(
     # CSRF is mitigated by SameSite=Lax on all auth cookies.
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    # HIGH-3: X-Requested-With is attached by the SPA on all mutating
-    # requests to force a CORS preflight — cross-origin CSRF attempts from
-    # non-whitelisted origins cannot pass the preflight. Must be listed here
-    # so legitimate browser preflights succeed.
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
+    # HIGH-3: X-Requested-With forces a CORS preflight on mutating cross-origin
+    # requests; X-CSRF-Token carries the double-submit CSRF token (SEC-03).
+    # Both must be listed so legitimate browser preflights succeed.
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "X-CSRF-Token"],
 )
 
 # ─── Centralised exception handlers ───

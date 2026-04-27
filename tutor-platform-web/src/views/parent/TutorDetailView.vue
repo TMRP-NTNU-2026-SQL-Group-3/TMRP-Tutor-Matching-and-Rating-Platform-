@@ -65,7 +65,7 @@
               </div>
             </div>
           </div>
-          <AvailabilityCalendar :slots="tutor.availability" />
+          <AvailabilityCalendar :slots="tutor.availability" :selectable="true" v-model="selectedSlot" />
         </div>
       </div>
 
@@ -121,6 +121,7 @@ const toast = useToastStore()
 const tutor = ref(null)
 const students = ref([])
 const loading = ref(false)
+const selectedSlot = ref(null)
 const error = ref('')
 const showInviteForm = ref(false)
 const inviting = ref(false)

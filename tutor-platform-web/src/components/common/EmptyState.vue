@@ -4,6 +4,9 @@
       <slot name="icon">{{ icon }}</slot>
     </div>
     <p class="text-gray-500">{{ message }}</p>
+    <div v-if="$slots.default" class="mt-4">
+      <slot />
+    </div>
   </div>
 </template>
 

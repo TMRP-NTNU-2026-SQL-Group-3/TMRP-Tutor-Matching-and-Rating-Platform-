@@ -231,7 +231,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { adminApi } from '@/api/admin'
 import { useToastStore } from '@/stores/toast'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -514,5 +514,14 @@ async function handleImport() {
 onMounted(() => {
   fetchUsers()
   fetchSystemStatus()
+})
+
+onUnmounted(() => {
+  pendingResetToken.value = ''
+  showResetModal.value = false
+  resetConfirmText.value = ''
+  resetPassword.value = ''
+  resetModalError.value = ''
+  inCooldown.value = false
 })
 </script>

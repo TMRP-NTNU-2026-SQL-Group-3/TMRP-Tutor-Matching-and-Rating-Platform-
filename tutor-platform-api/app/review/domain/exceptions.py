@@ -11,7 +11,7 @@ class ReviewMatchNotFoundError(NotFoundError):
         super().__init__("找不到此配對")
 
 
-class ReviewLockedError(DomainException):
+class ReviewLockedError(ConflictError):
     def __init__(self):
         super().__init__("評價已超過編輯期限，無法修改")
 
@@ -57,3 +57,11 @@ class MatchHasNoSessionsError(DomainException):
 class SelfReviewError(PermissionDeniedError):
     def __init__(self):
         super().__init__("評價者與被評價者不可為同一人")
+
+
+class LowRatingCommentRequiredError(DomainException):
+    def __init__(self, threshold: int, min_len: int):
+        super().__init__(
+            f"評分 {threshold} 星以下時必須填寫至少 {min_len} 字的文字說明",
+            status_code=422,
+        )

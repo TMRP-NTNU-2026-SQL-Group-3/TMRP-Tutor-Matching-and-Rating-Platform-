@@ -218,6 +218,14 @@ CREATE TABLE IF NOT EXISTS reviews (
     is_locked          BOOLEAN     DEFAULT FALSE
 );
 
+-- SEC-06: password reuse prevention; stores the last 5 hashes per user.
+CREATE TABLE IF NOT EXISTS password_history (
+    history_id    SERIAL       PRIMARY KEY,
+    user_id       INTEGER      NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    password_hash VARCHAR(255) NOT NULL,
+    changed_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
 -- 認證 / 限流支援表（多 worker 部署下需共享狀態，避免 in-memory 漂移）
 CREATE TABLE IF NOT EXISTS refresh_token_blacklist (
     jti        VARCHAR(64)  PRIMARY KEY,
@@ -272,6 +280,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_created       ON sessions (created_at);
 CREATE INDEX IF NOT EXISTS idx_matches_status_updated ON matches (status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_rl_bucket_hit_at       ON rate_limit_hits (bucket_key, hit_at);
 CREATE INDEX IF NOT EXISTS idx_rt_blacklist_exp       ON refresh_token_blacklist (expires_at);
+CREATE INDEX IF NOT EXISTS idx_pw_history_user        ON password_history (user_id, changed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_log_resource     ON audit_log (resource_type, resource_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_actor        ON audit_log (actor_user_id, created_at);
 
@@ -328,7 +337,9 @@ SELECT m.tutor_id,
        COUNT(*)        AS review_count,
        -- Overall rating = mean of whichever dimensions were actually rated.
        -- Only non-NULL dimensions contribute to both numerator and denominator.
-       COALESCE(
+       -- Returns NULL (not 0) when no rated reviews exist, so unreviewed tutors
+       -- are not ranked below tutors with genuine low scores.
+       CASE WHEN COUNT(r.review_id) = 0 THEN NULL ELSE
          (COALESCE(AVG(r.rating_1), 0) + COALESCE(AVG(r.rating_2), 0)
         + COALESCE(AVG(r.rating_3), 0) + COALESCE(AVG(r.rating_4), 0))
         / NULLIF(
@@ -337,7 +348,7 @@ SELECT m.tutor_id,
           + (CASE WHEN AVG(r.rating_3) IS NOT NULL THEN 1 ELSE 0 END)
           + (CASE WHEN AVG(r.rating_4) IS NOT NULL THEN 1 ELSE 0 END)
         , 0)
-       , 0) AS avg_rating
+       END AS avg_rating
 FROM reviews r
 INNER JOIN matches m ON r.match_id = m.match_id
 WHERE r.review_type = 'parent_to_tutor'

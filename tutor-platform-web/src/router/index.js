@@ -26,6 +26,7 @@ const routes = [
       { path: 'students', name: 'Students', component: () => import('@/views/parent/StudentsView.vue') },
       { path: 'match/:id', name: 'ParentMatchDetail', component: () => import('@/views/parent/MatchDetailView.vue') },
       { path: 'expense', name: 'Expense', component: () => import('@/views/parent/ExpenseView.vue') },
+      { path: 'profile', name: 'ParentProfile', component: () => import('@/views/parent/ProfileView.vue') },
     ]
   },
 
@@ -67,9 +68,10 @@ const routes = [
     path: '/',
     redirect: () => roleHome(),
   },
-  // Catchall — route already-authenticated users to their role home so we don't
-  // bounce them through /login → home (which produces a brief login flash).
-  { path: '/:pathMatch(.*)*', redirect: () => roleHome() },
+  // Catchall — show a proper 404 for any URL that doesn't match a defined route.
+  // The requiresAuth guard in beforeEach still redirects unauthenticated users
+  // to /login for protected routes before they ever reach the component.
+  { path: '/:pathMatch(.*)*', name: 'NotFound', component: () => import('@/views/NotFoundView.vue') },
 ]
 
 function roleHome() {
@@ -112,7 +114,7 @@ router.beforeEach(async (to, from, next) => {
   }
 
   if (requiresAuth && !auth.isLoggedIn) {
-    return next('/login')
+    return next({ path: '/login', query: { redirect: to.fullPath } })
   }
 
   if (to.meta.guest && auth.isLoggedIn) {

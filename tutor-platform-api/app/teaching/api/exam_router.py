@@ -22,7 +22,7 @@ _EXAM_CREATE_LIMIT = 20
 _EXAM_CREATE_WINDOW = 60
 
 
-@router.post("", summary="新增考試紀錄", response_model=ApiResponse)
+@router.post("", status_code=201, summary="新增考試紀錄", response_model=ApiResponse)
 def create_exam(body: ExamCreate, user=Depends(get_current_user), conn=Depends(get_db)):
     role = user["role"]
     if role not in ("parent", "tutor"):
@@ -95,13 +95,11 @@ def update_exam(exam_id: int, body: ExamUpdate, user=Depends(get_current_user), 
         raise NotFoundError("找不到此考試紀錄")
     if exam["added_by_user_id"] != user_id:
         raise PermissionDeniedError("只有原新增者可以修改考試紀錄")
-    updates = {}
-    for k, v in body.model_dump(exclude_unset=True).items():
-        if k == "visible_to_parent":
-            if v is not None:
-                updates[k] = bool(v)
-        else:
-            updates[k] = v
+    updates = {
+        k: (bool(v) if k == "visible_to_parent" else v)
+        for k, v in body.model_dump(exclude_unset=True).items()
+        if v is not None or k == "visible_to_parent"
+    }
     if not updates:
         return ApiResponse(success=True, data={}, message="無需更新的欄位")
     repo.update(exam_id, updates)

@@ -1,0 +1,4 @@
+Contact: https://github.com/TMRP-NTNU-2026-SQL-Group-3/TMRP-Tutor-Matching-and-Rating-Platform-/issues
+Expires: 2027-04-27T00:00:00.000Z
+Preferred-Languages: en, zh-TW
+Policy: https://github.com/TMRP-NTNU-2026-SQL-Group-3/TMRP-Tutor-Matching-and-Rating-Platform-/blob/main/SECURITY.md

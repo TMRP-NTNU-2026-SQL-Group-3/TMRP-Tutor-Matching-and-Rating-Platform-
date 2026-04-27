@@ -270,7 +270,12 @@
                       class="w-20 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none" />
                   </td>
                   <td class="px-4 py-2.5 text-right">
-                    <div class="flex justify-end gap-1">
+                    <div class="flex justify-end items-center gap-2 flex-wrap">
+                      <label class="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+                        <input v-model="editExamForm.visible_to_parent" type="checkbox"
+                          class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                        家長可見
+                      </label>
                       <button @click="saveExamEdit(e.exam_id)" :disabled="examEditSaving"
                         class="text-xs text-green-600 hover:text-green-800 font-medium disabled:opacity-50">儲存</button>
                       <button @click="cancelExamEdit"
@@ -296,7 +301,7 @@
             </tbody>
           </table>
         </div>
-        <p v-else class="text-gray-400 text-sm">尚無考試紀錄</p>
+        <p v-else class="text-gray-400 text-sm">{{ examsUnavailable ? '考試資料暫時無法載入' : '尚無考試紀錄' }}</p>
       </div>
 
       <!-- Reviews -->
@@ -306,10 +311,15 @@
 
         <!-- Write review -->
         <div v-if="canReviewParent || canReviewStudent" class="mt-4">
-          <button v-if="!showReviewForm" @click="showReviewForm = true"
-            class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
-            撰寫評價
-          </button>
+          <template v-if="!showReviewForm">
+            <button @click="showReviewForm = true"
+              :disabled="reviewLockActive"
+              :title="reviewLockActive ? reviewLockMessage : undefined"
+              class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              撰寫評價
+            </button>
+            <p v-if="reviewLockActive" class="mt-2 text-xs text-amber-600">{{ reviewLockMessage }}</p>
+          </template>
           <Transition
             enter-active-class="transition duration-200 ease-out"
             enter-from-class="opacity-0 -translate-y-2"
@@ -361,6 +371,7 @@
       </div>
     </div>
 
+    <p v-else-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-4">{{ error }}</p>
     <EmptyState v-else message="找不到此配對" />
   </div>
 </template>
@@ -368,6 +379,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useMatchDetail } from '@/composables/useMatchDetail'
+import { useConfirm } from '@/composables/useConfirm'
 import { useToastStore } from '@/stores/toast'
 import { sessionsApi } from '@/api/sessions'
 import { examsApi } from '@/api/exams'
@@ -381,13 +393,15 @@ import ContractConfirmModal from '@/components/match/ContractConfirmModal.vue'
 import ProgressChart from '@/components/stats/ProgressChart.vue'
 
 const toast = useToastStore()
+const { confirm } = useConfirm()
 
 const {
   match, sessions, exams, reviews,
-  loading, refetching, error, actionLoading,
+  loading, refetching, error, examsUnavailable, actionLoading,
   showTerminate, showContractConfirm, userId, displayReason,
   fetchMatch, doAction, doTerminate, doConfirmTrial,
   showReviewForm, reviewSubmitting, reviewError, submitReview,
+  reviewLockActive, reviewLockMessage,
   formatDate,
 } = useMatchDetail()
 
@@ -400,12 +414,12 @@ const contractDefaults = computed(() => ({
 }))
 
 // Destructive action buttons require explicit confirmation to avoid mis-clicks.
-function confirmAction(action, message) {
-  if (!window.confirm(message)) return
+async function confirmAction(action, message) {
+  if (!await confirm({ title: message })) return
   doAction(action)
 }
-function confirmTerminate() {
-  if (!window.confirm('申請終止後，對方確認即會關閉配對。是否繼續？')) return
+async function confirmTerminate() {
+  if (!await confirm({ title: '申請終止配對', message: '申請後，對方確認即會關閉配對。', confirmLabel: '繼續' })) return
   showTerminate.value = true
 }
 
@@ -450,13 +464,14 @@ const examForm = reactive({
 // Exam edit/delete
 const editingExamId = ref(null)
 const examEditSaving = ref(false)
-const editExamForm = reactive({ exam_date: '', exam_type: '', score: 0 })
+const editExamForm = reactive({ exam_date: '', exam_type: '', score: 0, visible_to_parent: true })
 
 function startExamEdit(exam) {
   editingExamId.value = exam.exam_id
   editExamForm.exam_date = String(exam.exam_date).slice(0, 10)
   editExamForm.exam_type = exam.exam_type
   editExamForm.score = exam.score
+  editExamForm.visible_to_parent = exam.visible_to_parent ?? true
 }
 
 function cancelExamEdit() {
@@ -474,6 +489,7 @@ async function saveExamEdit(examId) {
       exam_date: editExamForm.exam_date,
       exam_type: editExamForm.exam_type,
       score: editExamForm.score,
+      visible_to_parent: editExamForm.visible_to_parent,
     })
     editingExamId.value = null
     toast.success('考試紀錄已更新')
@@ -486,7 +502,7 @@ async function saveExamEdit(examId) {
 }
 
 async function confirmDeleteExam(examId) {
-  if (!window.confirm('確定要刪除此考試紀錄嗎？此操作無法復原。')) return
+  if (!await confirm({ title: '刪除考試紀錄', message: '此操作無法復原。', confirmLabel: '刪除' })) return
   try {
     await examsApi.delete(examId)
     toast.success('考試紀錄已刪除')

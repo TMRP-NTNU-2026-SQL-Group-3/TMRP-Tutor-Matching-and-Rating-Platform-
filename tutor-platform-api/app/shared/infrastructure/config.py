@@ -91,11 +91,19 @@ class Settings(BaseSettings):
     # OpenAPI JSON so production deployments don't leak the full route list.
     debug: bool = False
 
+    # SEC-13: controls /docs, /redoc, and /openapi.json independently of DEBUG.
+    # Decoupled so that enabling debug mode does not automatically expose the
+    # full route inventory. Rejected by the validator when DEBUG is false so it
+    # cannot be left on in a production misconfiguration.
+    enable_docs: bool = False
+
     class Config:
         env_file = ".env"
 
     @model_validator(mode="after")
     def reject_placeholder_secrets(self):
+        if self.review_lock_days <= 0:
+            raise ValueError("REVIEW_LOCK_DAYS must be a positive integer.")
         # Defence-in-depth against someone re-introducing the old placeholders via env.
         if self.jwt_secret_key in {"change-me-in-production", "change-me"}:
             raise ValueError(
@@ -158,6 +166,14 @@ class Settings(BaseSettings):
             raise ValueError(
                 "COOKIE_SECURE must be true when DEBUG is false "
                 "(auth cookies require the Secure flag in production)."
+            )
+        # SEC-13: schema endpoints must not be enabled in non-debug (production)
+        # deployments — they expose the full route inventory to anonymous callers.
+        if self.enable_docs and not self.debug:
+            raise ValueError(
+                "ENABLE_DOCS must not be true when DEBUG is false. "
+                "Schema endpoints expose the full route inventory and "
+                "must not be enabled in production deployments."
             )
         # INFO-3: the literal 'admin' username is enumeration bait. Require an
         # operator-chosen bootstrap username in production deployments; also

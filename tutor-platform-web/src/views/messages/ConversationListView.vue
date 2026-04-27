@@ -29,15 +29,27 @@
           {{ (c.other_name || '?').charAt(0) }}
         </div>
         <div class="flex-1 min-w-0">
-          <p class="font-medium text-gray-900 truncate"
-             v-html="searchQuery.trim() ? highlight(c.other_name, searchQuery.trim()) : escapeHtml(c.other_name)"></p>
-          <p v-if="c.last_message_content" class="text-sm text-gray-600 truncate mt-0.5"
-             v-html="searchQuery.trim() ? highlight(formatPreview(c), searchQuery.trim()) : escapeHtml(formatPreview(c))"></p>
+          <p class="font-medium text-gray-900 truncate">
+            <template v-if="searchQuery.trim()">
+              <template v-for="(part, i) in highlightParts(c.other_name, searchQuery.trim())" :key="i">
+                <mark v-if="part.mark" class="bg-yellow-100 text-gray-900 rounded-sm px-0.5">{{ part.text }}</mark><span v-else>{{ part.text }}</span>
+              </template>
+            </template>
+            <template v-else>{{ c.other_name }}</template>
+          </p>
+          <p v-if="c.last_message_content" class="text-sm text-gray-600 truncate mt-0.5">
+            <template v-if="searchQuery.trim()">
+              <template v-for="(part, i) in highlightParts(formatPreview(c), searchQuery.trim())" :key="i">
+                <mark v-if="part.mark" class="bg-yellow-100 text-gray-900 rounded-sm px-0.5">{{ part.text }}</mark><span v-else>{{ part.text }}</span>
+              </template>
+            </template>
+            <template v-else>{{ formatPreview(c) }}</template>
+          </p>
           <p v-else-if="c.last_message_at" class="text-xs text-gray-400 italic mt-0.5">已建立對話</p>
           <p v-else class="text-xs text-gray-300 mt-0.5 italic">尚無訊息</p>
         </div>
         <div v-if="c.last_message_at" class="flex flex-col items-end shrink-0 text-xs text-gray-400 gap-0.5">
-          <span>{{ formatRelative(c.last_message_at) }}</span>
+          <span :title="formatDateTimeFull(c.last_message_at)">{{ formatRelative(c.last_message_at) }}</span>
           <span class="text-gray-300">{{ formatDate(c.last_message_at) }}</span>
         </div>
       </div>
@@ -61,7 +73,8 @@ import { messagesApi } from '@/api/messages'
 import { useAuthStore } from '@/stores/auth'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import { formatDateTimeShort } from '@/utils/format'
+import { formatDateTimeShort, formatDateTimeFull } from '@/utils/format'
+import { highlightParts } from '@/utils/highlight'
 
 const auth = useAuthStore()
 const conversations = ref([])
@@ -126,28 +139,6 @@ const pagedConversations = computed(() =>
 )
 
 const formatDate = formatDateTimeShort
-
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
-function highlight(text, query) {
-  if (!query || !text) return escapeHtml(text || '')
-  const lower = text.toLowerCase()
-  const lowerQ = query.toLowerCase()
-  const parts = []
-  let pos = 0
-  let idx
-  while ((idx = lower.indexOf(lowerQ, pos)) !== -1) {
-    parts.push(escapeHtml(text.slice(pos, idx)))
-    parts.push(`<mark class="bg-yellow-100 text-gray-900 rounded-sm px-0.5">${escapeHtml(text.slice(idx, idx + query.length))}</mark>`)
-    pos = idx + query.length
-  }
-  parts.push(escapeHtml(text.slice(pos)))
-  return parts.join('')
-}
 
 function formatPreview(c) {
   const raw = (c.last_message_content || '').trim()

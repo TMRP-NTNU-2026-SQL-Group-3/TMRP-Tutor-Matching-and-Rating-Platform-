@@ -119,7 +119,7 @@ def _decode_with_rotation(token: str) -> dict | None:
         logger.warning("JWT with alg=none rejected")
         return None
     try:
-        return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        return jwt.decode(token, settings.jwt_secret_key, algorithms=["HS256"])
     except JWTError as primary_err:
         if not _previous_key_active():
             logger.warning("JWT decode failed: %s", type(primary_err).__name__)
@@ -128,7 +128,7 @@ def _decode_with_rotation(token: str) -> dict | None:
             payload = jwt.decode(
                 token,
                 settings.jwt_secret_key_previous,
-                algorithms=[settings.jwt_algorithm],
+                algorithms=["HS256"],
             )
             logger.info("JWT verified with previous key (rotation grace period)")
             return payload

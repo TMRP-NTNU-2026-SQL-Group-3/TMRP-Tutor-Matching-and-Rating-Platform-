@@ -104,7 +104,7 @@ class SessionAppService:
             else:
                 updates["visible_to_parent"] = bool(updates["visible_to_parent"])
         if not updates:
-            return {"session_id": session_id, "changed": False, "message": "無需更新的欄位"}
+            raise DomainException("所有提供的欄位值均無效或無法更新，請確認欄位內容")
 
         with self._uow.begin():
             fresh = self._repo.get_by_id(session_id)

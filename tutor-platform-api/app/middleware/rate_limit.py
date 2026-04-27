@@ -21,7 +21,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     # H-04: reset is now a two-step flow; apply rate limits to both stages.
     # The confirm step is the destructive one, so it gets a tighter budget.
     "/api/admin/reset/request": (5, 3600),  # 5/hour
-    "/api/admin/reset/confirm": (3, 3600),  # 3/hour
+    "/api/admin/reset/confirm": (1, 86400),  # 1/day
     "/api/admin/import-all": (5, 86400),    # 5/day
     "/api/admin/seed": (5, 3600),           # 5/hour
     # /health is probed by the docker healthcheck every 10s (6/min per
@@ -31,6 +31,10 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     # comfortably covers legitimate probes (docker + 1–2 external monitors)
     # but starves amplification attempts.
     "/health": (30, 60),
+    # SEC-14: subjects listing is public (no auth) and serves as a low-cost
+    # reconnaissance endpoint. 30/min covers normal browsing and SPA initial
+    # loads while blocking bulk scraping without affecting real users.
+    "/api/subjects": (30, 60),
     "default": (60, 60),
 }
 

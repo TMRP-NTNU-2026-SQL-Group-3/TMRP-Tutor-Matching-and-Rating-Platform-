@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from psycopg2.errors import UniqueViolation
 
 from app.identity.api.dependencies import get_current_user, get_db, is_admin
@@ -14,6 +14,7 @@ from app.review.api.schemas import (
 from app.review.domain.exceptions import (
     DuplicateReviewError,
     InvalidReviewTypeError,
+    LowRatingCommentRequiredError,
     MatchHasNoSessionsError,
     MatchNotReviewableError,
     NotMatchParticipantError,
@@ -37,7 +38,7 @@ VALID_TYPES = {"parent_to_tutor", "tutor_to_parent", "tutor_to_student"}
 REVIEWABLE_STATUSES = {"active", "paused", "ended"}
 
 
-@router.post("", summary="新增評價", response_model=ApiResponse)
+@router.post("", status_code=201, summary="新增評價", response_model=ApiResponse)
 def create_review(body: ReviewCreate, user=Depends(get_current_user), conn=Depends(get_db)):
     repo = PostgresReviewRepository(conn)
     user_id = int(user["sub"])
@@ -144,9 +145,9 @@ def update_review(review_id: int, body: ReviewUpdate, user=Depends(get_current_u
         if any(r is not None and r <= _LOW_RATING_THRESHOLD for r in merged_ratings.values()):
             merged_comment = (updates.get("comment") or review.get("comment") or "").strip()
             if len(merged_comment) < _LOW_RATING_MIN_COMMENT_LEN:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"評分 {_LOW_RATING_THRESHOLD} 星以下時必須填寫至少 {_LOW_RATING_MIN_COMMENT_LEN} 字的文字說明",
+                raise LowRatingCommentRequiredError(
+                    threshold=_LOW_RATING_THRESHOLD,
+                    min_len=_LOW_RATING_MIN_COMMENT_LEN,
                 )
         repo.update(review_id, updates)
     return ApiResponse(success=True, data={"review_id": review_id}, message="評價已更新")

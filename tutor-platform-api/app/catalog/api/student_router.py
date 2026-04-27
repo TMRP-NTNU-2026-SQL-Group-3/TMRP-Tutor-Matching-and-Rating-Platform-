@@ -5,7 +5,7 @@ from app.catalog.infrastructure.postgres_student_repo import PostgresStudentRepo
 from app.identity.api.dependencies import get_db, require_role
 from app.shared.api.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.shared.api.schemas import ApiResponse
-from app.shared.domain.exceptions import DomainException, NotFoundError, PermissionDeniedError
+from app.shared.domain.exceptions import DomainException, NotFoundError
 
 router = APIRouter(prefix="/api/students", tags=["students"])
 
@@ -53,11 +53,11 @@ def add_student(body: StudentCreate, user=Depends(require_role("parent")), conn=
 @router.put("/{student_id}", summary="更新子女資料", response_model=ApiResponse)
 def update_student(student_id: int, body: StudentUpdate, user=Depends(require_role("parent")), conn=Depends(get_db)):
     repo = PostgresStudentRepository(conn)
-    student = repo.find_by_id(student_id)
+    # SEC-09: ownership enforced in the SQL predicate; returns None for both
+    # "not found" and "not owned", so callers cannot probe other users' IDs.
+    student = repo.find_by_id_for_parent(student_id, int(user["sub"]))
     if not student:
         raise NotFoundError("找不到此學生")
-    if student["parent_user_id"] != int(user["sub"]):
-        raise PermissionDeniedError("只能修改自己的子女資料")
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         raise DomainException("沒有提供任何要更新的欄位")
@@ -68,10 +68,9 @@ def update_student(student_id: int, body: StudentUpdate, user=Depends(require_ro
 @router.delete("/{student_id}", summary="刪除子女資料", response_model=ApiResponse)
 def delete_student(student_id: int, user=Depends(require_role("parent")), conn=Depends(get_db)):
     repo = PostgresStudentRepository(conn)
-    student = repo.find_by_id(student_id)
+    # SEC-09: ownership enforced in the SQL predicate (see update_student note).
+    student = repo.find_by_id_for_parent(student_id, int(user["sub"]))
     if not student:
         raise NotFoundError("找不到此學生")
-    if student["parent_user_id"] != int(user["sub"]):
-        raise PermissionDeniedError("只能刪除自己的子女資料")
     repo.delete(student_id)
     return ApiResponse(success=True, data={"student_id": student_id}, message="學生資料已刪除")

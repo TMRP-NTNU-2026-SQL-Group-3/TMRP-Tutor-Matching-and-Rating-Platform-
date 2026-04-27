@@ -69,7 +69,7 @@ The following middleware layers are applied in order (outermost first):
 | SecurityHeaders | Sets `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Cache-Control: no-store`, and a restrictive Content-Security-Policy |
 | AccessLog | Structured JSON logging with client IP, method, path, status, and duration |
 | UserConcurrencyQuota | Per-authenticated-user DB connection cap (default 5, `DB_PER_USER_QUOTA`); returns `429` with `Retry-After: 1` when exceeded |
-| RateLimitMiddleware | Per-path limits (login: 10/60 s, register: 5/60 s, refresh: 20/60 s, admin reset: 5/3600 s, default: 60/60 s); fail-closed on critical paths |
+| RateLimitMiddleware | Per-path limits (login: 10/60 s, register: 5/60 s, refresh: 20/60 s, admin reset: 5/3600 s, subjects: 30/60 s, default: 60/60 s); fail-closed on critical paths |
 
 Nginx applies an additional edge limit of 20 r/s with a burst of 40 before requests reach FastAPI.
 
@@ -148,6 +148,7 @@ The following items represent acknowledged gaps relative to a fully hardened pro
 **Deployment prerequisites not handled by this repository:**
 - TLS termination must be provided externally.
 - `DEBUG=false` and `COOKIE_SECURE=true` must be set before any public exposure.
+- `ENABLE_DOCS` must remain `false` (the default) in production; the startup validator hard-fails if `ENABLE_DOCS=true` and `DEBUG=false` are set simultaneously.
 - CORS origins must be set to an explicit allow-list, not a wildcard.
 
 **Not yet implemented:**
@@ -169,6 +170,7 @@ The startup validator enforces the following before the API serves any requests:
 |---|---|
 | `JWT_SECRET_KEY` | ≥ 32 characters; no placeholder values |
 | `COOKIE_SECURE` | Must be `true` when `DEBUG=false` |
+| `ENABLE_DOCS` | Must not be `true` when `DEBUG=false`; rejected by startup validator |
 | `ADMIN_PASSWORD` | ≥ 16 characters; must include lowercase, uppercase, digit, and symbol |
 | `ADMIN_USERNAME` | Must not be `admin` or a placeholder |
 | `JWT_SECRET_KEY_PREVIOUS` | If set: ≥ 32 characters, differs from current key, expiry within 7 days |

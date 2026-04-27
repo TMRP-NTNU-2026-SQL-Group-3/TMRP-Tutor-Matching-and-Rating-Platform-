@@ -16,9 +16,13 @@ router = APIRouter(prefix="/api/messages", tags=["messages"])
 # single counterparty.
 _MESSAGE_SEND_LIMIT = 30
 _MESSAGE_SEND_WINDOW = 60
+# SEC-04: global per-user ceiling prevents N-conversation multiplication.
+# A user with N open conversations could otherwise send 30*N msgs/min.
+_MESSAGE_GLOBAL_LIMIT = 100
+_MESSAGE_GLOBAL_WINDOW = 3600  # 1 hour
 
 
-@router.post("/conversations", summary="建立對話", response_model=ApiResponse)
+@router.post("/conversations", status_code=201, summary="建立對話", response_model=ApiResponse)
 def create_conversation(
     body: ConversationCreate,
     user=Depends(require_role("parent", "tutor")),
@@ -56,7 +60,7 @@ def get_messages(
     return ApiResponse(success=True, data=messages)
 
 
-@router.post("/conversations/{conversation_id}", summary="傳送訊息", response_model=ApiResponse)
+@router.post("/conversations/{conversation_id}", status_code=201, summary="傳送訊息", response_model=ApiResponse)
 def send_message(
     conversation_id: int,
     body: MessageSend,
@@ -66,6 +70,9 @@ def send_message(
     user_id = int(user["sub"])
     bucket = f"message:send|conv={conversation_id}|user={user_id}"
     if not check_and_record_bucket(bucket, _MESSAGE_SEND_LIMIT, _MESSAGE_SEND_WINDOW):
+        raise TooManyRequestsError("傳送訊息過於頻繁，請稍後再試")
+    global_bucket = f"message:send|user={user_id}"
+    if not check_and_record_bucket(global_bucket, _MESSAGE_GLOBAL_LIMIT, _MESSAGE_GLOBAL_WINDOW):
         raise TooManyRequestsError("傳送訊息過於頻繁，請稍後再試")
     msg_id = service.send_message(
         conversation_id=conversation_id,

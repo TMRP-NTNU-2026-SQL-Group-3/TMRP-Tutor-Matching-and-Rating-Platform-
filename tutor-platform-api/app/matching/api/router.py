@@ -19,7 +19,7 @@ _MATCH_CREATE_LIMIT = 10
 _MATCH_CREATE_WINDOW = 3600
 
 
-@router.post("", summary="建立配對邀請", description="家長為指定學生向家教發送配對邀請。", response_model=ApiResponse)
+@router.post("", status_code=201, summary="建立配對邀請", description="家長為指定學生向家教發送配對邀請。", response_model=ApiResponse)
 def create_match(
     body: MatchCreate,
     user=Depends(require_role("parent")),

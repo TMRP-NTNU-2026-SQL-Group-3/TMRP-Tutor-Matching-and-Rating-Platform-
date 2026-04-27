@@ -128,9 +128,11 @@
 import { ref, reactive } from 'vue'
 import { sessionsApi } from '@/api/sessions'
 import { useToastStore } from '@/stores/toast'
+import { useConfirm } from '@/composables/useConfirm'
 import { formatLocalDate, formatDateTimeFull } from '@/utils/format'
 
 const toast = useToastStore()
+const { confirm } = useConfirm()
 
 defineProps({
   sessions: { type: Array, default: () => [] },
@@ -226,7 +228,7 @@ async function saveEdit(sessionId) {
 }
 
 async function confirmDelete(sessionId) {
-  if (!window.confirm('確定要刪除此上課紀錄嗎？此操作無法復原。')) return
+  if (!await confirm({ title: '刪除上課紀錄', message: '此操作無法復原。', confirmLabel: '刪除' })) return
   try {
     await sessionsApi.delete(sessionId)
     emit('deleted')

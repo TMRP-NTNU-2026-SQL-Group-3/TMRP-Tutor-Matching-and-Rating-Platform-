@@ -156,7 +156,7 @@
             </tbody>
           </table>
         </div>
-        <p v-else class="text-gray-400 text-sm">尚無考試紀錄</p>
+        <p v-else class="text-gray-400 text-sm">{{ examsUnavailable ? '考試資料暫時無法載入' : '尚無考試紀錄' }}</p>
       </div>
 
       <!-- Reviews -->
@@ -166,10 +166,15 @@
 
         <!-- Write review -->
         <div v-if="canReview" class="mt-4">
-          <button v-if="!showReviewForm" @click="showReviewForm = true"
-            class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
-            撰寫評價
-          </button>
+          <template v-if="!showReviewForm">
+            <button @click="showReviewForm = true"
+              :disabled="reviewLockActive"
+              :title="reviewLockActive ? reviewLockMessage : undefined"
+              class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              撰寫評價
+            </button>
+            <p v-if="reviewLockActive" class="mt-2 text-xs text-amber-600">{{ reviewLockMessage }}</p>
+          </template>
           <Transition
             enter-active-class="transition duration-200 ease-out"
             enter-from-class="opacity-0 -translate-y-2"
@@ -213,6 +218,7 @@
       </div>
     </div>
 
+    <p v-else-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-4">{{ error }}</p>
     <EmptyState v-else message="找不到此配對" />
   </div>
 </template>
@@ -220,6 +226,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useMatchDetail } from '@/composables/useMatchDetail'
+import { useConfirm } from '@/composables/useConfirm'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import SessionTimeline from '@/components/session/SessionTimeline.vue'
@@ -230,12 +237,15 @@ import ProgressChart from '@/components/stats/ProgressChart.vue'
 
 const {
   match, sessions, exams, reviews,
-  loading, refetching, error, actionLoading,
+  loading, refetching, error, examsUnavailable, actionLoading,
   showTerminate, showContractConfirm, userId, displayReason,
   fetchMatch, doAction, doTerminate, doConfirmTrial,
   showReviewForm, reviewSubmitting, reviewError, submitReview,
+  reviewLockActive, reviewLockMessage,
   formatDate,
 } = useMatchDetail()
+
+const { confirm } = useConfirm()
 
 const contractDefaults = computed(() => ({
   hourly_rate: match.value?.hourly_rate ?? null,
@@ -246,12 +256,12 @@ const contractDefaults = computed(() => ({
 }))
 
 // Destructive action buttons require explicit confirmation to avoid mis-clicks.
-function confirmAction(action, message) {
-  if (!window.confirm(message)) return
+async function confirmAction(action, message) {
+  if (!await confirm({ title: message })) return
   doAction(action)
 }
-function confirmTerminate() {
-  if (!window.confirm('申請終止後，對方確認即會關閉配對。是否繼續？')) return
+async function confirmTerminate() {
+  if (!await confirm({ title: '申請終止配對', message: '申請後，對方確認即會關閉配對。', confirmLabel: '繼續' })) return
   showTerminate.value = true
 }
 
@@ -262,7 +272,7 @@ function handleTerminateCancel() {
   contractFormRef.value?.reset()
 }
 async function handleTerminateSubmit(reason) {
-  if (!window.confirm('確定要送出終止申請嗎？送出後，對方同意即會關閉配對。')) return
+  if (!await confirm({ title: '送出終止申請', message: '送出後，對方同意即會關閉配對。', confirmLabel: '送出' })) return
   await doTerminate(reason)
   contractFormRef.value?.reset()
   window.scrollTo({ top: 0, behavior: 'smooth' })

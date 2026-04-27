@@ -3,6 +3,9 @@ from psycopg2 import errors as pg_errors
 from app.identity.domain.exceptions import DuplicateUsernameError
 from app.identity.domain.ports import IUserRepository
 from app.shared.infrastructure.base_repository import BaseRepository
+from app.shared.infrastructure.password_history import save_password_history as _persist_history
+
+_UPDATABLE_COLUMNS = frozenset({'display_name', 'phone', 'email'})
 
 
 class PostgresUserRepository(BaseRepository, IUserRepository):
@@ -33,3 +36,28 @@ class PostgresUserRepository(BaseRepository, IUserRepository):
         if role == "tutor":
             self.cursor.execute("INSERT INTO tutors (user_id) VALUES (%s)", (user_id,))
         return user_id
+
+    def update_me(self, user_id: int, *, fields: dict) -> None:
+        safe = {k: v for k, v in fields.items() if k in _UPDATABLE_COLUMNS}
+        if not safe:
+            return
+        cols = ', '.join(f'{k} = %s' for k in safe)
+        vals = list(safe.values()) + [user_id]
+        self.cursor.execute(f"UPDATE users SET {cols} WHERE user_id = %s", vals)
+
+    def update_password(self, user_id: int, *, password_hash: str) -> None:
+        self.cursor.execute(
+            "UPDATE users SET password_hash = %s WHERE user_id = %s",
+            (password_hash, user_id),
+        )
+
+    def save_password_history(self, user_id: int, password_hash: str) -> None:
+        _persist_history(self.cursor, user_id, password_hash)
+
+    def get_recent_password_hashes(self, user_id: int, limit: int = 5) -> list[str]:
+        rows = self.fetch_all(
+            "SELECT password_hash FROM password_history "
+            "WHERE user_id = %s ORDER BY changed_at DESC LIMIT %s",
+            (user_id, limit),
+        )
+        return [r["password_hash"] for r in rows]

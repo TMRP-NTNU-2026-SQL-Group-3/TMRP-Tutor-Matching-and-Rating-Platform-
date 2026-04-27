@@ -6,6 +6,7 @@ import { matchesApi } from '@/api/matches'
 import { sessionsApi } from '@/api/sessions'
 import { examsApi } from '@/api/exams'
 import { reviewsApi } from '@/api/reviews'
+import { REVIEW_LOCK_DAYS } from '@/constants'
 
 /**
  * 共用的配對詳情邏輯 — 家長版與家教版共用。
@@ -23,6 +24,7 @@ export function useMatchDetail() {
   const loading = ref(false)
   const refetching = ref(false)
   const error = ref('')
+  const examsUnavailable = ref(false)
   const showTerminate = ref(false)
   const showContractConfirm = ref(false)
   const actionLoading = ref(false)
@@ -62,6 +64,7 @@ export function useMatchDetail() {
     if (!match.value) loading.value = true
     else refetching.value = true
     error.value = ''
+    examsUnavailable.value = false
     try {
       const detail = await matchesApi.getDetail(matchId, { signal })
       if (currentFetchId !== _fetchId) return false  // 已有更新的請求，丟棄此結果
@@ -83,6 +86,9 @@ export function useMatchDetail() {
         exams.value = subjectId
           ? examData.filter(e => e.subject_id === subjectId)
           : examData
+      } else {
+        exams.value = []
+        examsUnavailable.value = true
       }
       return true
     } catch (e) {
@@ -157,6 +163,12 @@ export function useMatchDetail() {
   const reviewSubmitting = ref(false)
   const reviewError = ref('')
 
+  const reviewLockActive = computed(() => {
+    if (!match.value?.created_at) return false
+    return Date.now() - new Date(match.value.created_at).getTime() < REVIEW_LOCK_DAYS * 86400000
+  })
+  const reviewLockMessage = `配對建立 ${REVIEW_LOCK_DAYS} 天後方可提交評價`
+
   async function submitReview(payload) {
     if (reviewSubmitting.value) return
     reviewError.value = ''
@@ -185,10 +197,11 @@ export function useMatchDetail() {
 
   return {
     match, sessions, exams, reviews,
-    loading, refetching, error, actionLoading,
+    loading, refetching, error, examsUnavailable, actionLoading,
     showTerminate, showContractConfirm, userId, displayReason,
     fetchMatch, doAction, doTerminate, doConfirmTrial,
     showReviewForm, reviewSubmitting, reviewError, submitReview,
+    reviewLockActive, reviewLockMessage,
     formatDate,
   }
 }

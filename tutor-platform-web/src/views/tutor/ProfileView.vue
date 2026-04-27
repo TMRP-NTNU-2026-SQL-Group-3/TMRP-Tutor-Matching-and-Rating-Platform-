@@ -92,6 +92,10 @@
         </div>
         <button type="button" @click="addAvailabilityRow"
           class="text-primary-600 hover:text-primary-700 text-sm font-medium transition-colors">+ 新增時段</button>
+        <div v-if="previewSlots.length" class="pt-3 border-t border-gray-100 space-y-2">
+          <p class="text-xs text-gray-500">預覽（家長看到的樣式）</p>
+          <AvailabilityCalendar :slots="previewSlots" />
+        </div>
       </div>
 
       <!-- Settings -->
@@ -185,6 +189,7 @@ import { onBeforeRouteLeave } from 'vue-router'
 import { tutorsApi } from '@/api/tutors'
 import { subjectsApi } from '@/api/subjects'
 import PageHeader from '@/components/common/PageHeader.vue'
+import AvailabilityCalendar from '@/components/tutor/AvailabilityCalendar.vue'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -306,6 +311,17 @@ function availableSubjectsFor(item) {
 }
 
 const hasFreeSubject = computed(() => chosenSubjectIds.value.size < allSubjects.value.length)
+
+const previewSlots = computed(() =>
+  availabilityList.value
+    .filter(s => s.start_time && s.end_time && s.start_time < s.end_time)
+    .map(s => ({
+      availability_id: s._uid,
+      day_of_week: Number(s.day_of_week),
+      start_time: s.start_time,
+      end_time: s.end_time,
+    }))
+)
 
 function addSubjectRow() {
   if (!hasFreeSubject.value) return

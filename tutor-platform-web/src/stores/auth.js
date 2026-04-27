@@ -5,6 +5,7 @@ import { useMatchStore } from './match'
 import { useMessageStore } from './message'
 import { useTutorStore } from './tutor'
 import { useToastStore } from './toast'
+import { useNotificationStore } from './notifications'
 import { API_BASE_URL } from '@/api/baseURL'
 import api, { resetRefreshState, markLoggedIn } from '@/api'
 
@@ -86,6 +87,13 @@ export const useAuthStore = defineStore('auth', () => {
     markLoggedIn()
   }
 
+  function updateUser(patch) {
+    if (!user.value) return
+    const updated = { ...user.value, ...patch }
+    user.value = updated
+    localStorage.setItem('user', JSON.stringify(updated))
+  }
+
   function logout() {
     user.value = null
     verified.value = false
@@ -98,6 +106,7 @@ export const useAuthStore = defineStore('auth', () => {
     tutorStore.setResults([])
     tutorStore.setFilters({})
     useToastStore().clear()
+    useNotificationStore().clear()
 
     // Drop any pending token-refresh from the previous session so it cannot
     // resolve into the next user's request stream.
@@ -110,5 +119,5 @@ export const useAuthStore = defineStore('auth', () => {
     }).catch(() => {})
   }
 
-  return { user, isLoggedIn, role, verified, ensureVerified, setAuth, logout }
+  return { user, isLoggedIn, role, verified, ensureVerified, setAuth, updateUser, logout }
 })

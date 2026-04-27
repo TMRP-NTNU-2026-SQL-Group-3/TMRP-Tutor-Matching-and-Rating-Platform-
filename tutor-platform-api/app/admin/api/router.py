@@ -15,12 +15,18 @@ from app.shared.infrastructure.security import (
     consume_reset_confirmation_jti,
     create_reset_confirmation_token,
     decode_reset_confirmation_token,
+    hash_password,
     verify_password,
 )
 
 logger = logging.getLogger("app.admin")
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+# SEC-11: fixed advisory lock key that serializes concurrent DB-reset flows.
+# Using a session-level lock (not xact-level) so the lock survives any
+# savepoints or partial rollbacks inside the reset operation.
+_DB_RESET_LOCK_KEY = 7_329_847_234
 
 
 @router.get("/users", summary="使用者列表", response_model=ApiResponse)
@@ -65,6 +71,13 @@ def import_csv(
     service: AdminImportService = Depends(get_admin_import_service),
 ):
     validate_table(table_name)
+    # SEC-10: validate Content-Type before reading the body to fail fast.
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if content_type not in ("text/csv", "application/csv", "text/plain"):
+        raise HTTPException(
+            status_code=415,
+            detail="僅接受 CSV 格式（Content-Type: text/csv）",
+        )
     logger.warning("Admin user_id=%s 匯入 CSV 至 %s", user.get("sub"), table_name)
     # LOW-3: enforce the same size cap as import_zip so a compromised or
     # careless admin cannot OOM the worker via a huge single-CSV upload.
@@ -133,6 +146,22 @@ def confirm_reset(
     service: AdminImportService = Depends(get_admin_import_service),
     conn=Depends(get_db),
 ):
+    # SEC-11: serialize concurrent reset flows so two admins cannot both
+    # complete the two-step flow and have the second wipe an already-empty DB.
+    # pg_try_advisory_xact_lock is transaction-scoped: the get_db dependency
+    # always calls conn.rollback() after the endpoint returns, which releases
+    # the lock automatically — no manual finally/unlock needed.
+    with conn.cursor() as _lk_cur:
+        _lk_cur.execute("SELECT pg_try_advisory_xact_lock(%s::bigint)", (_DB_RESET_LOCK_KEY,))
+        _lock_acquired = _lk_cur.fetchone()[0]
+    if not _lock_acquired:
+        logger.warning(
+            "Admin reset confirm: concurrent lock blocked user_id=%s ip=%s",
+            user.get("sub"),
+            request.client.host if request.client else "unknown",
+        )
+        raise HTTPException(status_code=409, detail="另一個重設操作正在進行中，請稍後再試")
+
     payload = decode_reset_confirmation_token(reset_token)
     if not payload or payload.get("sub") != str(user["sub"]):
         logger.warning(
@@ -253,6 +282,32 @@ def anonymize_user(
     )
 
 
+@router.post("/users/{user_id}/reset-password", summary="重設使用者密碼", response_model=ApiResponse)
+def admin_reset_user_password(
+    request: Request,
+    user_id: int,
+    new_password: str = Body(..., embed=True, min_length=8),
+    user=Depends(require_role("admin")),
+    repo: TableAdminRepository = Depends(get_admin_repo),
+):
+    found = repo.reset_user_password(user_id, hash_password(new_password))
+    if not found:
+        raise HTTPException(status_code=404, detail="使用者不存在")
+    try:
+        repo.conn.commit()
+    except Exception:
+        repo.conn.rollback()
+        raise
+    # SEC-05: audit every admin-initiated password reset so a compromised admin
+    # account leaves a forensic trail instead of operating silently.
+    logger.warning(
+        "Admin user_id=%s reset password for user_id=%s ip=%s",
+        user.get("sub"), user_id,
+        request.client.host if request.client else "unknown",
+    )
+    return ApiResponse(success=True, data={"user_id": user_id}, message="使用者密碼已重設")
+
+
 @router.get("/system-status", summary="系統狀態", response_model=ApiResponse)
 def system_status(
     user=Depends(require_role("admin")),
@@ -323,7 +378,7 @@ def get_task_status(task_id: str, user=Depends(require_role("admin"))):
         # Bug #14: do not swallow silently; log then degrade to "pending"
         # so the admin dashboard does not crash.
         logger.exception("Huey peek_data failed for task_id=%s", task_id)
-        return ApiResponse(success=True, data={"task_id": task_id, "status": "pending"})
+        return ApiResponse(success=True, data={"task_id": task_id, "status": "pending", "error": True})
     if raw is huey_instance.EmptyData:
         return ApiResponse(success=True, data={"task_id": task_id, "status": "pending"})
     # H-02: task payloads are JSON (see app.shared.infrastructure.huey_json_serializer).

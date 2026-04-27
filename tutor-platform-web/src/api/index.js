@@ -47,15 +47,23 @@ export function markLoggedIn() {
   loggingOut = false
 }
 
-// ── Transport: attach abort signal ─────────────────────────────
+// ── Transport: attach abort signal + CSRF token ─────────────────
 // SEC-C02: Authorization header is no longer needed — HttpOnly cookies are
 // sent automatically by the browser via withCredentials.
-// HIGH-3: CSRF defense for the cookie-authenticated SPA. Adding a
-// non-simple header (X-Requested-With) forces a CORS preflight on any
-// cross-origin mutating request, which the API's CORS config will reject
-// unless the Origin is whitelisted. This blocks classic form-based CSRF
-// even if the auth cookie's SameSite is ever weakened.
+// HIGH-3 / SEC-03: dual CSRF defense.
+//   1. X-Requested-With forces a CORS preflight on cross-origin requests so
+//      a non-whitelisted origin is rejected before the route handler runs.
+//   2. X-CSRF-Token implements the double-submit cookie pattern: the server
+//      sets a non-httpOnly `csrf_token` cookie on login; the SPA reads it via
+//      getCsrfToken() and reflects it here. CSRFMiddleware validates that the
+//      cookie and header values match, blocking any origin that cannot read
+//      the cookie (i.e. every origin that is not the SPA's own origin).
 const CSRF_METHODS = new Set(['post', 'put', 'patch', 'delete'])
+
+function getCsrfToken() {
+  const entry = document.cookie.split('; ').find(c => c.startsWith('csrf_token='))
+  return entry ? decodeURIComponent(entry.split('=')[1]) : ''
+}
 
 api.interceptors.request.use(config => {
   // SEC-H03: attach the shared abort signal so logout() can cancel all
@@ -67,6 +75,8 @@ api.interceptors.request.use(config => {
   if (CSRF_METHODS.has(method)) {
     config.headers = config.headers || {}
     config.headers['X-Requested-With'] = 'XMLHttpRequest'
+    const token = getCsrfToken()
+    if (token) config.headers['X-CSRF-Token'] = token
   }
   return config
 })
@@ -85,14 +95,18 @@ async function refreshAccessToken() {
         // SEC-C02: refresh_token is sent automatically via HttpOnly cookie.
         // The server sets fresh cookies in the response; we only need the
         // user-info payload to keep the store in sync.
+        const _csrfToken = getCsrfToken()
         const res = await axios.post(
           `${api.defaults.baseURL}/api/auth/refresh`,
           null,
           {
             withCredentials: true,
-            // HIGH-3: this call bypasses the `api` instance interceptor,
-            // so attach the CSRF-forcing header directly.
-            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            // HIGH-3 / SEC-03: this call bypasses the `api` instance interceptor,
+            // so attach both CSRF headers directly.
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest',
+              ...(_csrfToken && { 'X-CSRF-Token': _csrfToken }),
+            },
           },
         )
         applyRefreshedAuth(res.data.data)

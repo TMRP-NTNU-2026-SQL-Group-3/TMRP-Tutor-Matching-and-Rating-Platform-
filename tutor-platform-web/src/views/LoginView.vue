@@ -52,11 +52,12 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/api/auth'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 
 const REMEMBERED_USERNAME_KEY = 'login:rememberedUsername'
@@ -88,7 +89,13 @@ async function handleLogin() {
     const roleRoutes = { admin: '/admin', tutor: '/tutor', parent: '/parent' }
     const target = roleRoutes[data.role]
     if (target) {
-      router.push(target)
+      // F-FEAT-05: honour the ?redirect= param set by the router guard so
+      // deep links and bookmarked protected pages work after login.
+      const redirect = route.query.redirect
+      const dest = (redirect && typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//'))
+        ? redirect
+        : target
+      router.push(dest)
     } else {
       error.value = `不支援的帳號角色：${data.role}`
       auth.logout()

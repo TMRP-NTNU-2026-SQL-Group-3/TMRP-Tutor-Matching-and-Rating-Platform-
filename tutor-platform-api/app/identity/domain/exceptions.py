@@ -24,3 +24,8 @@ class UserNotFoundError(DomainException):
 class InvalidRefreshTokenError(DomainException):
     def __init__(self):
         super().__init__("刷新令牌無效或已過期", 401)
+
+
+class PasswordReusedError(DomainException):
+    def __init__(self):
+        super().__init__("新密碼不能與最近使用過的密碼相同", 422)

@@ -10,6 +10,11 @@
       <span class="sr-only">載入中...</span>
     </div>
 
+    <div v-else-if="!hasLoaded && fetchError"
+         class="flex-1 flex flex-col items-center justify-center py-12 gap-3">
+      <p role="alert" class="text-sm text-danger bg-red-50 rounded-lg px-4 py-3 w-full text-center">{{ fetchError }}</p>
+    </div>
+
     <template v-else>
       <!-- Messages area -->
       <div ref="chatContainer"
@@ -53,12 +58,16 @@
         </button>
       </div>
 
-      <div v-if="error" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3 mt-2 flex items-center justify-between gap-3">
-        <span>{{ error }}</span>
+      <div v-if="sendError" role="alert" class="text-sm text-danger bg-red-50 rounded-lg p-3 mt-2 flex items-center justify-between gap-3">
+        <span>{{ sendError }}</span>
         <button @click="handleSend" :disabled="sending"
           class="shrink-0 text-sm font-medium text-primary-600 hover:text-primary-800 transition-colors whitespace-nowrap disabled:opacity-50">
           重試
         </button>
+      </div>
+      <div v-else-if="fetchError" role="status"
+           class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+        訊息更新失敗，將自動重試
       </div>
     </template>
   </div>
@@ -90,7 +99,9 @@ const messages = ref([])
 const newMessage = ref('')
 const loading = ref(false)
 const sending = ref(false)
-const error = ref('')
+const fetchError = ref('')   // set by fetchMessages (initial load + polls)
+const sendError = ref('')    // set by handleSend
+const hasLoaded = ref(false) // true once a fetch for this conversation ID succeeded
 const chatContainer = ref(null)
 const toast = useToastStore()
 let pollTimer = null
@@ -129,9 +140,11 @@ async function fetchMessages({ dedupe = true } = {}) {
       // visually drop the user's just-typed bubble.
       const pending = messages.value.filter(m => m.pending)
       messages.value = [...result, ...pending]
+      fetchError.value = ''
+      hasLoaded.value = true
       scrollToBottom()
     } catch (e) {
-      if (myFetchId === fetchId) error.value = e.message
+      if (myFetchId === fetchId) fetchError.value = e.message
     }
   })()
   inFlightFetch = promise
@@ -145,7 +158,7 @@ async function fetchMessages({ dedupe = true } = {}) {
 async function handleSend() {
   const text = newMessage.value.trim()
   if (!text) return
-  error.value = ''
+  sendError.value = ''
   sending.value = true
   // Optimistic append so the bubble shows up immediately and stays in the user's
   // intended order even when send takes 1–3s. The temp entry is wiped by the
@@ -173,7 +186,7 @@ async function handleSend() {
     // Roll back the optimistic entry so the user can retry without a phantom.
     messages.value = messages.value.filter(m => m.message_id !== tempId)
     newMessage.value = text
-    error.value = e.message
+    sendError.value = e.message
     toast.error('訊息傳送失敗')
   } finally {
     sending.value = false
@@ -214,7 +227,9 @@ function onVisibilityChange() {
 watch(() => route.params.id, async () => {
   fetchId++  // 標記新對話開始；舊請求的回應將被丟棄
   loading.value = true
-  error.value = ''
+  fetchError.value = ''
+  sendError.value = ''
+  hasLoaded.value = false
   messages.value = []
   // dedupe:false — 若恰好有舊對話的 poll 仍 in-flight，等它結束後再起一輪新的，
   // 否則新對話將拿不到資料（舊 promise 的結果被 fetchId 過濾掉了）

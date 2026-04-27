@@ -65,6 +65,10 @@ class AdminImportService:
     def import_single_csv(self, *, table_name: str, content: bytes | str) -> int:
         """Import one CSV blob into one table. Returns row count inserted."""
         validate_table(table_name)
+        # SEC-10: null bytes are a reliable binary-file indicator; reject before
+        # the UTF-8 decode so the CSV parser never sees non-text input.
+        if isinstance(content, (bytes, bytearray)) and b"\x00" in content[:512]:
+            raise DomainException("上傳的檔案不是有效的 CSV（偵測到二進位內容）", 415)
         text = content.decode("utf-8-sig") if isinstance(content, (bytes, bytearray)) else content
         rows = parse_csv(text)
         if not rows:

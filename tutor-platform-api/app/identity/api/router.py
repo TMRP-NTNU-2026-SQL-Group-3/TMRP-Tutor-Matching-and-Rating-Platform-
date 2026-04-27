@@ -1,7 +1,9 @@
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.identity.api.dependencies import get_auth_service, get_current_user, get_db
-from app.identity.api.schemas import AuthUserResponse, LoginRequest, RegisterRequest
+from app.identity.api.schemas import AuthUserResponse, ChangePasswordRequest, LoginRequest, RegisterRequest, UpdateMeRequest
 from app.identity.domain.services import AuthService
 from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
@@ -35,15 +37,24 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         httponly=True, secure=secure, samesite="lax",
         path="/api/auth", max_age=_REFRESH_TOKEN_TTL_SECONDS,
     )
+    # SEC-03: double-submit CSRF token. Not httpOnly so the SPA can read it
+    # via document.cookie and reflect it in the X-CSRF-Token request header.
+    # CSRFMiddleware validates that cookie == header on every mutating request.
+    response.set_cookie(
+        key="csrf_token", value=secrets.token_urlsafe(32),
+        httponly=False, secure=secure, samesite="lax",
+        path="/", max_age=_REFRESH_TOKEN_TTL_SECONDS,
+    )
 
 
 def _clear_auth_cookies(response: Response) -> None:
     secure = settings.cookie_secure
     response.delete_cookie(key="access_token", path="/api", httponly=True, secure=secure, samesite="lax")
     response.delete_cookie(key="refresh_token", path="/api/auth", httponly=True, secure=secure, samesite="lax")
+    response.delete_cookie(key="csrf_token", path="/", httponly=False, secure=secure, samesite="lax")
 
 
-@router.post("/register", summary="使用者註冊", description="建立新帳號，角色可為 parent（家長）或 tutor（家教）。家教註冊時會同步建立 Tutors 資料。", response_model=ApiResponse)
+@router.post("/register", status_code=201, summary="使用者註冊", description="建立新帳號，角色可為 parent（家長）或 tutor（家教）。家教註冊時會同步建立 Tutors 資料。", response_model=ApiResponse)
 def register(
     body: RegisterRequest,
     conn=Depends(get_db),
@@ -157,3 +168,32 @@ def logout(
 def get_me(user=Depends(get_current_user), service: AuthService = Depends(get_auth_service)):
     data = service.get_me(user_id=int(user["sub"]))
     return ApiResponse(success=True, data=data)
+
+
+@router.put("/me", summary="更新個人資料", description="更新顯示名稱、電話及電子信箱。僅傳入需要變更的欄位。", response_model=ApiResponse)
+def update_me(
+    body: UpdateMeRequest,
+    user=Depends(get_current_user),
+    conn=Depends(get_db),
+    service: AuthService = Depends(get_auth_service),
+):
+    fields = {k: getattr(body, k) for k in body.model_fields_set}
+    with transaction(conn):
+        data = service.update_me(user_id=int(user["sub"]), fields=fields)
+    return ApiResponse(success=True, data=data)
+
+
+@router.put("/password", summary="變更密碼", description="驗證目前密碼後更新為新密碼。", response_model=ApiResponse)
+def change_password(
+    body: ChangePasswordRequest,
+    user=Depends(get_current_user),
+    conn=Depends(get_db),
+    service: AuthService = Depends(get_auth_service),
+):
+    with transaction(conn):
+        service.change_password(
+            user_id=int(user["sub"]),
+            current_password=body.current_password,
+            new_password=body.new_password,
+        )
+    return ApiResponse(success=True, message="密碼已更新")

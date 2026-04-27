@@ -19,6 +19,7 @@
         <!-- Right side: user + logout -->
         <div class="hidden md:flex items-center gap-3">
           <span class="text-sm text-gray-600">{{ auth.user?.display_name }}</span>
+          <NotificationBell />
           <button @click="$emit('logout')"
             class="px-3 py-1.5 text-sm font-medium text-gray-500 hover:text-danger bg-transparent hover:bg-red-50 rounded-lg transition-colors">
             登出
@@ -52,7 +53,10 @@
             </router-link>
           </div>
           <div class="mt-3 pt-3 border-t border-gray-100 px-3 flex items-center justify-between">
-            <span class="text-sm text-gray-600">{{ auth.user?.display_name }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-600">{{ auth.user?.display_name }}</span>
+              <NotificationBell />
+            </div>
             <button @click="$emit('logout')"
               class="px-3 py-1.5 text-sm font-medium text-danger hover:bg-red-50 rounded-lg bg-transparent transition-colors">
               登出
@@ -66,6 +70,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import NotificationBell from '@/components/common/NotificationBell.vue'
 
 const props = defineProps({
   auth: {
@@ -88,6 +93,7 @@ const navLinks = computed(() => {
       { to: '/parent/students', label: '管理子女' },
       { to: '/parent/expense', label: '支出統計' },
       { to: '/messages', label: '訊息' },
+      { to: '/parent/profile', label: '帳號設定' },
     ]
   }
   if (role === 'tutor') {

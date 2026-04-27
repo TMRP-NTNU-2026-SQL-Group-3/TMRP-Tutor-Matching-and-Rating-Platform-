@@ -9,7 +9,7 @@ from app.teaching.application.session_service import SessionAppService
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 
-@router.post("", summary="新增上課日誌", response_model=ApiResponse)
+@router.post("", status_code=201, summary="新增上課日誌", response_model=ApiResponse)
 def create_session(
     body: SessionCreate,
     user=Depends(require_role("tutor")),

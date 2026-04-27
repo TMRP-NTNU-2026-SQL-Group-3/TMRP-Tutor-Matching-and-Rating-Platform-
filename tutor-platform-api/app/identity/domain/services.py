@@ -14,6 +14,7 @@ from .exceptions import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     InvalidRoleError,
+    PasswordReusedError,
     UserNotFoundError,
 )
 from .ports import IUserRepository
@@ -142,3 +143,19 @@ class AuthService:
             raise UserNotFoundError()
         user.pop("password_hash", None)
         return user
+
+    def update_me(self, *, user_id: int, fields: dict) -> dict:
+        self._repo.update_me(user_id, fields=fields)
+        return self.get_me(user_id=user_id)
+
+    def change_password(self, *, user_id: int, current_password: str, new_password: str) -> None:
+        user = self._repo.find_by_id(user_id)
+        if not user or not verify_password(current_password, user["password_hash"]):
+            raise InvalidCredentialsError()
+        # SEC-06: reject reuse of the current password or any of the last 5 stored.
+        all_prior = [user["password_hash"]] + self._repo.get_recent_password_hashes(user_id, limit=5)
+        if any(verify_password(new_password, h) for h in all_prior):
+            raise PasswordReusedError()
+        new_hash = hash_password(new_password)
+        self._repo.save_password_history(user_id, user["password_hash"])
+        self._repo.update_password(user_id, password_hash=new_hash)
