@@ -40,10 +40,12 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
     # SEC-03: double-submit CSRF token. Not httpOnly so the SPA can read it
     # via document.cookie and reflect it in the X-CSRF-Token request header.
     # CSRFMiddleware validates that cookie == header on every mutating request.
+    # TTL is bound to the access token lifetime so the CSRF token rotates on
+    # every /refresh call, limiting the attack window if a token is leaked.
     response.set_cookie(
         key="csrf_token", value=secrets.token_urlsafe(32),
         httponly=False, secure=secure, samesite="lax",
-        path="/", max_age=_REFRESH_TOKEN_TTL_SECONDS,
+        path="/", max_age=settings.jwt_expire_minutes * 60,
     )
 
 
@@ -186,6 +188,7 @@ def update_me(
 @router.put("/password", summary="變更密碼", description="驗證目前密碼後更新為新密碼。", response_model=ApiResponse)
 def change_password(
     body: ChangePasswordRequest,
+    response: Response,
     user=Depends(get_current_user),
     conn=Depends(get_db),
     service: AuthService = Depends(get_auth_service),
@@ -196,4 +199,11 @@ def change_password(
             current_password=body.current_password,
             new_password=body.new_password,
         )
+    # SEC-6: rotate CSRF token on credential change to close the window where
+    # a leaked pre-change CSRF token could still authorize requests.
+    response.set_cookie(
+        key="csrf_token", value=secrets.token_urlsafe(32),
+        httponly=False, secure=settings.cookie_secure, samesite="lax",
+        path="/", max_age=settings.jwt_expire_minutes * 60,
+    )
     return ApiResponse(success=True, message="密碼已更新")

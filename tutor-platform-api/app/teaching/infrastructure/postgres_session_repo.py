@@ -1,6 +1,21 @@
+import json
+from decimal import Decimal
+
 from app.shared.infrastructure.base_repository import BaseRepository
 from app.shared.infrastructure.column_validation import validate_columns
 from app.teaching.domain.ports import ISessionRepository
+
+
+def _log_value(value) -> str | None:
+    if value is None:
+        return None
+    # ARCH-15: encode as JSON so type information survives round-trips.
+    # Decimal is not JSON-serializable by default; convert to int or float
+    # first so the stored value is a JSON number, not a string.
+    if isinstance(value, Decimal):
+        as_int = int(value)
+        value = as_int if value == as_int else float(value)
+    return json.dumps(value)
 
 
 class PostgresSessionRepository(BaseRepository, ISessionRepository):
@@ -30,6 +45,16 @@ class PostgresSessionRepository(BaseRepository, ISessionRepository):
             (match_id,),
         )
 
+    def get_match_participants_for_share(self, match_id: int) -> dict | None:
+        return self.fetch_one(
+            """SELECT m.match_id, t.user_id AS tutor_user_id, st.parent_user_id
+               FROM matches m
+               INNER JOIN tutors t ON m.tutor_id = t.tutor_id
+               INNER JOIN students st ON m.student_id = st.student_id
+               WHERE m.match_id = %s FOR SHARE""",
+            (match_id,),
+        )
+
     def create(self, match_id, session_date, hours, content_summary, homework,
                student_performance, next_plan, visible_to_parent) -> int:
         return self.execute_returning_id(
@@ -56,6 +81,12 @@ class PostgresSessionRepository(BaseRepository, ISessionRepository):
     def get_by_id(self, session_id: int) -> dict | None:
         return self.fetch_one("SELECT * FROM sessions WHERE session_id = %s", (session_id,))
 
+    def get_by_id_for_update(self, session_id: int) -> dict | None:
+        return self.fetch_one(
+            "SELECT * FROM sessions WHERE session_id = %s FOR UPDATE",
+            (session_id,),
+        )
+
     def update(self, session_id: int, fields: dict) -> None:
         self.safe_update("sessions", "session_id", session_id, fields,
                          self._ALLOWED_UPDATE_COLUMNS, update_timestamp=True)
@@ -64,9 +95,7 @@ class PostgresSessionRepository(BaseRepository, ISessionRepository):
         self.execute(
             """INSERT INTO session_edit_logs (session_id, field_name, old_value, new_value, edited_at)
                VALUES (%s, %s, %s, %s, NOW())""",
-            (session_id, field_name,
-             str(old_value) if old_value is not None else None,
-             str(new_value) if new_value is not None else None),
+            (session_id, field_name, _log_value(old_value), _log_value(new_value)),
         )
 
     def get_edit_logs(self, session_id: int) -> list[dict]:

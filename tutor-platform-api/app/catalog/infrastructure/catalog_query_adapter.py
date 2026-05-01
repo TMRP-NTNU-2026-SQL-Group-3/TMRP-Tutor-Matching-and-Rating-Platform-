@@ -40,6 +40,16 @@ class CatalogQueryAdapter(BaseRepository, ICatalogQuery):
         # FOR UPDATE lock on the tutor row (acquired earlier in the same tx)
         # actually prevents two concurrent create_match calls from both
         # passing the capacity gate — a pending INSERT now "reserves" a slot.
+        #
+        # ARCH-11 invariant: this count may exceed max_students if rows are
+        # modified directly in the DB (migration, manual edit, or bulk import
+        # that bypasses the capacity gate). If the system detects over-capacity,
+        # run the admin audit query below to find affected tutors and resolve:
+        #   SELECT t.tutor_id, COUNT(*) AS cnt, t.max_students
+        #   FROM matches m JOIN tutors t ON m.tutor_id = t.tutor_id
+        #   WHERE m.status NOT IN ('cancelled','rejected','ended')
+        #   GROUP BY t.tutor_id, t.max_students
+        #   HAVING COUNT(*) > t.max_students;
         row = self.fetch_one(
             """SELECT COUNT(*) AS cnt FROM matches
                WHERE tutor_id = %s

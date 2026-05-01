@@ -12,16 +12,12 @@ from app.messaging.domain.exceptions import (
     SelfConversationError,
 )
 from app.messaging.domain.ports import IConversationRepository, IMessageRepository
-from app.shared.infrastructure.base_repository import BaseRepository
 
 
 class MessageAppService:
-    def __init__(self, repo: IMessageRepository, conv_repo: IConversationRepository, conn):
+    def __init__(self, repo: IMessageRepository, conv_repo: IConversationRepository):
         self._repo = repo
         self._conv_repo = conv_repo
-        # User existence is a catalog-adjacent concern, but we have no dedicated
-        # user-query port yet; reuse BaseRepository directly for this lookup.
-        self._user_lookup = BaseRepository(conn)
 
     def create_conversation(self, *, user_id: int, target_user_id: int) -> int:
         if user_id == target_user_id:
@@ -40,22 +36,7 @@ class MessageAppService:
         # diverged (e.g. after an out-of-band role change). The single
         # generic 403 keeps the error shape indistinguishable from
         # "user does not exist".
-        row = self._user_lookup.fetch_one(
-            """SELECT 1
-                 FROM matches m
-                 JOIN tutors  t   ON m.tutor_id   = t.tutor_id
-                 JOIN students st ON m.student_id = st.student_id
-                 JOIN users ut    ON ut.user_id = t.user_id
-                 JOIN users up    ON up.user_id = st.parent_user_id
-                WHERE m.status <> 'rejected'
-                  AND ut.role = 'tutor'
-                  AND up.role = 'parent'
-                  AND ( (t.user_id = %s AND st.parent_user_id = %s)
-                     OR (t.user_id = %s AND st.parent_user_id = %s) )
-                LIMIT 1""",
-            (user_id, target_user_id, target_user_id, user_id),
-        )
-        if not row:
+        if not self._conv_repo.has_valid_match_between(user_id, target_user_id):
             raise ConversationNotAllowedError()
         return self._conv_repo.get_or_create_conversation(user_id, target_user_id)
 

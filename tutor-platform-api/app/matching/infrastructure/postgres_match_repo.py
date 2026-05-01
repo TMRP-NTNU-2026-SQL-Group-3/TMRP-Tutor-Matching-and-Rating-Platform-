@@ -1,6 +1,8 @@
+import psycopg2.errors
 from psycopg2 import sql as psql
 
 from app.matching.domain.entities import Match
+from app.matching.domain.exceptions import DuplicateMatchError, InvalidTransitionError
 from app.matching.domain.ports import IMatchRepository
 from app.matching.domain.value_objects import Contract, MatchStatus
 from app.shared.infrastructure.base_repository import BaseRepository
@@ -129,23 +131,28 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
 
     def create(self, tutor_id, student_id, subject_id, hourly_rate,
                sessions_per_week, want_trial, invite_message) -> int:
-        return self.execute_returning_id(
-            """INSERT INTO matches
-                (tutor_id, student_id, subject_id, status,
-                 hourly_rate, sessions_per_week, want_trial,
-                 invite_message, created_at, updated_at)
-               VALUES (%s, %s, %s, 'pending', %s, %s, %s, %s, NOW(), NOW())
-               RETURNING match_id""",
-            (tutor_id, student_id, subject_id,
-             hourly_rate, sessions_per_week, want_trial, invite_message),
-        )
+        try:
+            return self.execute_returning_id(
+                """INSERT INTO matches
+                    (tutor_id, student_id, subject_id, status,
+                     hourly_rate, sessions_per_week, want_trial,
+                     invite_message, created_at, updated_at)
+                   VALUES (%s, %s, %s, 'pending', %s, %s, %s, %s, NOW(), NOW())
+                   RETURNING match_id""",
+                (tutor_id, student_id, subject_id,
+                 hourly_rate, sessions_per_week, want_trial, invite_message),
+            )
+        except psycopg2.errors.UniqueViolation:
+            # SEC-12: DB unique constraint hit on retry — surface as a clean
+            # domain error instead of an unhandled 500.
+            raise DuplicateMatchError()
 
     VALID_STATUSES = {'pending', 'trial', 'active', 'paused', 'cancelled',
                       'rejected', 'terminating', 'ended'}
 
     def update_status(self, match_id: int, new_status: str) -> None:
         if new_status not in self.VALID_STATUSES:
-            raise ValueError(f"Invalid status: {new_status}")
+            raise InvalidTransitionError(f"Invalid status: {new_status}")
         self.execute(
             "UPDATE matches SET status = %s, updated_at = NOW() WHERE match_id = %s",
             (new_status, match_id),
@@ -161,7 +168,7 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
         # fields the user actually provided are written, so callers can edit
         # any subset of the contract terms.
         if new_status not in self.VALID_STATUSES:
-            raise ValueError(f"Invalid status: {new_status}")
+            raise InvalidTransitionError(f"Invalid status: {new_status}")
         # Build the SET clause through psycopg2.sql.Composable so column names
         # are always identifier-quoted by the driver rather than interpolated
         # as raw strings. Today the field names are hard-coded literals, so
@@ -186,13 +193,24 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
             )
             params.append(val)
         params.append(match_id)
-        query = psql.SQL("UPDATE {} SET {} WHERE {} = {}").format(
+        # ARCH-7: guard on status = 'trial' so a concurrent rejection
+        # (TRIAL → REJECTED) cannot be silently overwritten by this confirm.
+        # rowcount == 0 means the row was modified concurrently; surface it as
+        # an explicit domain error rather than a silent no-op.
+        query = psql.SQL(
+            "UPDATE {} SET {} WHERE {} = {} AND {} = 'trial'"
+        ).format(
             psql.Identifier("matches"),
             psql.SQL(", ").join(set_parts),
             psql.Identifier("match_id"),
             psql.Placeholder(),
+            psql.Identifier("status"),
         )
         self.execute(query, tuple(params))
+        if self.cursor.rowcount == 0:
+            raise InvalidTransitionError(
+                "配對狀態已變更，試課確認失敗，請重新整理頁面"
+            )
 
     # Hard ceiling on the combined "{previous_status}|{reason}" payload that
     # `clear_termination` later reverses by splitting on "|". A bad-actor
@@ -202,8 +220,14 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
     _MAX_TERMINATION_REASON_CHARS = 1000
 
     def set_terminating(self, match_id, user_id, reason, previous_status) -> None:
+        # ARCH-10: validate previous_status before writing so a bad value
+        # raises here rather than at read time inside previous_status_before_terminating.
+        if previous_status not in Match._VALID_PRE_TERMINATION_STATUSES:
+            raise InvalidTransitionError(
+                f"Cannot transition to terminating from status '{previous_status}'"
+            )
         if reason is not None and len(reason) > self._MAX_TERMINATION_REASON_CHARS:
-            raise ValueError(
+            raise InvalidTransitionError(
                 f"termination reason exceeds {self._MAX_TERMINATION_REASON_CHARS} chars"
             )
         combined_reason = f"{previous_status}|{reason}" if reason else previous_status

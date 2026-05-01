@@ -6,6 +6,7 @@ Column validation lives in `column_validation` — do not re-add it here.
 """
 
 import logging
+import sys
 
 from psycopg2 import sql as psql
 
@@ -39,14 +40,23 @@ class BaseRepository:
         return False
 
     def close(self):
-        # DB-L02: Intentionally broad catch — cursor cleanup must not mask
-        # the original exception that caused the caller to close the repo.
-        # Log + swallow so the connection can still be returned to the pool.
+        # DB-L02: cursor cleanup must not mask a prior exception propagating
+        # through __exit__. When called during exception unwinding, swallow
+        # the close error and log it so the original exception still surfaces.
+        # ARCH-19: re-raise when there is no prior exception — a close failure
+        # in a clean-exit path indicates connection corruption worth surfacing.
+        in_exception = sys.exc_info()[1] is not None
         try:
             if self.cursor and not self.cursor.closed:
                 self.cursor.close()
         except Exception:
-            logger.exception("Failed to close cursor")
+            logger.warning(
+                "Failed to close cursor (cursor.closed=%s); connection may be corrupt",
+                getattr(self.cursor, "closed", "unknown"),
+                exc_info=True,
+            )
+            if not in_exception:
+                raise
 
     def safe_update(self, table: str, id_col: str, id_val, updates: dict,
                     allowed_columns: set, update_timestamp: bool = False) -> None:

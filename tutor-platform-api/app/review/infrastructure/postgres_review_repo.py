@@ -90,4 +90,4 @@ class PostgresReviewRepository(BaseRepository, IReviewRepository):
 
     def update(self, review_id: int, updates: dict) -> None:
         self.safe_update("reviews", "review_id", review_id, updates,
-                         self.ALLOWED_COLUMNS, extra_set="updated_at = NOW()")
+                         self.ALLOWED_COLUMNS, update_timestamp=True)

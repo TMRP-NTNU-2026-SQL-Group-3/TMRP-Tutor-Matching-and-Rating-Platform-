@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.identity.api.dependencies import get_current_user, is_admin, require_role
 from app.shared.api.schemas import ApiResponse
+from app.shared.domain.exceptions import PermissionDeniedError
 from app.teaching.api.dependencies import get_session_service
 from app.teaching.api.schemas import SessionCreate, SessionUpdate
 from app.teaching.application.session_service import SessionAppService
+from app.teaching.domain.exceptions import SessionNotFoundError
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -51,11 +53,16 @@ def update_session(
     service: SessionAppService = Depends(get_session_service),
 ):
     updates = body.model_dump(exclude_unset=True)
-    result = service.update(
-        session_id=session_id,
-        tutor_user_id=int(user["sub"]),
-        updates=updates,
-    )
+    try:
+        result = service.update(
+            session_id=session_id,
+            tutor_user_id=int(user["sub"]),
+            updates=updates,
+        )
+    except (SessionNotFoundError, PermissionDeniedError):
+        # SEC-10: normalize ownership failure to 404 so sequential integer IDs
+        # cannot be enumerated by comparing 403 vs 404 response codes.
+        raise HTTPException(status_code=404, detail="找不到此上課日誌")
     return ApiResponse(success=True, data={"session_id": result["session_id"]}, message=result["message"])
 
 
@@ -65,10 +72,13 @@ def delete_session(
     user=Depends(require_role("tutor")),
     service: SessionAppService = Depends(get_session_service),
 ):
-    service.delete(
-        session_id=session_id,
-        tutor_user_id=int(user["sub"]),
-    )
+    try:
+        service.delete(
+            session_id=session_id,
+            tutor_user_id=int(user["sub"]),
+        )
+    except (SessionNotFoundError, PermissionDeniedError):
+        raise HTTPException(status_code=404, detail="找不到此上課日誌")
     return ApiResponse(success=True, message="上課日誌已刪除")
 
 
@@ -78,9 +88,12 @@ def get_edit_logs(
     user=Depends(get_current_user),
     service: SessionAppService = Depends(get_session_service),
 ):
-    logs = service.get_edit_logs(
-        session_id=session_id,
-        user_id=int(user["sub"]),
-        is_admin=is_admin(user),
-    )
+    try:
+        logs = service.get_edit_logs(
+            session_id=session_id,
+            user_id=int(user["sub"]),
+            is_admin=is_admin(user),
+        )
+    except (SessionNotFoundError, PermissionDeniedError):
+        raise HTTPException(status_code=404, detail="找不到此上課日誌")
     return ApiResponse(success=True, data=logs)

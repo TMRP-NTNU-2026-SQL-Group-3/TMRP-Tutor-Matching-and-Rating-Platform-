@@ -81,3 +81,23 @@ class PostgresConversationRepository(BaseRepository, IConversationRepository):
             (conversation_id, user_id, user_id),
         )
         return row["cnt"] > 0 if row else False
+
+    def has_valid_match_between(self, user_a_id: int, user_b_id: int) -> bool:
+        # ARCH-17: match-existence guard moved here from the service layer so
+        # the application service no longer constructs BaseRepository directly.
+        row = self.fetch_one(
+            """SELECT 1
+                 FROM matches m
+                 JOIN tutors   t  ON m.tutor_id   = t.tutor_id
+                 JOIN students st ON m.student_id = st.student_id
+                 JOIN users ut    ON ut.user_id = t.user_id
+                 JOIN users up    ON up.user_id = st.parent_user_id
+                WHERE m.status <> 'rejected'
+                  AND ut.role = 'tutor'
+                  AND up.role = 'parent'
+                  AND ( (t.user_id = %s AND st.parent_user_id = %s)
+                     OR (t.user_id = %s AND st.parent_user_id = %s) )
+                LIMIT 1""",
+            (user_a_id, user_b_id, user_b_id, user_a_id),
+        )
+        return row is not None

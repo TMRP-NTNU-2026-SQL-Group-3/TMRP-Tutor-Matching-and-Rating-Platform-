@@ -67,6 +67,11 @@ def send_message(
     user=Depends(require_role("parent", "tutor")),
     service: MessageAppService = Depends(get_message_service),
 ):
+    # SEC-9: extract and validate content first so rate-limit quota is only
+    # debited for requests that pass schema validation. FastAPI validates the
+    # MessageSend Pydantic model (non-empty TrimmedStr, ≤4000 chars) before
+    # this handler runs, so `content` is guaranteed non-empty here.
+    content = body.content
     user_id = int(user["sub"])
     bucket = f"message:send|conv={conversation_id}|user={user_id}"
     if not check_and_record_bucket(bucket, _MESSAGE_SEND_LIMIT, _MESSAGE_SEND_WINDOW):
@@ -77,6 +82,6 @@ def send_message(
     msg_id = service.send_message(
         conversation_id=conversation_id,
         user_id=user_id,
-        content=body.content,
+        content=content,
     )
     return ApiResponse(success=True, data={"message_id": msg_id}, message="訊息已送出")

@@ -107,6 +107,11 @@ class MatchAppService:
         }
 
     def get_detail(self, *, match_id: int, user_id: int, is_admin: bool) -> MatchDetailView:
+        # ARCH-2: read without FOR UPDATE — terminated_by and other concurrent
+        # fields are eventual-consistent. Any subsequent mutation must re-fetch
+        # inside a locked transaction (update_status does this via
+        # find_by_id_for_update). Callers must not treat the returned view as
+        # authoritative state for write decisions.
         match = self._match_repo.find_by_id(match_id)
         if match is None:
             raise MatchNotFoundError()
@@ -152,6 +157,15 @@ class MatchAppService:
             want_trial=match.contract.want_trial,
         )
 
+        # ARCH-3: audit calls are intentionally placed *after* each
+        # with-block. A failed audit INSERT inside an open transaction puts
+        # the PostgreSQL connection into an error state, causing the entire
+        # transaction (including the state change) to roll back silently.
+        # Running the audit as a separate auto-committed statement ensures
+        # the state change is durable before the audit is attempted.
+        # _audit_admin_transition wraps the DB write in try/except so an
+        # audit failure surfaces as a logged warning, not an unhandled 500.
+
         if action == Action.TERMINATE:
             if not reason:
                 raise InvalidTransitionError("終止配對需要提供原因")
@@ -159,11 +173,11 @@ class MatchAppService:
                 self._match_repo.set_terminating(
                     match_id, user_id, reason, match.status.value
                 )
-                self._audit_admin_transition(
-                    match_id, user_id, is_admin, action,
-                    old_status.value, MatchStatus.TERMINATING.value, reason,
-                )
             new_status = MatchStatus.TERMINATING
+            self._audit_admin_transition(
+                match_id, user_id, is_admin, action,
+                old_status.value, MatchStatus.TERMINATING.value, reason,
+            )
 
         elif action == Action.DISAGREE_TERMINATE:
             with self._uow.begin():
@@ -173,10 +187,11 @@ class MatchAppService:
                 prev = fresh.previous_status_before_terminating
                 self._match_repo.clear_termination(match_id, prev)
                 new_status = MatchStatus(prev)
-                self._audit_admin_transition(
-                    match_id, user_id, is_admin, action,
-                    old_status.value, new_status.value, reason,
-                )
+            self._audit_admin_transition(
+                match_id, user_id, is_admin, action,
+                old_status.value, new_status.value, reason,
+            )
+
         elif action == Action.CONFIRM_TRIAL:
             # Spec Module D: trial → active is the parties' formal contract
             # confirmation, so persist any edited terms in the same tx as the
@@ -185,6 +200,24 @@ class MatchAppService:
             # and overflow the cap; re-check capacity here under the same lock
             # pattern as create_match / resume.
             has_terms = self._has_contract_terms(contract_terms)
+            # ARCH-4: validate contract terms before opening the transaction so
+            # a malformed payload raises immediately rather than rolling back
+            # after the lock has already been acquired.
+            new_rate = new_spw = new_start = None
+            if has_terms:
+                new_rate = contract_terms.get("hourly_rate")
+                new_spw = contract_terms.get("sessions_per_week")
+                new_start = contract_terms.get("start_date")
+                try:
+                    Contract(
+                        hourly_rate=float(new_rate) if new_rate is not None else match.contract.hourly_rate,
+                        sessions_per_week=int(new_spw) if new_spw is not None else match.contract.sessions_per_week,
+                        want_trial=match.contract.want_trial,
+                        start_date=new_start if new_start is not None else match.contract.start_date,
+                        end_date=match.contract.end_date,
+                    )
+                except ValueError as exc:
+                    raise InvalidTransitionError(str(exc)) from exc
             with self._uow.begin():
                 if new_status == MatchStatus.ACTIVE:
                     if not self._catalog.lock_tutor_for_update(match.tutor_id):
@@ -194,19 +227,6 @@ class MatchAppService:
                     if active >= max_s:
                         raise CapacityExceededError()
                 if has_terms:
-                    new_rate = contract_terms.get("hourly_rate")
-                    new_spw = contract_terms.get("sessions_per_week")
-                    new_start = contract_terms.get("start_date")
-                    try:
-                        Contract(
-                            hourly_rate=float(new_rate) if new_rate is not None else match.contract.hourly_rate,
-                            sessions_per_week=int(new_spw) if new_spw is not None else match.contract.sessions_per_week,
-                            want_trial=match.contract.want_trial,
-                            start_date=new_start if new_start is not None else match.contract.start_date,
-                            end_date=match.contract.end_date,
-                        )
-                    except ValueError as exc:
-                        raise InvalidTransitionError(str(exc)) from exc
                     self._match_repo.confirm_trial_with_terms(
                         match_id=match_id,
                         new_status=new_status.value,
@@ -216,10 +236,11 @@ class MatchAppService:
                     )
                 else:
                     self._match_repo.update_status(match_id, new_status.value)
-                self._audit_admin_transition(
-                    match_id, user_id, is_admin, action,
-                    old_status.value, new_status.value, reason,
-                )
+            self._audit_admin_transition(
+                match_id, user_id, is_admin, action,
+                old_status.value, new_status.value, reason,
+            )
+
         elif action == Action.RESUME:
             # B1: paused → active re-enters the tutor's active roster. Without
             # re-checking capacity here, a tutor at max_students could pause
@@ -234,11 +255,13 @@ class MatchAppService:
                 if active >= max_s:
                     raise CapacityExceededError()
                 self._match_repo.update_status(match_id, new_status.value)
-                self._audit_admin_transition(
-                    match_id, user_id, is_admin, action,
-                    old_status.value, new_status.value, reason,
-                )
+            self._audit_admin_transition(
+                match_id, user_id, is_admin, action,
+                old_status.value, new_status.value, reason,
+            )
+
         else:
+            locked_old_status: str = old_status.value
             with self._uow.begin():
                 # Lock the match row so concurrent state changes (e.g. a
                 # simultaneous ACCEPT that flips want_trial → TRIAL vs ACTIVE)
@@ -247,6 +270,7 @@ class MatchAppService:
                 fresh = self._match_repo.find_by_id_for_update(match_id)
                 if fresh is None:
                     raise MatchNotFoundError()
+                locked_old_status = fresh.status.value
                 new_status = state_machine.resolve_transition(
                     current=fresh.status,
                     action=action,
@@ -257,11 +281,23 @@ class MatchAppService:
                     terminated_by=fresh.terminated_by,
                     want_trial=fresh.contract.want_trial,
                 )
+                # ARCH-1: any path that lands on ACTIVE must re-check capacity
+                # under the same tutor lock used by create_match and resume.
+                # Without this, two concurrent ACCEPT requests (want_trial=False)
+                # can both read (active < max_students) before either commits,
+                # leaving the tutor over-enrolled.
+                if new_status == MatchStatus.ACTIVE:
+                    if not self._catalog.lock_tutor_for_update(fresh.tutor_id):
+                        raise TutorNotFoundError()
+                    active = self._catalog.get_active_student_count(fresh.tutor_id)
+                    max_s = self._catalog.get_max_students(fresh.tutor_id)
+                    if active >= max_s:
+                        raise CapacityExceededError()
                 self._match_repo.update_status(match_id, new_status.value)
-                self._audit_admin_transition(
-                    match_id, user_id, is_admin, action,
-                    fresh.status.value, new_status.value, reason,
-                )
+            self._audit_admin_transition(
+                match_id, user_id, is_admin, action,
+                locked_old_status, new_status.value, reason,
+            )
 
         return {
             "match_id": match_id,
@@ -276,21 +312,38 @@ class MatchAppService:
     ) -> None:
         """B10: record admin-initiated match state changes to audit_log.
 
-        Only runs when the caller holds admin role: regular tutor/parent
-        transitions already leave a trace on the match row itself
-        (`terminated_by`, `updated_at`, contract fields) and are out of scope
-        for this audit table. Called inside the same UoW as the status write
-        so the two rows commit or roll back together."""
+        Scope: admin callers only. Tutor/parent transitions are intentionally
+        excluded from audit_log — their changes are traceable via the match row
+        itself (terminated_by, updated_at, contract fields). If a persistent
+        participant audit stream is needed in future, add a separate table and
+        call site rather than expanding this method (SEC-14).
+
+        For non-admin callers, transitions are logged at INFO level to the
+        application log so they remain observable without polluting audit_log."""
         if not is_admin:
+            logger.info(
+                "match_transition match_id=%s user_id=%s action=%s %s→%s reason=%r",
+                match_id, user_id, action.value, old_status, new_status, reason,
+            )
             return
-        self._match_repo.record_admin_transition(
-            match_id=match_id,
-            actor_user_id=user_id,
-            action=action.value,
-            old_status=old_status,
-            new_status=new_status,
-            reason=reason,
-        )
+        # ARCH-3: audit failure must not roll back the state transition.
+        # Wrap the INSERT so a transient constraint error or schema mismatch
+        # surfaces as a logged warning rather than silently undoing the commit.
+        try:
+            self._match_repo.record_admin_transition(
+                match_id=match_id,
+                actor_user_id=user_id,
+                action=action.value,
+                old_status=old_status,
+                new_status=new_status,
+                reason=reason,
+            )
+        except Exception:
+            logger.exception(
+                "audit_log write failed for match_id=%s action=%s %s→%s — "
+                "state change was committed but audit row is missing",
+                match_id, action.value, old_status, new_status,
+            )
 
     @staticmethod
     def _has_contract_terms(terms: dict | None) -> bool:

@@ -102,6 +102,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_placeholder_secrets(self):
+        # ARCH-16: if the per-user quota equals or exceeds the pool max, a
+        # single user can exhaust all DB connections before the middleware cap
+        # fires, starving every other request.
+        if self.db_per_user_quota >= self.db_pool_max:
+            raise ValueError(
+                f"DB_PER_USER_QUOTA ({self.db_per_user_quota}) must be less than "
+                f"DB_POOL_MAX ({self.db_pool_max}) to prevent a single user from "
+                "exhausting the connection pool."
+            )
         if self.review_lock_days <= 0:
             raise ValueError("REVIEW_LOCK_DAYS must be a positive integer.")
         # Defence-in-depth against someone re-introducing the old placeholders via env.

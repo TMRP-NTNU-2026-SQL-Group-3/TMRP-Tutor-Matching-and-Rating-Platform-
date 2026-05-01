@@ -12,7 +12,7 @@ from app.shared.domain.exceptions import DomainException
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
-_TZ_RE = re.compile(r"^[A-Za-z0-9/_+\-]+$")
+_TZ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*/[A-Za-z][A-Za-z0-9_/]*$")
 
 
 def _validate_tz(tz: str) -> str:
@@ -71,10 +71,17 @@ def get_student_progress(
     user=Depends(get_current_user),
     service: StatsAppService = Depends(get_stats_service),
 ):
+    # SEC-7: explicit route-level ownership gate — only parents (who must own
+    # the student) and admins may query this endpoint. The service enforces the
+    # parent-owns-student check; this guard makes the constraint visible at the
+    # route boundary and blocks other roles before any service call is made.
+    caller_is_admin = is_admin(user)
+    if not caller_is_admin and user.get("role") != "parent":
+        raise DomainException("僅家長或管理員可查詢學生成績趨勢", status_code=403)
     data = service.student_progress(
         student_id=student_id,
         user_id=int(user["sub"]),
-        is_admin=is_admin(user),
+        is_admin=caller_is_admin,
         subject_id=subject_id,
     )
     return ApiResponse(success=True, data=data)

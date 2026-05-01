@@ -4,12 +4,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field, field_validator
 
 from app.admin.api.dependencies import get_admin_import_service, get_admin_repo
 from app.admin.application.import_service import AdminImportService, MAX_UPLOAD_SIZE
 from app.admin.domain.tables import ALLOWED_TABLES, validate_exportable_table, validate_table
 from app.admin.infrastructure.table_admin_repo import TableAdminRepository
 from app.identity.api.dependencies import get_db, require_role
+from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
 from app.shared.infrastructure.security import (
     consume_reset_confirmation_jti,
@@ -22,6 +24,26 @@ from app.shared.infrastructure.security import (
 logger = logging.getLogger("app.admin")
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+class _AdminPasswordResetBody(BaseModel):
+    new_password: str = Field(..., min_length=10, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        if len(v) < 10:
+            raise ValueError("密碼長度至少 10 個字元")
+        if not re.search(r"[A-Za-z]", v) or not re.search(r"\d", v):
+            raise ValueError("密碼須同時包含英文字母與數字")
+        return v
+
+
+# SEC-3: per-user rate limit on the destructive reset-confirm step.
+# Distinct from the per-IP cap in RateLimitMiddleware — a single compromised
+# admin account should not be able to wipe the database more than once per week
+# regardless of how many IPs the attacker rotates through.
+_ADMIN_RESET_CONFIRM_USER_WINDOW = 604800  # 7 days
 
 # SEC-11: fixed advisory lock key that serializes concurrent DB-reset flows.
 # Using a session-level lock (not xact-level) so the lock survives any
@@ -146,6 +168,23 @@ def confirm_reset(
     service: AdminImportService = Depends(get_admin_import_service),
     conn=Depends(get_db),
 ):
+    # SEC-3: per-user rate limit — independent of the per-IP cap. A single
+    # admin account (or a compromised one) cannot execute more than one DB wipe
+    # per 7-day window regardless of IP rotation.
+    user_reset_bucket = f"admin_reset_confirm_user|{user['sub']}"
+    if not check_and_record_bucket(
+        user_reset_bucket,
+        1,
+        _ADMIN_RESET_CONFIRM_USER_WINDOW,
+        fail_closed=True,
+    ):
+        logger.warning(
+            "Admin reset confirm: per-user rate limit hit user_id=%s ip=%s",
+            user.get("sub"),
+            request.client.host if request.client else "unknown",
+        )
+        raise HTTPException(status_code=429, detail="此帳號近期已執行過重設操作，請 7 天後再試")
+
     # SEC-11: serialize concurrent reset flows so two admins cannot both
     # complete the two-step flow and have the second wipe an already-empty DB.
     # pg_try_advisory_xact_lock is transaction-scoped: the get_db dependency
@@ -270,6 +309,14 @@ def anonymize_user(
     updated = repo.anonymize_user(user_id)
     if not updated:
         raise HTTPException(status_code=404, detail="使用者不存在")
+    # SEC-11: persist to audit_log in the same transaction so the trail
+    # cannot be lost if external log aggregation drops the warning above.
+    repo.record_admin_action(
+        actor_user_id=int(user["sub"]),
+        action="anonymize_user",
+        resource_id=user_id,
+        old_value=target_role,
+    )
     try:
         repo.conn.commit()
     except Exception:
@@ -286,20 +333,26 @@ def anonymize_user(
 def admin_reset_user_password(
     request: Request,
     user_id: int,
-    new_password: str = Body(..., embed=True, min_length=8),
+    body: _AdminPasswordResetBody,
     user=Depends(require_role("admin")),
     repo: TableAdminRepository = Depends(get_admin_repo),
 ):
-    found = repo.reset_user_password(user_id, hash_password(new_password))
+    found = repo.reset_user_password(user_id, hash_password(body.new_password))
     if not found:
         raise HTTPException(status_code=404, detail="使用者不存在")
+    # SEC-11: persist to audit_log in the same transaction so the trail
+    # survives even if external log aggregation is unavailable.
+    repo.record_admin_action(
+        actor_user_id=int(user["sub"]),
+        action="admin_reset_password",
+        resource_id=user_id,
+    )
     try:
         repo.conn.commit()
     except Exception:
         repo.conn.rollback()
         raise
-    # SEC-05: audit every admin-initiated password reset so a compromised admin
-    # account leaves a forensic trail instead of operating silently.
+    # SEC-05: also emit to application log for real-time alerting.
     logger.warning(
         "Admin user_id=%s reset password for user_id=%s ip=%s",
         user.get("sub"), user_id,

@@ -21,7 +21,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     # H-04: reset is now a two-step flow; apply rate limits to both stages.
     # The confirm step is the destructive one, so it gets a tighter budget.
     "/api/admin/reset/request": (5, 3600),  # 5/hour
-    "/api/admin/reset/confirm": (1, 86400),  # 1/day
+    "/api/admin/reset/confirm": (1, 604800),  # 1/7 days per IP
     "/api/admin/import-all": (5, 86400),    # 5/day
     "/api/admin/seed": (5, 3600),           # 5/hour
     # /health is probed by the docker healthcheck every 10s (6/min per

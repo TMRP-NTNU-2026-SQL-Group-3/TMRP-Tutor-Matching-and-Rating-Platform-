@@ -68,6 +68,12 @@ def create_review(body: ReviewCreate, user=Depends(get_current_user), conn=Depen
     # concurrent submissions could both see "no duplicate" and insert twice.
     try:
         with transaction(conn):
+            # ARCH-6: re-query session_count inside the transaction so a
+            # concurrent session deletion between the outer read and this
+            # INSERT cannot create a review on a match with no teaching history.
+            live_match = repo.get_match_for_create(body.match_id)
+            if not live_match or live_match["session_count"] == 0:
+                raise MatchHasNoSessionsError()
             review_id = repo.create(
                 match_id=body.match_id, reviewer_user_id=user_id,
                 review_type=body.review_type, rating_1=body.rating_1,

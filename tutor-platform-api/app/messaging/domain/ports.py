@@ -11,6 +11,9 @@ class IConversationRepository(ABC):
     @abstractmethod
     def user_is_participant(self, conversation_id: int, user_id: int) -> bool: ...
 
+    @abstractmethod
+    def has_valid_match_between(self, user_a_id: int, user_b_id: int) -> bool: ...
+
 
 class IMessageRepository(ABC):
     @abstractmethod

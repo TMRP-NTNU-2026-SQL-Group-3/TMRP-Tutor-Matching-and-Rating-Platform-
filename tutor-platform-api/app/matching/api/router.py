@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Query
+import time
+
+from fastapi import APIRouter, Depends, Header, Query
 
 from app.identity.api.dependencies import get_current_user, is_admin, require_role
 from app.matching.api.dependencies import get_match_service
@@ -18,14 +20,34 @@ router = APIRouter(prefix="/api/matches", tags=["matches"])
 _MATCH_CREATE_LIMIT = 10
 _MATCH_CREATE_WINDOW = 3600
 
+# SEC-12: in-memory idempotency store for match creation.
+# Maps (user_id, idempotency_key) → (match_id, expires_at).
+# Scoped per-user so keys from different users cannot collide.
+_IDEMPOTENCY_TTL = 86400  # 24 hours
+_idempotency_cache: dict[tuple[int, str], tuple[int, float]] = {}
+
 
 @router.post("", status_code=201, summary="建立配對邀請", description="家長為指定學生向家教發送配對邀請。", response_model=ApiResponse)
 def create_match(
     body: MatchCreate,
     user=Depends(require_role("parent")),
     service: MatchAppService = Depends(get_match_service),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key", max_length=128),
 ):
     user_id = int(user["sub"])
+
+    # SEC-12: return the original match_id for retried requests bearing the
+    # same key, preventing duplicate matches from network retries.
+    if idempotency_key:
+        cache_key = (user_id, idempotency_key)
+        now = time.monotonic()
+        entry = _idempotency_cache.get(cache_key)
+        if entry:
+            match_id, expires_at = entry
+            if now < expires_at:
+                return ApiResponse(success=True, data={"match_id": match_id}, message="媒合邀請已送出")
+            del _idempotency_cache[cache_key]
+
     bucket = f"match:create|tutor={body.tutor_id}|user={user_id}"
     if not check_and_record_bucket(bucket, _MATCH_CREATE_LIMIT, _MATCH_CREATE_WINDOW):
         raise TooManyRequestsError("對此家教的邀請頻率過高，請稍後再試")
@@ -39,6 +61,10 @@ def create_match(
         want_trial=body.want_trial,
         invite_message=body.invite_message,
     )
+
+    if idempotency_key:
+        _idempotency_cache[(user_id, idempotency_key)] = (match_id, time.monotonic() + _IDEMPOTENCY_TTL)
+
     return ApiResponse(success=True, data={"match_id": match_id}, message="媒合邀請已送出")
 
 

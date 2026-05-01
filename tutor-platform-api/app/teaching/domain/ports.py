@@ -9,6 +9,9 @@ class ISessionRepository(ABC):
     def get_match_participants(self, match_id: int) -> dict | None: ...
 
     @abstractmethod
+    def get_match_participants_for_share(self, match_id: int) -> dict | None: ...
+
+    @abstractmethod
     def create(self, match_id, session_date, hours, content_summary, homework, student_performance, next_plan, visible_to_parent) -> int: ...
 
     @abstractmethod
@@ -16,6 +19,9 @@ class ISessionRepository(ABC):
 
     @abstractmethod
     def get_by_id(self, session_id: int) -> dict | None: ...
+
+    @abstractmethod
+    def get_by_id_for_update(self, session_id: int) -> dict | None: ...
 
     @abstractmethod
     def update(self, session_id: int, fields: dict) -> None: ...

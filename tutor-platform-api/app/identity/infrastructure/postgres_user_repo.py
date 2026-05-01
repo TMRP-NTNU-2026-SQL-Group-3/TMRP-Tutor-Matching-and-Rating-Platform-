@@ -1,4 +1,5 @@
 from psycopg2 import errors as pg_errors
+from psycopg2 import sql as psql
 
 from app.identity.domain.exceptions import DuplicateUsernameError
 from app.identity.domain.ports import IUserRepository
@@ -41,9 +42,10 @@ class PostgresUserRepository(BaseRepository, IUserRepository):
         safe = {k: v for k, v in fields.items() if k in _UPDATABLE_COLUMNS}
         if not safe:
             return
-        cols = ', '.join(f'{k} = %s' for k in safe)
-        vals = list(safe.values()) + [user_id]
-        self.cursor.execute(f"UPDATE users SET {cols} WHERE user_id = %s", vals)
+        set_parts = [psql.SQL("{} = %s").format(psql.Identifier(k)) for k in safe]
+        query = psql.SQL("UPDATE users SET {} WHERE user_id = %s").format(
+            psql.SQL(", ").join(set_parts))
+        self.cursor.execute(query, list(safe.values()) + [user_id])
 
     def update_password(self, user_id: int, *, password_hash: str) -> None:
         self.cursor.execute(

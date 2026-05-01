@@ -62,5 +62,7 @@ class Match:
             )
         return prev
 
-    def is_participant(self, user_id: int) -> bool:
+    def is_direct_participant(self, user_id: int) -> bool:
+        # ARCH-20: renamed from is_participant to make explicit that admins
+        # are not included — callers must separately check is_admin when needed.
         return user_id == self.parent_user_id or user_id == self.tutor_user_id

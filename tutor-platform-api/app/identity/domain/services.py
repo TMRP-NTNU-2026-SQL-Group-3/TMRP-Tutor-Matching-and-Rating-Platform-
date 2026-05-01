@@ -25,6 +25,11 @@ from .ports import IUserRepository
 # password or issued tokens — the log file is not a credential store.
 _audit_logger = logging.getLogger("app.audit")
 
+# SEC-4: pre-computed dummy hash used so verify_password always runs on the
+# login path, regardless of whether the username exists. Without this, fast
+# returns for unknown usernames leak account existence via response timing.
+_DUMMY_HASH = hash_password("timing-normalization-placeholder-value")
+
 
 class AuthService:
     """純業務邏輯：註冊、登入、token 管理。"""
@@ -67,7 +72,9 @@ class AuthService:
         # S-M2: strip CR/LF and cap length to prevent log injection and unbounded growth.
         user_agent = (user_agent or "").replace("\r", "").replace("\n", "")[:256]
         user = self._repo.find_by_username(username)
-        if not user or not verify_password(password, user["password_hash"]):
+        check_hash = user["password_hash"] if user else _DUMMY_HASH
+        password_ok = verify_password(password, check_hash)
+        if not user or not password_ok:
             safe_username = (username or "").replace("\r", "").replace("\n", "")[:64]
             _audit_logger.warning(
                 "login_failed username=%s ip=%s ua=%s",

@@ -85,17 +85,17 @@ async function handleLogin() {
       role: data.role,
       display_name: data.display_name
     })
-    // P-BIZ-03: 使用對照表處理角色路由，未知角色顯示錯誤
     const roleRoutes = { admin: '/admin', tutor: '/tutor', parent: '/parent' }
     const target = roleRoutes[data.role]
     if (target) {
-      // F-FEAT-05: honour the ?redirect= param set by the router guard so
-      // deep links and bookmarked protected pages work after login.
+      // Only honour ?redirect= when it stays within the authenticated user's
+      // own role subtree, preventing cross-role open-redirect abuse.
       const redirect = route.query.redirect
-      const dest = (redirect && typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//'))
-        ? redirect
-        : target
-      router.push(dest)
+      const isSafeRedirect =
+        redirect &&
+        typeof redirect === 'string' &&
+        (redirect === target || redirect.startsWith(target + '/'))
+      router.push(isSafeRedirect ? redirect : target)
     } else {
       error.value = `不支援的帳號角色：${data.role}`
       auth.logout()

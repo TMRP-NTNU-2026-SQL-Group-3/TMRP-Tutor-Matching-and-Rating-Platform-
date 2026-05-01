@@ -167,6 +167,24 @@ class TableAdminRepository(BaseRepository):
         )
         return self.cursor.rowcount > 0
 
+    def record_admin_action(
+        self,
+        actor_user_id: int,
+        action: str,
+        resource_id: int,
+        old_value: str | None = None,
+        new_value: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        """Write a row to audit_log within the caller's active transaction."""
+        self.execute(
+            """INSERT INTO audit_log
+                (actor_user_id, action, resource_type, resource_id,
+                 old_value, new_value, reason)
+               VALUES (%s, %s, 'user', %s, %s, %s, %s)""",
+            (actor_user_id, action, resource_id, old_value, new_value, reason),
+        )
+
     def list_users(self) -> list[dict]:
         # S-H5: phone and email are PII and are omitted from bulk listing.
         # Individual account detail or export endpoints can expose them under

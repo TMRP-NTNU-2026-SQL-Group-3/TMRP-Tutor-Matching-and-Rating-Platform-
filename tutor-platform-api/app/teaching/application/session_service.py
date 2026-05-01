@@ -78,15 +78,19 @@ class SessionAppService:
         return self._repo.create(match_id=match_id, **fields)
 
     def list_for_match(self, *, match_id: int, user_id: int, is_admin: bool) -> list[dict]:
-        match = self._repo.get_match_participants(match_id)
-        if not match:
-            raise NotFoundError("找不到此配對")
-        is_tutor = match["tutor_user_id"] == user_id
-        is_parent = match["parent_user_id"] == user_id
-        if not is_tutor and not is_parent and not is_admin:
-            raise PermissionDeniedError("無權查看此配對的上課日誌")
-        # Parents only see entries the tutor flagged visible.
-        return self._repo.list_by_match(match_id, visible_only=is_parent and not is_tutor)
+        # ARCH-12: re-verify participant membership inside the same transaction
+        # that fetches sessions. FOR SHARE prevents a concurrent participant
+        # change from racing between the permission check and the data read.
+        with self._uow.begin():
+            match = self._repo.get_match_participants_for_share(match_id)
+            if not match:
+                raise NotFoundError("找不到此配對")
+            is_tutor = match["tutor_user_id"] == user_id
+            is_parent = match["parent_user_id"] == user_id
+            if not is_tutor and not is_parent and not is_admin:
+                raise PermissionDeniedError("無權查看此配對的上課日誌")
+            # Parents only see entries the tutor flagged visible.
+            return self._repo.list_by_match(match_id, visible_only=is_parent and not is_tutor)
 
     def update(self, *, session_id: int, tutor_user_id: int, updates: dict) -> dict:
         session = self._repo.get_by_id(session_id)
@@ -98,22 +102,22 @@ class SessionAppService:
 
         if not updates:
             raise DomainException("未提供任何修改欄位")
-        if "visible_to_parent" in updates:
-            if updates["visible_to_parent"] is None:
-                del updates["visible_to_parent"]
-            else:
-                updates["visible_to_parent"] = bool(updates["visible_to_parent"])
-        if not updates:
-            raise DomainException("所有提供的欄位值均無效或無法更新，請確認欄位內容")
+        # ARCH-8: treat explicit null as "set to NULL" rather than silently
+        # dropping the key. Only coerce non-null values to bool.
+        if "visible_to_parent" in updates and updates["visible_to_parent"] is not None:
+            updates["visible_to_parent"] = bool(updates["visible_to_parent"])
 
         with self._uow.begin():
-            fresh = self._repo.get_by_id(session_id)
+            # ARCH-5: lock the session row so a concurrent delete between the
+            # pre-flight check above and this read cannot silently drop the
+            # row after the permission check has already passed.
+            fresh = self._repo.get_by_id_for_update(session_id)
             if not fresh:
                 raise SessionNotFoundError()
             diffs = []
             for field, new_val in updates.items():
                 old_val = fresh.get(field)
-                if field == "visible_to_parent":
+                if field == "visible_to_parent" and old_val is not None:
                     old_val = bool(old_val)
                 if _normalize(old_val) != _normalize(new_val):
                     diffs.append((field, old_val, new_val))

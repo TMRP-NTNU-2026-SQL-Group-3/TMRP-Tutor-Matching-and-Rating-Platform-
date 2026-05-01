@@ -67,6 +67,14 @@ class Contract:
     trial_count: int | None = None
     contract_notes: str | None = None
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "Contract":
+        # ARCH-13: canonical deserialization path — routes through __init__ and
+        # __post_init__ so all invariants are enforced regardless of the source.
+        # Use this instead of Contract(**d) at call sites that handle external data.
+        known = {f.name for f in cls.__dataclass_fields__.values()}  # type: ignore[attr-defined]
+        return cls(**{k: v for k, v in data.items() if k in known})
+
     def __post_init__(self) -> None:
         # Invariants enforced here so a malformed Contract cannot reach the
         # state machine or DB writes — the object is supposed to represent a

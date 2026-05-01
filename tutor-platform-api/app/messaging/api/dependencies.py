@@ -12,5 +12,4 @@ def get_message_service(conn=Depends(get_db)) -> MessageAppService:
     return MessageAppService(
         repo=PostgresMessageRepository(conn),
         conv_repo=PostgresConversationRepository(conn),
-        conn=conn,
     )
