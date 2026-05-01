@@ -29,7 +29,9 @@ export const useAuthStore = defineStore('auth', () => {
   let verifyPromise = null
 
   const isLoggedIn = computed(() => !!user.value)
-  const role = computed(() => user.value?.role || '')
+  // FE-10: never expose unverified localStorage role — return empty until the
+  // server has confirmed the session via ensureVerified() / /api/auth/me.
+  const role = computed(() => verified.value ? (user.value?.role || '') : '')
 
   async function ensureVerified() {
     if (verified.value) return user.value
@@ -95,6 +97,12 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
+    // FE-5: clear notifications BEFORE removing localStorage.user so that
+    // useNotificationStore().clear() can still resolve the user-scoped key.
+    // Clearing after would write to the generic fallback key and leave the
+    // user-scoped notifications_<id> entry populated until the 1-hour expiry.
+    useNotificationStore().clear()
+
     user.value = null
     verified.value = false
     localStorage.removeItem('user')
@@ -106,7 +114,6 @@ export const useAuthStore = defineStore('auth', () => {
     tutorStore.setResults([])
     tutorStore.setFilters({})
     useToastStore().clear()
-    useNotificationStore().clear()
 
     // Drop any pending token-refresh from the previous session so it cannot
     // resolve into the next user's request stream.
@@ -114,9 +121,25 @@ export const useAuthStore = defineStore('auth', () => {
 
     // SEC-C02: fire-and-forget backend logout. HttpOnly cookies are sent
     // automatically; the server clears them via Set-Cookie in the response.
+    // FE-15: log network failures in development so connectivity issues are
+    // visible; a silent failure leaves a valid session cookie on the server.
     axios.post(`${API_BASE_URL}/api/auth/logout`, null, {
       withCredentials: true,
-    }).catch(() => {})
+    }).catch((err) => {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[auth] logout request failed:', err?.message)
+      }
+    })
+  }
+
+  // FE-3: invalidate the in-memory verified flag when another tab (or an XSS
+  // primitive writing from a different window context) modifies localStorage.user.
+  // Same-window XSS cannot trigger this event, but cross-tab session poisoning is
+  // prevented: the next protected navigation will re-run ensureVerified().
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'user') verified.value = false
+    })
   }
 
   return { user, isLoggedIn, role, verified, ensureVerified, setAuth, updateUser, logout }

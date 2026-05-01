@@ -4,6 +4,7 @@ from psycopg2 import sql as psql
 from app.identity.domain.exceptions import DuplicateUsernameError
 from app.identity.domain.ports import IUserRepository
 from app.shared.infrastructure.base_repository import BaseRepository
+from app.shared.infrastructure.database_tx import transaction
 from app.shared.infrastructure.password_history import save_password_history as _persist_history
 
 _UPDATABLE_COLUMNS = frozenset({'display_name', 'phone', 'email'})
@@ -21,21 +22,22 @@ class PostgresUserRepository(BaseRepository, IUserRepository):
         self, username: str, password_hash: str, display_name: str,
         role: str, phone: str | None = None, email: str | None = None,
     ) -> int:
-        # The service pre-checks find_by_username, but two concurrent
-        # registrations can still race past the check; translate the unique
-        # constraint violation into the domain error here so callers see a
-        # single exception type regardless of which path tripped.
-        try:
-            self.cursor.execute(
-                "INSERT INTO users (username, password_hash, display_name, role, phone, email) "
-                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING user_id",
-                (username, password_hash, display_name, role, phone, email),
-            )
-        except pg_errors.UniqueViolation as e:
-            raise DuplicateUsernameError() from e
-        user_id = self.cursor.fetchone()[0]
-        if role == "tutor":
-            self.cursor.execute("INSERT INTO tutors (user_id) VALUES (%s)", (user_id,))
+        # Both INSERTs must be atomic: a crash after the users row is written
+        # but before tutors is written would leave an orphaned account.
+        # transaction() is idempotent — nested calls yield through without an
+        # extra commit, so the outer router transaction still owns the lifecycle.
+        with transaction(self.conn):
+            try:
+                self.cursor.execute(
+                    "INSERT INTO users (username, password_hash, display_name, role, phone, email) "
+                    "VALUES (%s, %s, %s, %s, %s, %s) RETURNING user_id",
+                    (username, password_hash, display_name, role, phone, email),
+                )
+            except pg_errors.UniqueViolation as e:
+                raise DuplicateUsernameError() from e
+            user_id = self.cursor.fetchone()[0]
+            if role == "tutor":
+                self.cursor.execute("INSERT INTO tutors (user_id) VALUES (%s)", (user_id,))
         return user_id
 
     def update_me(self, user_id: int, *, fields: dict) -> None:

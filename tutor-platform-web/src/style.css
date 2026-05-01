@@ -40,3 +40,56 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full; }
 }
+
+/* ── FE-21: Print Stylesheet ────────────────────── */
+@media print {
+  /* Hide navigation, action controls, and interactive chrome. */
+  nav,
+  header,
+  footer,
+  button,
+  form,
+  .print\:hidden,
+  [role="status"],
+  [aria-label*="載入"],
+  .animate-pulse {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+    font-size: 11pt;
+    color: black;
+  }
+
+  /* Strip shadows and rounded corners — they waste ink. */
+  * {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* Let content span the full printable width. */
+  #app,
+  main,
+  .max-w-2xl,
+  .max-w-3xl,
+  .max-w-4xl,
+  .max-w-5xl,
+  .max-w-6xl {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Keep each card on a single page where possible. */
+  .bg-white {
+    break-inside: avoid;
+    border: 1px solid #d1d5db !important;
+    margin-bottom: 0.4cm !important;
+  }
+
+  a {
+    color: black;
+    text-decoration: none;
+  }
+}

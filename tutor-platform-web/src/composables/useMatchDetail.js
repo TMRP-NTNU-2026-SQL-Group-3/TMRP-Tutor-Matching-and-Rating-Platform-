@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { matchesApi } from '@/api/matches'
@@ -9,14 +9,15 @@ import { reviewsApi } from '@/api/reviews'
 import { REVIEW_LOCK_DAYS } from '@/constants'
 
 /**
- * 共用的配對詳情邏輯 — 家長版與家教版共用。
+ * Shared match-detail logic used by both the parent and tutor views.
  */
 export function useMatchDetail() {
   const route = useRoute()
+  const router = useRouter()
   const auth = useAuthStore()
   const toast = useToastStore()
 
-  // ── 核心資料 ──
+  // ── Core state ──
   const match = ref(null)
   const sessions = ref([])
   const exams = ref([])
@@ -36,7 +37,7 @@ export function useMatchDetail() {
     return raw.includes('|') ? raw.split('|').slice(1).join('|') : raw
   })
 
-  // ── 資料載入 ──
+  // ── Data loading ──
   let _fetchId = 0
   // F-07: keep the in-flight fetch's AbortController so a new fetch (e.g.
   // route change, post-action refetch) can cancel the previous request and
@@ -51,7 +52,7 @@ export function useMatchDetail() {
     _activeController = controller
     const { signal } = controller
 
-    // Bug #26: 提早驗證路由參數，避免直接訪問 /parent/match/abc 時送出無效 ID
+    // Guard against direct URL access with a non-integer match ID (e.g. /parent/match/abc would pass NaN to the API).
     const rawId = route.params.id
     const matchId = Number(rawId)
     if (!rawId || !Number.isInteger(matchId) || matchId <= 0) {
@@ -67,22 +68,44 @@ export function useMatchDetail() {
     examsUnavailable.value = false
     try {
       const detail = await matchesApi.getDetail(matchId, { signal })
-      if (currentFetchId !== _fetchId) return false  // 已有更新的請求，丟棄此結果
-      match.value = detail
+      if (currentFetchId !== _fetchId) return false
+
+      // FE-11: defense-in-depth ownership check. The backend already returns
+      // 403 for unauthorized access; this is a redundant client-side guard.
+      if (userId.value) {
+        const owned = auth.role === 'tutor'
+          ? detail.tutor_user_id === userId.value
+          : detail.parent_id === userId.value
+        if (!owned) {
+          error.value = '您無權存取此配對'
+          toast.error('您無權存取此配對')
+          loading.value = false
+          refetching.value = false
+          router.replace(auth.role === 'tutor' ? '/tutor' : '/parent')
+          return false
+        }
+      }
+
       const [sessData, reviewData] = await Promise.all([
         sessionsApi.list({ match_id: matchId }, { signal }),
         reviewsApi.list({ match_id: matchId }, { signal }),
       ])
       if (currentFetchId !== _fetchId) return false
+
+      // FE-7: commit match + sessions + reviews atomically so a navigation that
+      // arrives while Promise.all is in flight cannot leave match showing one
+      // match's header with another match's session list.
+      match.value = detail
       sessions.value = sessData
       reviews.value = reviewData
-      if (match.value.student_id) {
-        const examData = await examsApi.list({ student_id: match.value.student_id }, { signal })
+
+      if (detail.student_id != null) {
+        const examData = await examsApi.list({ student_id: detail.student_id }, { signal })
         if (currentFetchId !== _fetchId) return false
         // The exams API returns every exam for the student (across tutors/subjects).
         // Restrict to this match's subject so the trend chart and "本配對考試紀錄"
         // panel don't leak data from other matches.
-        const subjectId = match.value.subject_id
+        const subjectId = detail.subject_id
         exams.value = subjectId
           ? examData.filter(e => e.subject_id === subjectId)
           : examData
@@ -107,7 +130,7 @@ export function useMatchDetail() {
     }
   }
 
-  // ── 狀態操作 ──
+  // ── Status actions ──
   async function doAction(action) {
     if (!match.value || actionLoading.value) return
     error.value = ''
@@ -158,7 +181,7 @@ export function useMatchDetail() {
     }
   }
 
-  // ── 評價 ──
+  // ── Reviews ──
   const showReviewForm = ref(false)
   const reviewSubmitting = ref(false)
   const reviewError = ref('')
@@ -189,7 +212,7 @@ export function useMatchDetail() {
     }
   }
 
-  // ── 工具 ──
+  // ── Utilities ──
   function formatDate(dt) {
     if (!dt) return ''
     return new Date(dt).toLocaleDateString('zh-TW')

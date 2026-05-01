@@ -413,9 +413,8 @@ async function handleSave() {
     } else {
       success.value = '個人檔案已更新'
     }
-    // T-WEB-05: success message auto-clears after 3 s.
-    // F-04: store the handle and clear any in-flight one so an unmount mid-flight
-    // (or a second save firing within 3 s) doesn't leave a dangling timer.
+    // Auto-clear the success banner after 3 s so a stale message does not mislead on the next save.
+    // Store the handle and cancel any in-flight timer: unmounting mid-flight or a second save within 3 s must not leave a dangling callback.
     if (successTimer) clearTimeout(successTimer)
     successTimer = setTimeout(() => {
       success.value = ''
@@ -465,8 +464,7 @@ onMounted(async () => {
   } catch (e) {
     if (isMounted) error.value = e.message
   } finally {
-    // Bug #23: 無條件重置 loading；即使元件已卸載，下次掛載仍能從乾淨狀態開始
-    // （loading 是 ref，setter 對未掛載元件無副作用，安全）
+    // Reset loading unconditionally: the ref setter is side-effect-free on an unmounted component, and guarantees a clean state on the next mount.
     loading.value = false
   }
 })

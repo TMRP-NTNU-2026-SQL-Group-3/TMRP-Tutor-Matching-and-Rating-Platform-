@@ -54,7 +54,7 @@
       <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
       <p v-if="!canSubmit && !submitting" class="text-xs text-gray-400">請填寫所有必填欄位（*）後才能送出</p>
       <div class="flex gap-3">
-        <button type="submit" :disabled="submitting || !canSubmit"
+        <button type="submit" :disabled="submitting || localSubmitting || !canSubmit"
           class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
           {{ submitting ? '送出中...' : '送出邀請' }}
         </button>
@@ -68,7 +68,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -80,6 +80,9 @@ const props = defineProps({
 
 // 每次開啟時自動重置表單
 watch(() => props.visible, (v) => { if (v) reset() })
+// FE-17: if the parent clears `submitting` after a failed request, unlock the
+// local guard so the user can retry without reopening the form.
+watch(() => props.submitting, (v) => { if (!v) localSubmitting.value = false })
 
 const emit = defineEmits(['submit', 'cancel'])
 
@@ -99,10 +102,15 @@ const canSubmit = computed(() =>
   && form.sessions_per_week != null && form.sessions_per_week >= 1
 )
 
+// FE-17: synchronous guard so two rapid clicks cannot both pass canSubmit
+// before the parent's `inviting` prop propagates back as disabled.
+const localSubmitting = ref(false)
+
 function handleSubmit() {
   // F-08: HTML5 required + canSubmit gate the button, but keep the JS guard
   // as a defence-in-depth check for programmatic calls / browser quirks.
-  if (!canSubmit.value) return
+  if (!canSubmit.value || localSubmitting.value) return
+  localSubmitting.value = true
   emit('submit', { ...form })
 }
 
@@ -113,6 +121,7 @@ function reset() {
   form.sessions_per_week = 1
   form.want_trial = false
   form.invite_message = ''
+  localSubmitting.value = false
 }
 
 defineExpose({ reset })

@@ -43,11 +43,11 @@
         <div class="space-y-6">
           <div v-if="tutor.self_intro" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">自我介紹</h3>
-            <p class="text-gray-700 whitespace-pre-line">{{ tutor.self_intro }}</p>
+            <p class="text-gray-700 whitespace-pre-line overflow-hidden max-h-80">{{ tutor.self_intro }}</p>
           </div>
           <div v-if="tutor.teaching_experience" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">教學經驗</h3>
-            <p class="text-gray-700 whitespace-pre-line">{{ tutor.teaching_experience }}</p>
+            <p class="text-gray-700 whitespace-pre-line overflow-hidden max-h-80">{{ tutor.teaching_experience }}</p>
           </div>
         </div>
 
@@ -128,7 +128,7 @@ const inviting = ref(false)
 const inviteError = ref('')
 const messageSending = ref(false)
 
-// 開啟邀請表單時清除舊錯誤
+// Clear the stale error each time the invite form is re-opened.
 watch(showInviteForm, (v) => { if (v) inviteError.value = '' })
 
 const avgRating = computed(() => {
@@ -158,7 +158,7 @@ async function goMessage() {
 
 async function submitInvite(formData) {
   inviteError.value = ''
-  // P-WEB-02: 完整驗證所有必填欄位
+  // Validate all required fields before the API call; the server also validates, but client errors surface inline here.
   if (!formData.student_id || !formData.subject_id) {
     inviteError.value = '請選擇子女和科目'
     return

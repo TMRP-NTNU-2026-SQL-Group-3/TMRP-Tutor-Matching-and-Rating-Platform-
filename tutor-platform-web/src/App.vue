@@ -23,7 +23,6 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useNotificationStore } from '@/stores/notifications'
-import { authApi } from '@/api/auth'
 import AppNav from '@/components/common/AppNav.vue'
 import ToastNotification from '@/components/common/ToastNotification.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -39,15 +38,14 @@ useToastStore().$onAction(({ name, args }) => {
   if (_TOAST_TYPES.has(name)) useNotificationStore().add(name, args[0])
 })
 
-// F3: on every page load, verify the session is still valid by calling /me.
-// SEC-C02: the HttpOnly cookie is sent automatically — we only check whether
-// localStorage still has user info (indicating a prior session).
+// FE-2: gate initialization on ensureVerified() so the single-flight guard in
+// the store deduplicates the /me call the router guard already issued. A raw
+// authApi.getMe() call here could race a late 401 against a new session.
 const validating = ref(true)
 onMounted(async () => {
   if (auth.isLoggedIn) {
     try {
-      const user = await authApi.getMe()
-      auth.setAuth(user)
+      await auth.ensureVerified()
     } catch {
       auth.logout()
       router.push('/login')

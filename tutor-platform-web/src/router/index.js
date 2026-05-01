@@ -101,16 +101,21 @@ router.beforeEach(async (to, from, next) => {
   const allowedRoles = to.matched.find(record => record.meta.roles)?.meta.roles
   const excludedRoles = to.matched.find(record => record.meta.excludeRoles)?.meta.excludeRoles
 
-  // Verify the cached user against the server before authorizing any
-  // protected route. ensureVerified() is single-flight and caches success
-  // for the session, so this is a one-shot round-trip per page load.
-  if ((requiresAuth || to.meta.guest) && auth.isLoggedIn && !auth.verified) {
+  // FE-3: always await ensureVerified() for protected routes, even when
+  // auth.verified is already true. ensureVerified() short-circuits on a
+  // cached verification, so the cost is one function call. Removing the
+  // !auth.verified guard closes the window where a prior (possibly poisoned)
+  // cached role bypasses the check on subsequent in-session navigations.
+  if (requiresAuth && auth.isLoggedIn) {
     try {
       await auth.ensureVerified()
     } catch {
       // Server rejected the session — drop any cached user and fall through
       // so the requiresAuth branch below bounces to /login.
     }
+  }
+  if (to.meta.guest && auth.isLoggedIn && !auth.verified) {
+    try { await auth.ensureVerified() } catch { /* ignore */ }
   }
 
   if (requiresAuth && !auth.isLoggedIn) {

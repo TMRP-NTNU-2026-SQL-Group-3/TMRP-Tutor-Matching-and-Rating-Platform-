@@ -1,7 +1,7 @@
 from psycopg2 import sql as psql
 
 from app.catalog.domain.ports import ITutorRepository
-from app.shared.api.constants import DEFAULT_PAGE_SIZE
+from app.shared.api.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.shared.infrastructure.base_repository import BaseRepository, escape_like
 from app.shared.infrastructure.column_validation import validate_columns
 from app.shared.infrastructure.database_tx import transaction
@@ -54,6 +54,7 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[dict], int]:
+        page_size = min(max(1, page_size), MAX_PAGE_SIZE)
         # Single-pass query: subjects/avg_rate/avg_rating/active_count are aggregated
         # in subqueries instead of issuing N+3 round-trips per tutor.
         # B5: sort_by is whitelisted via a fixed dict, so it is safe to

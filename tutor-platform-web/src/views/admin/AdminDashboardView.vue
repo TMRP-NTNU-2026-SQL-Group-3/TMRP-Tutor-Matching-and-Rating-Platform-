@@ -232,11 +232,15 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { adminApi } from '@/api/admin'
 import { useToastStore } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import PageHeader from '@/components/common/PageHeader.vue'
 
+const router = useRouter()
 const toast = useToastStore()
+const auth = useAuthStore()
 
 const tables = [
   'users', 'tutors', 'students', 'subjects', 'tutor_subjects',
@@ -495,6 +499,15 @@ async function handleImport() {
     error.value = '請選擇 CSV 檔案'
     return
   }
+  // FE-6: client-side MIME + extension guard. file.type may be empty on Windows
+  // ('') or reported as 'application/vnd.ms-excel'; treat empty as permissive but
+  // reject any non-empty type that is clearly not CSV.
+  const ext = file.name.toLowerCase().split('.').pop()
+  const mimeAccepted = !file.type || ['text/csv', 'application/csv', 'text/plain', 'application/vnd.ms-excel'].includes(file.type)
+  if (ext !== 'csv' || !mimeAccepted) {
+    error.value = '請選擇 CSV 格式的檔案（副檔名 .csv）'
+    return
+  }
   importing.value = true
   clearResults()
   try {
@@ -511,7 +524,21 @@ async function handleImport() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // FE-9: defense-in-depth — re-verify role server-side even if the router
+  // guard already passed. A devtools redirect or XSS router bypass cannot
+  // reach admin API endpoints, but preventing component render stops data
+  // exposure before the first API call returns a 403.
+  try {
+    await auth.ensureVerified()
+  } catch {
+    // Session invalid; handleAuthLost() in the response interceptor handles
+    // the redirect to /login. Fall through so the role check below also fires.
+  }
+  if (auth.role !== 'admin') {
+    router.push('/')
+    return
+  }
   fetchUsers()
   fetchSystemStatus()
 })

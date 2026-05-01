@@ -306,7 +306,10 @@ def anonymize_user(
         "Admin user_id=%s anonymizing user_id=%s (role=%s)",
         user.get("sub"), user_id, target_role,
     )
-    updated = repo.anonymize_user(user_id)
+    try:
+        updated = repo.anonymize_user(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="該使用者仍有進行中的配對，請先結束後再進行匿名化")
     if not updated:
         raise HTTPException(status_code=404, detail="使用者不存在")
     # SEC-11: persist to audit_log in the same transaction so the trail

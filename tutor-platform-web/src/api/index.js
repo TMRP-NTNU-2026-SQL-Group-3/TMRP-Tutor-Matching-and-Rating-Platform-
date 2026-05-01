@@ -60,9 +60,15 @@ export function markLoggedIn() {
 //      the cookie (i.e. every origin that is not the SPA's own origin).
 const CSRF_METHODS = new Set(['post', 'put', 'patch', 'delete'])
 
+// FE-4: guard decodeURIComponent and handle cookie values that contain '='.
 function getCsrfToken() {
   const entry = document.cookie.split('; ').find(c => c.startsWith('csrf_token='))
-  return entry ? decodeURIComponent(entry.split('=')[1]) : ''
+  if (!entry) return ''
+  try {
+    return decodeURIComponent(entry.slice('csrf_token='.length))
+  } catch {
+    return ''
+  }
 }
 
 api.interceptors.request.use(config => {
@@ -76,7 +82,13 @@ api.interceptors.request.use(config => {
     config.headers = config.headers || {}
     config.headers['X-Requested-With'] = 'XMLHttpRequest'
     const token = getCsrfToken()
-    if (token) config.headers['X-CSRF-Token'] = token
+    if (token) {
+      config.headers['X-CSRF-Token'] = token
+    } else if (process.env.NODE_ENV !== 'production') {
+      // Expected before login; a warning here surfaces misconfigured cookie
+      // domains or missing Set-Cookie headers early in development.
+      console.warn('[CSRF] X-CSRF-Token absent for', method.toUpperCase(), config.url)
+    }
   }
   return config
 })
@@ -109,7 +121,12 @@ async function refreshAccessToken() {
             },
           },
         )
-        applyRefreshedAuth(res.data.data)
+        // FE-8: re-check loggingOut after the await — the response may have
+        // arrived in the network buffer just before abort() was called, so the
+        // top-of-function guard does not cover this window.
+        if (!loggingOut) {
+          applyRefreshedAuth(res.data.data)
+        }
       } finally {
         setTimeout(() => { refreshPromise = null }, 0)
       }
@@ -142,6 +159,10 @@ api.interceptors.response.use(
     }
     const { success, data, message } = body
     if (!success) {
+      // FE-12: log raw backend message in dev before it may be exposed to users.
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('[API] business error:', message, body)
+      }
       return Promise.reject(new Error(message || '操作失敗'))
     }
     return data
@@ -181,16 +202,24 @@ api.interceptors.response.use(
       return api.request(originalConfig)
     }
 
-    let message = '網路連線異常'
+    // FE-12: extract raw message for logging, then sanitize for the user.
+    // 5xx responses may contain internal details (DB field names, stack traces);
+    // replace them with a generic string. 4xx messages are intentional for users.
+    let rawMessage = '網路連線異常'
     if (error.response?.data instanceof Blob) {
       try {
         const text = await error.response.data.text()
         const json = JSON.parse(text)
-        message = json.message || message
+        rawMessage = json.message || rawMessage
       } catch { /* ignore parse errors */ }
     } else {
-      message = error.response?.data?.message || message
+      rawMessage = error.response?.data?.message || rawMessage
     }
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('[API] request error:', rawMessage, error.response?.status, error.config?.url)
+    }
+    const status = error.response?.status
+    const message = (status && status >= 500) ? '伺服器發生錯誤，請稍後再試' : rawMessage
     return Promise.reject(new Error(message))
   }
 )

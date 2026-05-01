@@ -8,6 +8,13 @@ The function stages every INSERT inside the caller's transaction and returns
 without committing; the caller (see `app.tasks.seed_tasks.generate_seed_data`)
 is responsible for committing on success or rolling back on failure so a
 mid-run error cannot leave the database in a half-seeded state.
+
+WARNING — seed-only patterns:
+  This module uses individual INSERT-per-row loops and _insert_and_get_id()
+  helpers that issue one round-trip per row. These patterns are acceptable
+  for small, one-off seed datasets but MUST NOT be copied into production
+  code paths. Application code should use executemany() or a bulk
+  INSERT ... VALUES statement when inserting multiple rows.
 """
 
 import logging
@@ -19,39 +26,38 @@ from app.utils.security import hash_password
 logger = logging.getLogger("seed.generator")
 
 # ──────────────────────────────────────────────
-# 輔助函式
+# Helpers
 # ──────────────────────────────────────────────
 
 
 def _insert_and_get_id(cursor, sql: str, params: tuple) -> int:
-    """執行 INSERT ... RETURNING 並回傳自動產生的 ID。"""
+    """Execute an INSERT ... RETURNING statement and return the generated id."""
     cursor.execute(sql, params)
     return int(cursor.fetchone()[0])
 
 
 def _dt(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> datetime:
-    """建立 datetime 的簡寫。"""
+    """Shorthand for constructing a datetime."""
     return datetime(year, month, day, hour, minute)
 
 
 # ──────────────────────────────────────────────
-# 主函式
+# Entry point
 # ──────────────────────────────────────────────
 
 
 def run_seed(conn) -> dict:
-    """
-    填入展示用假資料。回傳各表新增筆數。
+    """Populate demo fixture data and return a count dict keyed by table name.
 
     Parameters
     ----------
     conn
-        已連線的 PostgreSQL psycopg2 連線物件。
+        An open psycopg2 connection to the PostgreSQL database.
 
     Returns
     -------
     dict
-        各資料表新增的筆數，例如 {"users": 6, "students": 5, ...}。
+        Row counts inserted per table, e.g. {"users": 6, "students": 5, ...}.
     """
     # B8: the caller owns the transaction. Fail fast if `conn` is in
     # autocommit mode — otherwise every INSERT below would commit
@@ -66,11 +72,11 @@ def run_seed(conn) -> dict:
 
     cursor = conn.cursor()
 
-    # ── 防重複 ─────────────────────────────────
+    # ── Idempotency guard ──────────────────────
     cursor.execute("SELECT COUNT(*) FROM users WHERE role <> 'admin'")
     if cursor.fetchone()[0] > 0:
-        logger.info("已有非管理員使用者，跳過假資料寫入")
-        return {"skipped": True, "message": "資料庫已有種子資料，跳過寫入"}
+        logger.info("Non-admin users already exist; skipping seed")
+        return {"skipped": True, "message": "Seed data already present; skipped"}
 
     now = datetime.now(timezone.utc)
     hashed = hash_password("password123")
@@ -168,7 +174,7 @@ def run_seed(conn) -> dict:
     logger.info("  3 tutor profiles staged")
 
     # ══════════════════════════════════════════
-    # 3. Students（每位家長 1-2 位學生）
+    # 3. Students (1-2 per parent)
     # ══════════════════════════════════════════
     student_data = [
         # (parent_user_id, name, school, grade, target_school, parent_phone, notes)
@@ -193,7 +199,7 @@ def run_seed(conn) -> dict:
     logger.info("  %d students staged", len(student_data))
 
     # ══════════════════════════════════════════
-    # 4. 查詢科目 ID
+    # 4. Subject ID lookup
     # ══════════════════════════════════════════
     cursor.execute("SELECT subject_id, subject_name FROM subjects")
     subject_map = {row[1]: row[0] for row in cursor.fetchall()}
@@ -212,17 +218,19 @@ def run_seed(conn) -> dict:
         (tutor_ids[2], "數學", 650),
     ]
 
-    ts_count = 0
-    for tid, subj_name, rate in tutor_subject_assignments:
-        subj_id = subject_map.get(subj_name)
-        if subj_id is None:
-            logger.warning("  找不到科目 %s，跳過", subj_name)
-            continue
-        cursor.execute(
-            "INSERT INTO tutor_subjects (tutor_id, subject_id, hourly_rate) VALUES (%s, %s, %s)",
-            (tid, subj_id, rate),
-        )
-        ts_count += 1
+    missing_subjects = [s for _, s, _ in tutor_subject_assignments if s not in subject_map]
+    for s in missing_subjects:
+        logger.warning("  subject not found: %s, skipped", s)
+    ts_rows = [
+        (tid, subject_map[subj_name], rate)
+        for tid, subj_name, rate in tutor_subject_assignments
+        if subj_name in subject_map
+    ]
+    cursor.executemany(
+        "INSERT INTO tutor_subjects (tutor_id, subject_id, hourly_rate) VALUES (%s, %s, %s)",
+        ts_rows,
+    )
+    ts_count = len(ts_rows)
 
     counts["tutor_subjects"] = ts_count
     logger.info("  %d tutor-subject rows staged", ts_count)
@@ -232,27 +240,25 @@ def run_seed(conn) -> dict:
     # ══════════════════════════════════════════
     availability_data = [
         # (tutor_id, day_of_week, start_hour, start_min, end_hour, end_min)
-        (tutor_ids[0], 1, 18, 0, 21, 0),   # 週一晚上
-        (tutor_ids[0], 3, 18, 0, 21, 0),   # 週三晚上
-        (tutor_ids[0], 6, 9, 0, 12, 0),    # 週六早上
-        (tutor_ids[1], 2, 14, 0, 17, 0),   # 週二下午
-        (tutor_ids[1], 4, 14, 0, 17, 0),   # 週四下午
-        (tutor_ids[1], 0, 10, 0, 16, 0),   # 週日整天
-        (tutor_ids[2], 5, 19, 0, 21, 0),   # 週五晚上
-        (tutor_ids[2], 6, 13, 0, 18, 0),   # 週六下午
+        (tutor_ids[0], 1, 18, 0, 21, 0),   # Monday evening
+        (tutor_ids[0], 3, 18, 0, 21, 0),   # Wednesday evening
+        (tutor_ids[0], 6, 9, 0, 12, 0),    # Saturday morning
+        (tutor_ids[1], 2, 14, 0, 17, 0),   # Tuesday afternoon
+        (tutor_ids[1], 4, 14, 0, 17, 0),   # Thursday afternoon
+        (tutor_ids[1], 0, 10, 0, 16, 0),   # Sunday all day
+        (tutor_ids[2], 5, 19, 0, 21, 0),   # Friday evening
+        (tutor_ids[2], 6, 13, 0, 18, 0),   # Saturday afternoon
     ]
 
-    avail_count = 0
-    for tid, dow, sh, sm, eh, em in availability_data:
-        start_time = time(sh, sm)
-        end_time = time(eh, em)
-        _insert_and_get_id(
-            cursor,
-            "INSERT INTO tutor_availability (tutor_id, day_of_week, start_time, end_time) "
-            "VALUES (%s, %s, %s, %s) RETURNING availability_id",
-            (tid, dow, start_time, end_time),
-        )
-        avail_count += 1
+    avail_rows = [
+        (tid, dow, time(sh, sm), time(eh, em))
+        for tid, dow, sh, sm, eh, em in availability_data
+    ]
+    cursor.executemany(
+        "INSERT INTO tutor_availability (tutor_id, day_of_week, start_time, end_time) VALUES (%s, %s, %s, %s)",
+        avail_rows,
+    )
+    avail_count = len(avail_rows)
 
     counts["tutor_availability"] = avail_count
     logger.info("  %d availability slots staged", avail_count)
@@ -309,7 +315,7 @@ def run_seed(conn) -> dict:
             )
             msg_count += 1
 
-        # 更新最後訊息時間
+        # update last_message_at to the timestamp of the final message
         cursor.execute(
             "UPDATE conversations SET last_message_at = %s WHERE conversation_id = %s",
             (last_msg_time, conv_id),
@@ -328,7 +334,7 @@ def run_seed(conn) -> dict:
 
     match_specs = [
         {
-            # 王小明 <-> 張家豪 (數學) — active
+            # Wang Xiaoming <-> Zhang Jiahao (Math) — active
             "tutor_id": tutor_ids[0], "student_id": student_ids[0],
             "subject_id": math_id, "status": "active",
             "invite_message": "希望老師能幫小明打好數學基礎", "want_trial": True,
@@ -339,7 +345,7 @@ def run_seed(conn) -> dict:
             "terminated_by": None, "termination_reason": None,
         },
         {
-            # 陳品妤 <-> 李佳穎 (英文) — active
+            # Chen Pinyu <-> Li Jiaying (English) — active
             "tutor_id": tutor_ids[1], "student_id": student_ids[2],
             "subject_id": eng_id, "status": "active",
             "invite_message": "品妤想加強英文閱讀和寫作", "want_trial": False,
@@ -350,7 +356,7 @@ def run_seed(conn) -> dict:
             "terminated_by": None, "termination_reason": None,
         },
         {
-            # 林宥辰 <-> 黃柏翰 (物理) — trial
+            # Lin Youchen <-> Huang Bohan (Physics) — trial
             "tutor_id": tutor_ids[2], "student_id": student_ids[4],
             "subject_id": phys_id, "status": "trial",
             "invite_message": "宥辰物理觀念不太清楚，想試教看看", "want_trial": True,
@@ -361,7 +367,7 @@ def run_seed(conn) -> dict:
             "terminated_by": None, "termination_reason": None,
         },
         {
-            # 王小華 <-> 張家豪 (數學) — pending
+            # Wang Xiaohua <-> Zhang Jiahao (Math) — pending
             "tutor_id": tutor_ids[0], "student_id": student_ids[1],
             "subject_id": math_id, "status": "pending",
             "invite_message": "小華要準備會考，希望能加強數學", "want_trial": True,
@@ -372,7 +378,7 @@ def run_seed(conn) -> dict:
             "terminated_by": None, "termination_reason": None,
         },
         {
-            # 陳柏宇 <-> 黃柏翰 (數學) — ended
+            # Chen Boyu <-> Huang Bohan (Math) — ended
             "tutor_id": tutor_ids[2], "student_id": student_ids[3],
             "subject_id": math_id, "status": "ended",
             "invite_message": "柏宇國一數學需要加強", "want_trial": False,
@@ -409,13 +415,13 @@ def run_seed(conn) -> dict:
     logger.info("  %d matches staged", len(match_specs))
 
     # ══════════════════════════════════════════
-    # 9. Sessions（為 active / trial / ended 的配對建立上課紀錄）
+    # 9. Sessions (for active / trial / ended matches)
     # ══════════════════════════════════════════
-    # match_ids[0] = active (王小明-數學), match_ids[1] = active (陳品妤-英文)
-    # match_ids[2] = trial (林宥辰-物理), match_ids[4] = ended (陳柏宇-數學)
+    # match_ids[0] = active (Wang-Math), match_ids[1] = active (Chen-English)
+    # match_ids[2] = trial (Lin-Physics), match_ids[4] = ended (Chen-Math)
 
     session_specs = [
-        # 王小明的數學課
+        # Wang Xiaoming — Math sessions
         {
             "match_id": match_ids[0],
             "session_date": now - timedelta(days=40),
@@ -446,7 +452,7 @@ def run_seed(conn) -> dict:
             "next_plan": "段考複習總整理",
             "visible_to_parent": True,
         },
-        # 陳品妤的英文課
+        # Chen Pinyu — English sessions
         {
             "match_id": match_ids[1],
             "session_date": now - timedelta(days=25),
@@ -467,7 +473,7 @@ def run_seed(conn) -> dict:
             "next_plan": "進階句型與轉折詞使用",
             "visible_to_parent": True,
         },
-        # 林宥辰的物理試教課
+        # Lin Youchen — Physics trial session
         {
             "match_id": match_ids[2],
             "session_date": now - timedelta(days=5),
@@ -478,7 +484,7 @@ def run_seed(conn) -> dict:
             "next_plan": "力的合成與分解",
             "visible_to_parent": True,
         },
-        # 陳柏宇的已結束數學課
+        # Chen Boyu — ended Math sessions
         {
             "match_id": match_ids[4],
             "session_date": now - timedelta(days=60),
@@ -524,7 +530,7 @@ def run_seed(conn) -> dict:
     # 10. Exams
     # ══════════════════════════════════════════
     exam_specs = [
-        # 王小明的數學考試
+        # Wang Xiaoming — Math exams
         {
             "student_id": student_ids[0], "subject_id": math_id,
             "added_by_user_id": tutor_user_ids[0],
@@ -537,14 +543,14 @@ def run_seed(conn) -> dict:
             "exam_date": now - timedelta(days=7),
             "exam_type": "段考", "score": 85.0, "visible_to_parent": True,
         },
-        # 陳品妤的英文考試
+        # Chen Pinyu — English exam
         {
             "student_id": student_ids[2], "subject_id": eng_id,
             "added_by_user_id": tutor_user_ids[1],
             "exam_date": now - timedelta(days=20),
             "exam_type": "小考", "score": 92.0, "visible_to_parent": True,
         },
-        # 陳柏宇的數學考試（已結束的配對）
+        # Chen Boyu — Math exam (ended match)
         {
             "student_id": student_ids[3], "subject_id": math_id,
             "added_by_user_id": tutor_user_ids[2],
@@ -575,7 +581,7 @@ def run_seed(conn) -> dict:
     # 11. Reviews
     # ══════════════════════════════════════════
     review_specs = [
-        # 已結束的配對 (陳柏宇-黃柏翰) — 家長評價老師
+        # Ended match (Chen Boyu / Huang Bohan) — parent rates tutor
         {
             "match_id": match_ids[4],
             "reviewer_user_id": parent_user_ids[1],
@@ -584,7 +590,7 @@ def run_seed(conn) -> dict:
             "personality_comment": "老師很有耐心，會用不同方式解釋到學生懂為止。",
             "comment": "黃老師教學認真，可惜因為搬家不能繼續上課。整體來說非常推薦！",
         },
-        # 已結束的配對 — 老師評價家長
+        # Ended match — tutor rates parent
         {
             "match_id": match_ids[4],
             "reviewer_user_id": tutor_user_ids[2],
@@ -593,7 +599,7 @@ def run_seed(conn) -> dict:
             "personality_comment": None,
             "comment": "陳爸爸很配合教學安排，也會關心孩子的學習進度，是很好的家長。",
         },
-        # 已結束的配對 — 老師評價學生
+        # Ended match — tutor rates student
         {
             "match_id": match_ids[4],
             "reviewer_user_id": tutor_user_ids[2],
@@ -602,7 +608,7 @@ def run_seed(conn) -> dict:
             "personality_comment": None,
             "comment": "柏宇很乖巧，上課態度良好。建議可以多花時間在課後複習，會有更大的進步。",
         },
-        # active 配對 (王小明-張家豪) — 家長期中評價
+        # Active match (Wang Xiaoming / Zhang Jiahao) — mid-engagement parent review
         {
             "match_id": match_ids[0],
             "reviewer_user_id": parent_user_ids[0],

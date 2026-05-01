@@ -183,7 +183,9 @@ onMounted(async () => {
   } finally {
     subjectsLoading.value = false
   }
-  const startPage = route.query.page ? Math.max(1, parseInt(route.query.page) || 1) : 1
+  // FE-16: clamp to totalPages so an absurdly large ?page= value doesn't
+  // generate a massive SQL OFFSET on the backend.
+  const startPage = Math.min(Math.max(1, parseInt(route.query.page) || 1), totalPages.value)
   const initialFilters = { sort_by: filterInitial.value.sort_by }
   lastFilters.value = { ...initialFilters }
   await doSearch(initialFilters, startPage)

@@ -127,7 +127,28 @@ class TableAdminRepository(BaseRepository):
         ever match on login again.
 
         Returns True when a row was updated, False when user_id is unknown.
+
+        Raises ValueError when the user has active matches (status NOT IN
+        ('ended', 'cancelled', 'rejected')). Callers must resolve those
+        matches before anonymizing, otherwise participant names in live match
+        records would silently become stale.
         """
+        active = self.fetch_one(
+            """
+            SELECT 1 FROM matches
+            WHERE status NOT IN ('ended', 'cancelled', 'rejected')
+              AND (
+                tutor_id IN (SELECT tutor_id FROM tutors WHERE user_id = %s)
+                OR student_id IN (SELECT student_id FROM students WHERE parent_user_id = %s)
+              )
+            LIMIT 1
+            """,
+            (user_id, user_id),
+        )
+        if active is not None:
+            raise ValueError(
+                f"user_id={user_id} has active matches; resolve them before anonymizing"
+            )
         placeholder_username = f"deleted_user_{user_id}"
         self.cursor.execute(
             """

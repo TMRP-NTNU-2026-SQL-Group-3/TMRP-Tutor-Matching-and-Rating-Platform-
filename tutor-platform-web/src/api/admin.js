@@ -20,19 +20,21 @@ export const adminApi = {
     return api.get('/api/admin/users')
   },
   seedData() {
-    return api.post('/api/admin/seed')
+    // FE-13: seed can generate thousands of rows; 30s default is too short.
+    return api.post('/api/admin/seed', undefined, { timeout: 120000 })
   },
   importCsv(formData, tableName) {
     return postMultipart(
       `/api/admin/import?table_name=${encodeURIComponent(tableName)}`,
       formData,
+      { timeout: 120000 },
     )
   },
   exportCsv(tableName) {
-    return api.get(`/api/admin/export/${tableName}`, { responseType: 'blob' })
+    return api.get(`/api/admin/export/${tableName}`, { responseType: 'blob', timeout: 120000 })
   },
   exportAll() {
-    return api.post('/api/admin/export-all', null, { responseType: 'blob' })
+    return api.post('/api/admin/export-all', null, { responseType: 'blob', timeout: 120000 })
   },
   // H-04: two-step reset. Caller is expected to prompt the admin for their
   // password between step 1 and step 2 — never cache or auto-fill it.
@@ -49,7 +51,7 @@ export const adminApi = {
     return api.get('/api/admin/system-status')
   },
   importAll(formData, clearFirst = false) {
-    return postMultipart(`/api/admin/import-all?clear_first=${clearFirst}`, formData)
+    return postMultipart(`/api/admin/import-all?clear_first=${clearFirst}`, formData, { timeout: 120000 })
   },
   getTaskStatus(taskId) {
     return api.get(`/api/admin/tasks/${taskId}`)

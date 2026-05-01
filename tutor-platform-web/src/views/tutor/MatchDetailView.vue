@@ -91,7 +91,7 @@
           class="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
           申請終止
         </button>
-        <template v-if="match.status === 'terminating' && match.terminated_by !== userId">
+        <template v-if="match.status === 'terminating' && userId && match.terminated_by !== userId">
           <button @click="confirmAction('agree_terminate', '確定要同意終止這筆配對嗎？')" :disabled="actionLoading"
             class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50">
             同意終止
@@ -101,7 +101,7 @@
             不同意
           </button>
         </template>
-        <p v-if="match.status === 'terminating' && match.terminated_by === userId"
+        <p v-if="match.status === 'terminating' && userId && match.terminated_by === userId"
            class="text-sm text-gray-500 self-center">
           等待對方確認終止...
         </p>
