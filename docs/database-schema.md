@@ -660,7 +660,7 @@ GROUP BY tutor_id
 | Filter | `status IN ('active', 'trial')` |
 | Granularity | One row per tutor with at least one active/trial match |
 | Unique index | `idx_mv_tutor_active_tutor (tutor_id)` |
-| Refresh trigger | `fn_matches_refresh_active_students` (AFTER INSERT / UPDATE OF `status` / DELETE on `matches`) |
+| Refresh trigger | `fn_refresh_tutor_active_students` (AFTER INSERT / UPDATE OF `status` / DELETE on `matches`) |
 | Purpose | O(1) capacity check instead of `COUNT(*)` table scan |
 
 ---
@@ -670,7 +670,7 @@ GROUP BY tutor_id
 | Function | Event | Table | Timing | Purpose |
 |----------|-------|-------|--------|---------|
 | `fn_refresh_tutor_ratings` | INSERT, UPDATE, DELETE | `reviews` | AFTER | Refreshes `v_tutor_ratings` |
-| `fn_matches_refresh_active_students` | INSERT, UPDATE OF `status`, DELETE | `matches` | AFTER | Refreshes `v_tutor_active_students` |
+| `fn_refresh_tutor_active_students` | INSERT, UPDATE OF `status`, DELETE | `matches` | AFTER | Refreshes `v_tutor_active_students` |
 | `fn_match_set_parent_user` | INSERT, UPDATE OF `student_id` | `matches` | BEFORE | Populates `matches.parent_user_id` from `students.parent_user_id` |
 | `fn_students_propagate_parent` | UPDATE OF `parent_user_id` | `students` | AFTER | Syncs ownership change to all related `matches` rows |
 | `fn_conversations_order_pair` | INSERT, UPDATE | `conversations` | BEFORE | Normalizes `user_a_id < user_b_id` by swapping if caller passes wrong order |
@@ -714,7 +714,7 @@ GROUP BY tutor_id
 | `idx_sessions_match` | `sessions` | `match_id` | Session list per match |
 | `idx_sessions_created` | `sessions` | `created_at` | Chronological sort |
 | `idx_sessions_match_date` | `sessions` | `(match_id, session_date)` | Date-range queries |
-| `idx_sessions_match_visible` | `sessions` | `(match_id, visible_to_parent)` | Parent visibility filter |
+| `idx_sessions_match_visible` | `sessions` | `(match_id, visible_to_parent) INCLUDE (session_date)` | Parent visibility filter |
 | `idx_session_edit_logs_sess` | `session_edit_logs` | `session_id` | Edit history per session |
 | `idx_exams_student` | `exams` | `student_id` | Student's exam list |
 | `idx_exams_added_by` | `exams` | `added_by_user_id` | Audit by recorder |
