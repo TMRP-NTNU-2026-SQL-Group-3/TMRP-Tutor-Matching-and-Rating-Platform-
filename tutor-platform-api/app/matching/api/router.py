@@ -1,8 +1,6 @@
-import time
-
 from fastapi import APIRouter, Depends, Header, Query
 
-from app.identity.api.dependencies import get_current_user, is_admin, require_role
+from app.identity.api.dependencies import get_current_user, get_db, is_admin, require_role
 from app.matching.api.dependencies import get_match_service
 from app.matching.api.schemas import MatchCreate, MatchDetailResponse, MatchStatusUpdate
 from app.matching.application.match_app_service import MatchAppService
@@ -20,12 +18,6 @@ router = APIRouter(prefix="/api/matches", tags=["matches"])
 _MATCH_CREATE_LIMIT = 10
 _MATCH_CREATE_WINDOW = 3600
 
-# SEC-12: in-memory idempotency store for match creation.
-# Maps (user_id, idempotency_key) → (match_id, expires_at).
-# Scoped per-user so keys from different users cannot collide.
-_IDEMPOTENCY_TTL = 86400  # 24 hours
-_idempotency_cache: dict[tuple[int, str], tuple[int, float]] = {}
-
 
 @router.post("", status_code=201, summary="建立配對邀請", description="家長為指定學生向家教發送配對邀請。", response_model=ApiResponse)
 def create_match(
@@ -33,20 +25,22 @@ def create_match(
     user=Depends(require_role("parent")),
     service: MatchAppService = Depends(get_match_service),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key", max_length=128),
+    conn=Depends(get_db),
 ):
     user_id = int(user["sub"])
 
-    # SEC-12: return the original match_id for retried requests bearing the
-    # same key, preventing duplicate matches from network retries.
+    # SEC-12: DB-backed idempotency so retried requests bearing the same key
+    # return the original match_id regardless of which worker handles the retry.
     if idempotency_key:
-        cache_key = (user_id, idempotency_key)
-        now = time.monotonic()
-        entry = _idempotency_cache.get(cache_key)
-        if entry:
-            match_id, expires_at = entry
-            if now < expires_at:
-                return ApiResponse(success=True, data={"match_id": match_id}, message="媒合邀請已送出")
-            del _idempotency_cache[cache_key]
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT match_id FROM idempotency_keys
+                   WHERE user_id = %s AND idem_key = %s AND expires_at > NOW()""",
+                (user_id, idempotency_key),
+            )
+            row = cur.fetchone()
+        if row:
+            return ApiResponse(success=True, data={"match_id": row[0]}, message="媒合邀請已送出")
 
     bucket = f"match:create|tutor={body.tutor_id}|user={user_id}"
     if not check_and_record_bucket(bucket, _MATCH_CREATE_LIMIT, _MATCH_CREATE_WINDOW):
@@ -63,7 +57,14 @@ def create_match(
     )
 
     if idempotency_key:
-        _idempotency_cache[(user_id, idempotency_key)] = (match_id, time.monotonic() + _IDEMPOTENCY_TTL)
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO idempotency_keys (idem_key, user_id, match_id, expires_at)
+                   VALUES (%s, %s, %s, NOW() + INTERVAL '24 hours')
+                   ON CONFLICT (user_id, idem_key) DO NOTHING""",
+                (idempotency_key, user_id, match_id),
+            )
+        conn.commit()
 
     return ApiResponse(success=True, data={"match_id": match_id}, message="媒合邀請已送出")
 

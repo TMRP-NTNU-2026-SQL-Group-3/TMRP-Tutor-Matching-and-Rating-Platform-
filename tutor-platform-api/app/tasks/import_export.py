@@ -23,11 +23,13 @@ def _task_extra(request_id: str | None, **fields) -> dict:
 
 
 @huey.task(retries=3, retry_delay=10, timeout=3600)
-def import_csv_task(table_name: str, csv_content: str, request_id: str | None = None) -> dict:
+def import_csv_task(table_name: str, csv_content: str, admin_user_id: int, request_id: str | None = None) -> dict:
     """Asynchronously import a CSV into the given table.
 
-    `request_id` is propagated from the API caller so worker log lines can be
-    correlated with the originating HTTP request in the access log.
+    `admin_user_id` is verified against the DB so a task enqueued directly
+    into huey.db (bypassing the HTTP auth layer) is still rejected if the
+    claimed user is not an admin.  `request_id` is propagated from the API
+    caller so worker log lines can be correlated with the originating request.
     """
     if table_name not in ALLOWED_TABLES:
         return {"error": f"Disallowed table name: {table_name}"}
@@ -35,6 +37,16 @@ def import_csv_task(table_name: str, csv_content: str, request_id: str | None = 
     logger.info("Start importing %s", table_name, extra=_task_extra(request_id, table=table_name))
     conn = get_connection()
     try:
+        with conn.cursor() as _auth_cur:
+            _auth_cur.execute("SELECT role FROM users WHERE user_id = %s", (admin_user_id,))
+            _auth_row = _auth_cur.fetchone()
+        if not _auth_row or _auth_row[0] != "admin":
+            logger.warning(
+                "import_csv_task rejected: user_id=%s is not an admin (table=%s)",
+                admin_user_id, table_name,
+            )
+            return {"error": "unauthorized: admin_user_id does not have admin role"}
+
         reader = csv.DictReader(io.StringIO(csv_content))
         rows = list(reader)
         if not rows:
@@ -89,9 +101,10 @@ def import_csv_task(table_name: str, csv_content: str, request_id: str | None = 
 
 
 @huey.task(retries=3, retry_delay=10, timeout=3600)
-def export_csv_task(table_name: str, request_id: str | None = None) -> dict:
+def export_csv_task(table_name: str, admin_user_id: int, request_id: str | None = None) -> dict:
     """Asynchronously export the given table as CSV.
 
+    `admin_user_id` is verified against the DB; see import_csv_task.
     `request_id` is propagated from the API caller; see import_csv_task.
     """
     if table_name not in ALLOWED_TABLES:
@@ -100,6 +113,16 @@ def export_csv_task(table_name: str, request_id: str | None = None) -> dict:
     logger.info("Start exporting %s", table_name, extra=_task_extra(request_id, table=table_name))
     conn = get_connection()
     try:
+        with conn.cursor() as _auth_cur:
+            _auth_cur.execute("SELECT role FROM users WHERE user_id = %s", (admin_user_id,))
+            _auth_row = _auth_cur.fetchone()
+        if not _auth_row or _auth_row[0] != "admin":
+            logger.warning(
+                "export_csv_task rejected: user_id=%s is not an admin (table=%s)",
+                admin_user_id, table_name,
+            )
+            return {"error": "unauthorized: admin_user_id does not have admin role"}
+
         repo = BaseRepository(conn)
         select_stmt = sql.SQL("SELECT * FROM {tbl}").format(tbl=sql.Identifier(table_name))
         rows = repo.fetch_all(select_stmt)

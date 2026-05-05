@@ -22,20 +22,20 @@ class SessionCreate(BaseModel):
     match_id: int = Field(..., description="配對 ID")
     session_date: datetime = Field(..., description="上課日期時間")
     hours: float = Field(..., gt=0, le=24, description="上課時數")
-    content_summary: str = Field(..., description="上課內容摘要")
-    homework: str | None = Field(default=None, description="指派作業")
-    student_performance: str | None = Field(default=None, description="學生表現紀錄")
-    next_plan: str | None = Field(default=None, description="下次上課計畫")
+    content_summary: str = Field(..., max_length=4000, description="上課內容摘要")
+    homework: str | None = Field(default=None, max_length=4000, description="指派作業")
+    student_performance: str | None = Field(default=None, max_length=4000, description="學生表現紀錄")
+    next_plan: str | None = Field(default=None, max_length=4000, description="下次上課計畫")
     visible_to_parent: bool = Field(default=False, description="是否對家長可見")
 
 
 class SessionUpdate(BaseModel):
     session_date: datetime | None = Field(default=None)
     hours: float | None = Field(default=None, gt=0, le=24)
-    content_summary: str | None = Field(default=None)
-    homework: str | None = Field(default=None)
-    student_performance: str | None = Field(default=None)
-    next_plan: str | None = Field(default=None)
+    content_summary: str | None = Field(default=None, max_length=4000)
+    homework: str | None = Field(default=None, max_length=4000)
+    student_performance: str | None = Field(default=None, max_length=4000)
+    next_plan: str | None = Field(default=None, max_length=4000)
     visible_to_parent: bool | None = Field(default=None)
 
 

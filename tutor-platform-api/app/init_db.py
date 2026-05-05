@@ -226,6 +226,20 @@ CREATE TABLE IF NOT EXISTS password_history (
     changed_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+-- SEC-12: DB-backed idempotency for match creation. An in-process dict is not
+-- shared across workers, so the same Idempotency-Key landing on a different
+-- worker sees an empty cache. Storing the key here makes the check consistent
+-- regardless of which worker handles the retry.
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    idem_key   VARCHAR(128) NOT NULL,
+    user_id    INTEGER      NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    match_id   INTEGER      NOT NULL,
+    expires_at TIMESTAMPTZ  NOT NULL,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, idem_key)
+);
+CREATE INDEX IF NOT EXISTS idx_idempotency_expires ON idempotency_keys (expires_at);
+
 -- 認證 / 限流支援表（多 worker 部署下需共享狀態，避免 in-memory 漂移）
 CREATE TABLE IF NOT EXISTS refresh_token_blacklist (
     jti        VARCHAR(64)  PRIMARY KEY,

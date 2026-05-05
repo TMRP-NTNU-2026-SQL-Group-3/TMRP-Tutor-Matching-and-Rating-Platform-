@@ -13,7 +13,7 @@ class RegisterRequest(BaseModel):
         pattern=r"^[A-Za-z0-9_]([A-Za-z0-9_.\-@]*[A-Za-z0-9_])?$",
     )
     password: str = Field(..., description="使用者密碼", examples=["P@ssw0rd123"])
-    display_name: str = Field(..., description="顯示名稱", examples=["王小明"])
+    display_name: str = Field(..., max_length=100, description="顯示名稱", examples=["王小明"])
     role: Literal["parent", "tutor"] = Field(..., description="使用者角色（parent 或 tutor）", examples=["parent"])
     phone: OptionalStr = Field(default=None, description="聯絡電話", examples=["0912345678"])
     email: EmailStr | None = Field(default=None, description="電子信箱", examples=["user@example.com"])

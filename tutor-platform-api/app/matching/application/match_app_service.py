@@ -170,8 +170,15 @@ class MatchAppService:
             if not reason:
                 raise InvalidTransitionError("終止配對需要提供原因")
             with self._uow.begin():
+                fresh = self._match_repo.find_by_id_for_update(match_id)
+                if fresh is None:
+                    raise MatchNotFoundError()
+                is_parent = fresh.parent_user_id == user_id
+                is_tutor = fresh.tutor_user_id == user_id
+                if not is_parent and not is_tutor and not is_admin:
+                    raise MatchPermissionDeniedError("無權操作此配對")
                 self._match_repo.set_terminating(
-                    match_id, user_id, reason, match.status.value
+                    match_id, user_id, reason, fresh.status.value
                 )
             new_status = MatchStatus.TERMINATING
             self._audit_admin_transition(
@@ -181,10 +188,27 @@ class MatchAppService:
 
         elif action == Action.DISAGREE_TERMINATE:
             with self._uow.begin():
-                fresh = self._match_repo.find_by_id(match_id)
+                fresh = self._match_repo.find_by_id_for_update(match_id)
                 if not fresh or fresh.status != MatchStatus.TERMINATING:
                     raise InvalidTransitionError("配對狀態已變更，請重新整理頁面")
-                prev = fresh.previous_status_before_terminating
+                is_parent = fresh.parent_user_id == user_id
+                is_tutor = fresh.tutor_user_id == user_id
+                if not is_parent and not is_tutor and not is_admin:
+                    raise MatchPermissionDeniedError("無權操作此配對")
+                # ERR-1: previous_status_before_terminating raises ValueError for
+                # a malformed termination_reason (e.g. imported via CSV). Catch
+                # and surface as a domain error so the caller gets a 422, not a 500.
+                try:
+                    prev = fresh.previous_status_before_terminating
+                except ValueError as exc:
+                    logger.error(
+                        "match_id=%s has malformed termination_reason; "
+                        "DISAGREE_TERMINATE cannot recover previous status: %s",
+                        match_id, exc,
+                    )
+                    raise InvalidTransitionError(
+                        "配對的終止記錄格式異常，無法復原狀態，請聯繫管理員"
+                    ) from exc
                 self._match_repo.clear_termination(match_id, prev)
                 new_status = MatchStatus(prev)
             self._audit_admin_transition(
@@ -219,11 +243,28 @@ class MatchAppService:
                 except ValueError as exc:
                     raise InvalidTransitionError(str(exc)) from exc
             with self._uow.begin():
+                fresh = self._match_repo.find_by_id_for_update(match_id)
+                if fresh is None:
+                    raise MatchNotFoundError()
+                is_parent = fresh.parent_user_id == user_id
+                is_tutor = fresh.tutor_user_id == user_id
+                if not is_parent and not is_tutor and not is_admin:
+                    raise MatchPermissionDeniedError("無權操作此配對")
+                new_status = state_machine.resolve_transition(
+                    current=fresh.status,
+                    action=action,
+                    actor_is_parent=is_parent,
+                    actor_is_tutor=is_tutor,
+                    actor_is_admin=is_admin,
+                    actor_user_id=user_id,
+                    terminated_by=fresh.terminated_by,
+                    want_trial=fresh.contract.want_trial,
+                )
                 if new_status == MatchStatus.ACTIVE:
-                    if not self._catalog.lock_tutor_for_update(match.tutor_id):
+                    if not self._catalog.lock_tutor_for_update(fresh.tutor_id):
                         raise TutorNotFoundError()
-                    active = self._catalog.get_active_student_count(match.tutor_id)
-                    max_s = self._catalog.get_max_students(match.tutor_id)
+                    active = self._catalog.get_active_student_count(fresh.tutor_id)
+                    max_s = self._catalog.get_max_students(fresh.tutor_id)
                     if active >= max_s:
                         raise CapacityExceededError()
                 if has_terms:
@@ -248,10 +289,27 @@ class MatchAppService:
             # cap. Mirror the create_match gate: lock the tutor row, then
             # read-and-compare under the same tx that flips the status.
             with self._uow.begin():
-                if not self._catalog.lock_tutor_for_update(match.tutor_id):
+                fresh = self._match_repo.find_by_id_for_update(match_id)
+                if fresh is None:
+                    raise MatchNotFoundError()
+                is_parent = fresh.parent_user_id == user_id
+                is_tutor = fresh.tutor_user_id == user_id
+                if not is_parent and not is_tutor and not is_admin:
+                    raise MatchPermissionDeniedError("無權操作此配對")
+                new_status = state_machine.resolve_transition(
+                    current=fresh.status,
+                    action=action,
+                    actor_is_parent=is_parent,
+                    actor_is_tutor=is_tutor,
+                    actor_is_admin=is_admin,
+                    actor_user_id=user_id,
+                    terminated_by=fresh.terminated_by,
+                    want_trial=fresh.contract.want_trial,
+                )
+                if not self._catalog.lock_tutor_for_update(fresh.tutor_id):
                     raise TutorNotFoundError()
-                active = self._catalog.get_active_student_count(match.tutor_id)
-                max_s = self._catalog.get_max_students(match.tutor_id)
+                active = self._catalog.get_active_student_count(fresh.tutor_id)
+                max_s = self._catalog.get_max_students(fresh.tutor_id)
                 if active >= max_s:
                     raise CapacityExceededError()
                 self._match_repo.update_status(match_id, new_status.value)

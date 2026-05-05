@@ -9,7 +9,7 @@ class TutorProfileUpdate(BaseModel):
     university: str | None = Field(default=None, max_length=200, description="就讀大學")
     department: str | None = Field(default=None, max_length=200, description="就讀科系")
     grade_year: int | None = Field(default=None, description="年級")
-    max_students: int | None = Field(default=None, description="最大收學生數")
+    max_students: int | None = Field(default=None, ge=1, le=100, description="最大收學生數")
     show_university: bool | None = Field(default=None, description="是否公開大學資訊")
     show_department: bool | None = Field(default=None, description="是否公開科系資訊")
     show_grade_year: bool | None = Field(default=None, description="是否公開年級資訊")
@@ -60,13 +60,13 @@ class VisibilityUpdate(BaseModel):
 
 
 class StudentCreate(BaseModel):
-    name: TrimmedStr = Field(..., description="學生姓名")
-    school: OptionalStr = Field(default=None, description="就讀學校")
-    grade: OptionalStr = Field(default=None, description="年級")
+    name: TrimmedStr = Field(..., max_length=50, description="學生姓名")
+    school: OptionalStr = Field(default=None, max_length=50, description="就讀學校")
+    grade: OptionalStr = Field(default=None, max_length=20, description="年級")
 
 
 class StudentUpdate(BaseModel):
-    name: OptionalStr = Field(default=None, description="學生姓名")
-    school: OptionalStr = Field(default=None, description="就讀學校")
-    grade: OptionalStr = Field(default=None, description="年級")
-    target_school: OptionalStr = Field(default=None, description="目標學校")
+    name: OptionalStr = Field(default=None, max_length=50, description="學生姓名")
+    school: OptionalStr = Field(default=None, max_length=50, description="就讀學校")
+    grade: OptionalStr = Field(default=None, max_length=20, description="年級")
+    target_school: OptionalStr = Field(default=None, max_length=50, description="目標學校")

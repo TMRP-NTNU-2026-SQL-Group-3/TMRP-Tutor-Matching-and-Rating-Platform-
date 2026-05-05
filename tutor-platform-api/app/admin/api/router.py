@@ -225,7 +225,7 @@ def confirm_reset(
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT password_hash FROM users WHERE user_id = %s",
+            "SELECT password_hash FROM users WHERE user_id = %s FOR UPDATE",
             (int(user["sub"]),),
         )
         row = cur.fetchone()

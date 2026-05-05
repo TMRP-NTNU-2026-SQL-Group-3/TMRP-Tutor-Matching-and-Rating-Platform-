@@ -78,10 +78,10 @@ def delete_exam(exam_id: int, user=Depends(get_current_user), conn=Depends(get_d
     repo = PostgresExamRepository(conn)
     user_id = int(user["sub"])
     exam = repo.get_by_id(exam_id)
-    if not exam:
+    # SEC-10: normalize ownership failure to 404 so sequential exam_id values
+    # cannot be enumerated by comparing 403 vs 404 response codes.
+    if not exam or exam["added_by_user_id"] != user_id:
         raise NotFoundError("找不到此考試紀錄")
-    if exam["added_by_user_id"] != user_id:
-        raise PermissionDeniedError("只有原新增者可以刪除考試紀錄")
     repo.delete(exam_id)
     return ApiResponse(success=True, message="考試紀錄已刪除")
 
@@ -91,10 +91,9 @@ def update_exam(exam_id: int, body: ExamUpdate, user=Depends(get_current_user), 
     repo = PostgresExamRepository(conn)
     user_id = int(user["sub"])
     exam = repo.get_by_id(exam_id)
-    if not exam:
+    # SEC-10: normalize ownership failure to 404; same pattern as delete_exam above.
+    if not exam or exam["added_by_user_id"] != user_id:
         raise NotFoundError("找不到此考試紀錄")
-    if exam["added_by_user_id"] != user_id:
-        raise PermissionDeniedError("只有原新增者可以修改考試紀錄")
     updates = {
         k: (bool(v) if k == "visible_to_parent" else v)
         for k, v in body.model_dump(exclude_unset=True).items()
