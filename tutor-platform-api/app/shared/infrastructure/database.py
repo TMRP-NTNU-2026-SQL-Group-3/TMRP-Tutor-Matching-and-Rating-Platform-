@@ -91,16 +91,19 @@ def pool_stats() -> dict:
     point-in-time snapshot — "in_use" may change the moment we return.
     """
     p = _require_pool()
-    with p._lock:  # noqa: SLF001 — no public accessor
-        total = len(p._used) + len(p._pool)
-        return {
-            "min": p.minconn,
-            "max": p.maxconn,
-            "in_use": len(p._used),
-            "idle": len(p._pool),
-            "total": total,
-            "utilization": round(len(p._used) / p.maxconn, 3) if p.maxconn else 0.0,
-        }
+    try:
+        with p._lock:  # noqa: SLF001 — no public accessor
+            total = len(p._used) + len(p._pool)
+            return {
+                "min": p.minconn,
+                "max": p.maxconn,
+                "in_use": len(p._used),
+                "idle": len(p._pool),
+                "total": total,
+                "utilization": round(len(p._used) / p.maxconn, 3) if p.maxconn else 0.0,
+            }
+    except AttributeError:
+        return {"min": p.minconn, "max": p.maxconn, "error": "pool internals unavailable"}
 
 
 if __name__ == "__main__":

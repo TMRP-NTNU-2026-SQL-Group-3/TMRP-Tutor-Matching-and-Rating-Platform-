@@ -44,7 +44,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
                 "path": request.url.path,
                 "status": response.status_code,
                 "duration_ms": round(duration_ms, 1),
-                "client_ip": request.client.host,
+                "client_ip": request.client.host if request.client else "unknown",
                 "user_agent": ua_value,
                 "user_agent_len": ua_original_len,
                 "user_agent_truncated": ua_truncated,

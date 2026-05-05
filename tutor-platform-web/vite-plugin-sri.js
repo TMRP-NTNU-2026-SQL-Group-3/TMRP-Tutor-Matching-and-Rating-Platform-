@@ -34,16 +34,25 @@ export default function sriPlugin() {
           ? chunk.source
           : Buffer.from(chunk.source).toString('utf-8')
 
-        // Match absolute-path src="/assets/..." and href="/assets/..." produced
-        // by Vite's default base "/". Only injects integrity when the file is in
-        // the bundle map (skips external links, anchor href, etc.).
-        html = html.replace(/\bsrc="(\/[^"?#]+)"/g, (match, path) => {
+        // Match the full <script ...> and <link ...> tags so we can inspect the
+        // rest of the tag before deciding whether to add crossorigin="anonymous".
+        // Vite 6 already emits crossorigin on module scripts and modulepreload
+        // links; injecting it again would produce duplicate attributes.
+        // SEC-04: crossorigin="anonymous" is required for browsers to perform
+        // the CORS fetch that SRI verification needs before executing the asset.
+        html = html.replace(/(<script\b[^>]*?)src="(\/[^"?#]+)"([^>]*>)/g, (match, before, path, after) => {
           const integrity = integrityMap.get(path.slice(1))
-          return integrity ? `src="${path}" integrity="${integrity}"` : match
+          if (!integrity) return match
+          const hasCrossorigin = /\bcrossorigin\b/.test(before + after)
+          const corsAttr = hasCrossorigin ? '' : ' crossorigin="anonymous"'
+          return `${before}src="${path}" integrity="${integrity}"${corsAttr}${after}`
         })
-        html = html.replace(/\bhref="(\/[^"?#]+)"/g, (match, path) => {
+        html = html.replace(/(<link\b[^>]*?)href="(\/[^"?#]+)"([^>]*>)/g, (match, before, path, after) => {
           const integrity = integrityMap.get(path.slice(1))
-          return integrity ? `href="${path}" integrity="${integrity}"` : match
+          if (!integrity) return match
+          const hasCrossorigin = /\bcrossorigin\b/.test(before + after)
+          const corsAttr = hasCrossorigin ? '' : ' crossorigin="anonymous"'
+          return `${before}href="${path}" integrity="${integrity}"${corsAttr}${after}`
         })
 
         chunk.source = html

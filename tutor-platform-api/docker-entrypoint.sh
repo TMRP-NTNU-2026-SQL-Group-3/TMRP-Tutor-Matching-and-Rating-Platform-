@@ -75,4 +75,11 @@ if [ -f /run/secrets/admin_password ]; then
   export ADMIN_PASSWORD
 fi
 
+# Pre-create the huey SQLite task queue with restricted permissions so the
+# OS umask cannot produce a world-readable file containing task payloads.
+# SQLite honours pre-existing file permissions when opening an existing file.
+mkdir -p data
+touch data/huey.db
+chmod 600 data/huey.db
+
 exec "$@"

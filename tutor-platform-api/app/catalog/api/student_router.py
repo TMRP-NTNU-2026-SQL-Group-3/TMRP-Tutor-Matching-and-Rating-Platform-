@@ -37,12 +37,18 @@ def list_students(
     )
 
 
+_MAX_STUDENTS_PER_PARENT = 20
+
+
 @router.post("", summary="新增子女", response_model=ApiResponse)
 def add_student(body: StudentCreate, user=Depends(require_role("parent")), conn=Depends(get_db)):
     # Name trimming / empty-check is handled by TrimmedStr in StudentCreate.
     repo = PostgresStudentRepository(conn)
+    parent_id = int(user["sub"])
+    if repo.count_by_parent(parent_id) >= _MAX_STUDENTS_PER_PARENT:
+        raise DomainException(f"每位家長最多新增 {_MAX_STUDENTS_PER_PARENT} 名子女")
     student_id = repo.create(
-        parent_user_id=int(user["sub"]),
+        parent_user_id=parent_id,
         name=body.name,
         school=body.school,
         grade=body.grade,

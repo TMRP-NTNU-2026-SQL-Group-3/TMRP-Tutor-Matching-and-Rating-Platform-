@@ -51,7 +51,7 @@ for p in _lifespan_patchers:
 
 from app.main import app  # noqa: E402
 from app.shared.infrastructure.database import get_db  # noqa: E402
-from app.utils.security import create_access_token  # noqa: E402
+from app.shared.infrastructure.security import create_access_token  # noqa: E402
 
 
 # ── Mock DB connection ────────────────────────────────────────

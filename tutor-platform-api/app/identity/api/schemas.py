@@ -53,15 +53,6 @@ class LoginRequest(BaseModel):
     password: str = Field(..., description="使用者密碼", examples=["P@ssw0rd123"], max_length=128)
 
 
-class TokenResponse(BaseModel):
-    access_token: str = Field(..., description="JWT 存取令牌")
-    refresh_token: str = Field(..., description="JWT 刷新令牌")
-    token_type: str = Field(default="bearer", description="令牌類型")
-    user_id: int = Field(..., description="使用者 ID")
-    role: str = Field(..., description="使用者角色")
-    display_name: str = Field(..., description="顯示名稱")
-
-
 class AuthUserResponse(BaseModel):
     """SEC-C02: user info returned in body; tokens are delivered via HttpOnly cookies."""
     user_id: int = Field(..., description="使用者 ID")

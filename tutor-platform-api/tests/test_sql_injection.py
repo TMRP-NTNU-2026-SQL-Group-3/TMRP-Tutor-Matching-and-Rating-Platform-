@@ -12,7 +12,7 @@ All tests use the same mock-repo strategy as the rest of the suite (no real DB).
 import pytest
 from unittest.mock import call, patch
 
-from app.utils.security import hash_password
+from app.shared.infrastructure.security import hash_password
 
 
 _AUTH_REPO = "app.identity.api.router.PostgresUserRepository"

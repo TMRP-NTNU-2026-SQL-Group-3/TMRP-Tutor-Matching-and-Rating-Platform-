@@ -48,8 +48,8 @@ def transaction(conn):
         yield conn
         return
 
-    _set_in_tx(conn, True)
     try:
+        _set_in_tx(conn, True)
         try:
             yield conn
         except Exception:

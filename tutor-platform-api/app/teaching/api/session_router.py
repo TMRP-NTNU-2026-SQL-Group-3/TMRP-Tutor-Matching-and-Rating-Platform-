@@ -1,14 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.identity.api.dependencies import get_current_user, is_admin, require_role
+from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
-from app.shared.domain.exceptions import PermissionDeniedError
+from app.shared.domain.exceptions import PermissionDeniedError, TooManyRequestsError
 from app.teaching.api.dependencies import get_session_service
 from app.teaching.api.schemas import SessionCreate, SessionUpdate
 from app.teaching.application.session_service import SessionAppService
 from app.teaching.domain.exceptions import SessionNotFoundError
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+# B6: Path-based rate-limiting in the middleware can't distinguish "60 session
+# logs for one match in a minute" from "60 across 60 different matches". This
+# per-match+tutor bucket isolates each match's log independently of others.
+_SESSION_CREATE_LIMIT = 10
+_SESSION_CREATE_WINDOW = 60
 
 
 @router.post("", status_code=201, summary="新增上課日誌", response_model=ApiResponse)
@@ -17,8 +24,14 @@ def create_session(
     user=Depends(require_role("tutor")),
     service: SessionAppService = Depends(get_session_service),
 ):
+    tutor_user_id = int(user["sub"])
+    # Keyed on match+tutor so the bucket survives IP changes (mobile networks,
+    # roaming) but still isolates different matches from each other.
+    bucket = f"session:create|match={body.match_id}|tutor={tutor_user_id}"
+    if not check_and_record_bucket(bucket, _SESSION_CREATE_LIMIT, _SESSION_CREATE_WINDOW):
+        raise TooManyRequestsError("此配對的上課日誌新增頻率過高，請稍後再試")
     session_id = service.create(
-        tutor_user_id=int(user["sub"]),
+        tutor_user_id=tutor_user_id,
         match_id=body.match_id,
         session_date=body.session_date,
         hours=body.hours,

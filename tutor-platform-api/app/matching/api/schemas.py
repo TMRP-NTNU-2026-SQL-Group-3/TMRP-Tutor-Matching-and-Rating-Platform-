@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.matching.domain.entities import Match
 
@@ -25,6 +26,51 @@ class MatchStatusUpdate(BaseModel):
     hourly_rate: float | None = Field(default=None, ge=1, le=9999, description="正式合作時薪")
     sessions_per_week: int | None = Field(default=None, ge=1, le=28, description="正式合作每週堂數")
     start_date: datetime | None = Field(default=None, description="正式合作起始日")
+
+
+class MatchListItemResponse(BaseModel):
+    """Schema for items returned by the list_matches endpoint.
+
+    Parses the raw ``{previous_status}|{reason}`` termination_reason
+    format stored in the DB into the human-readable reason string, matching
+    the shape emitted by MatchDetailResponse."""
+
+    model_config = ConfigDict(from_attributes=False)
+
+    match_id: int
+    tutor_id: int
+    student_id: int
+    subject_id: int
+    status: str
+    status_label: str
+    hourly_rate: float
+    sessions_per_week: int
+    want_trial: bool
+    invite_message: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    penalty_amount: float | None = None
+    trial_price: float | None = None
+    trial_count: int | None = None
+    contract_notes: str | None = None
+    terminated_by: int | None = None
+    termination_reason: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    subject_name: str | None = None
+    student_name: str | None = None
+    parent_user_id: int | None = None
+    tutor_display_name: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _parse_termination_reason(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            raw = data.get("termination_reason")
+            if raw and "|" in raw:
+                data = dict(data)
+                data["termination_reason"] = raw.split("|", 1)[1]
+        return data
 
 
 class MatchDetailResponse(BaseModel):

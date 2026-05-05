@@ -17,6 +17,7 @@ def _match_participants(**overrides):
         "status": "active",
         "tutor_user_id": 2,
         "parent_user_id": 1,
+        "session_count": 1,
     }
     base.update(overrides)
     return base
@@ -32,7 +33,6 @@ class TestCreateReview:
         with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
-            repo.find_existing.return_value = None
             repo.create.return_value = 10
 
             resp = client.post(self.ENDPOINT, json={
@@ -51,7 +51,6 @@ class TestCreateReview:
         with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
-            repo.find_existing.return_value = None
             repo.create.return_value = 11
 
             resp = client.post(self.ENDPOINT, json={
@@ -68,7 +67,6 @@ class TestCreateReview:
         with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
-            repo.find_existing.return_value = None
             repo.create.return_value = 12
 
             resp = client.post(self.ENDPOINT, json={

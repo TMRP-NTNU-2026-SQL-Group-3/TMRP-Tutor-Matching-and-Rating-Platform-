@@ -20,11 +20,15 @@ def lock_expired_reviews():
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(days=settings.review_lock_days)
         cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE reviews SET is_locked = TRUE "
-            "WHERE created_at < %s AND (is_locked = FALSE OR is_locked IS NULL)",
-            (cutoff,),
-        )
+        try:
+            cursor.execute(
+                "UPDATE reviews SET is_locked = TRUE "
+                "WHERE created_at < %s AND (is_locked = FALSE OR is_locked IS NULL)",
+                (cutoff,),
+            )
+        except Exception:
+            logger.exception("lock_expired_reviews: cursor.execute failed")
+            raise
         count = cursor.rowcount
         conn.commit()
         logger.info("Locked %d expired reviews", count)

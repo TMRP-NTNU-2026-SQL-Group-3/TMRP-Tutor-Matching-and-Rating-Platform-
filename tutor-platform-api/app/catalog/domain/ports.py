@@ -3,9 +3,6 @@ from abc import ABC, abstractmethod
 
 class ITutorRepository(ABC):
     @abstractmethod
-    def search(self, subject_id: int | None = None, school: str | None = None) -> list[dict]: ...
-
-    @abstractmethod
     def find_by_id(self, tutor_id: int) -> dict | None: ...
 
     @abstractmethod

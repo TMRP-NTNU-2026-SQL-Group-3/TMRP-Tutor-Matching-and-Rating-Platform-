@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 from pydantic import Field, model_validator
@@ -83,9 +84,9 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:5173"
 
-    # SEC-C02: auth cookies. Secure=True requires HTTPS — set to True in
-    # production (.env.docker), leave False for local HTTP development.
-    cookie_secure: bool = False
+    # SEC-C02: auth cookies. Secure=True requires HTTPS. Defaults to True;
+    # set COOKIE_SECURE=false explicitly for local HTTP development.
+    cookie_secure: bool = True
 
     # Operational toggle. When False, FastAPI suppresses /docs, /redoc and the
     # OpenAPI JSON so production deployments don't leak the full route list.
@@ -215,6 +216,11 @@ class Settings(BaseSettings):
                     raise ValueError(
                         f"CORS origin {origin!r} must use https:// in non-debug mode."
                     )
+        if self.log_level.upper() == "DEBUG" and not self.debug:
+            logging.getLogger(__name__).warning(
+                "LOG_LEVEL=DEBUG is active while DEBUG=False; verbose output may "
+                "expose sensitive values in log aggregators."
+            )
         return self
 
 

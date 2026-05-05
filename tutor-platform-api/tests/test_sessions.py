@@ -1,13 +1,13 @@
 """Session API tests: create session / edit-log diff behaviour.
 
 Patches the Teaching BC infrastructure repo (`PostgresSessionRepository`)
-at its import site inside `app.teaching.api.session_router`.
+at its import site inside `app.teaching.api.dependencies`.
 """
 
 from unittest.mock import patch
 
 
-_REPO_PATH = "app.teaching.api.session_router.PostgresSessionRepository"
+_REPO_PATH = "app.teaching.api.dependencies.PostgresSessionRepository"
 
 
 def _edit_log_insert_calls(repo) -> list:
@@ -122,11 +122,10 @@ class TestUpdateSession:
                 "next_plan": None,
                 "visible_to_parent": False,
             }
-            repo.get_by_id.return_value = old_session
+            repo.get_by_id_for_update.return_value = old_session
             repo.get_match_for_create.return_value = {
                 "match_id": 1, "status": "active", "tutor_user_id": 2,
             }
-            repo.fetch_one.return_value = old_session
 
             resp = client.put(
                 self.ENDPOINT.format(session_id=50),
@@ -154,11 +153,10 @@ class TestUpdateSession:
                 "next_plan": None,
                 "visible_to_parent": False,
             }
-            repo.get_by_id.return_value = old_session
+            repo.get_by_id_for_update.return_value = old_session
             repo.get_match_for_create.return_value = {
                 "match_id": 1, "status": "active", "tutor_user_id": 2,
             }
-            repo.fetch_one.return_value = old_session
 
             resp = client.put(
                 self.ENDPOINT.format(session_id=50),
@@ -189,8 +187,8 @@ class TestListSessions:
         """Tutor lists all sessions for the match."""
         with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_match_participants.return_value = {
-                "match_id": 1, "tutor_user_id": 2, "parent_user_id": 1,
+            repo.get_match_participants_for_share.return_value = {
+                "match_id": 1, "status": "active", "tutor_user_id": 2, "parent_user_id": 1,
             }
             repo.list_by_match.return_value = [
                 {"session_id": 50, "visible_to_parent": True},
@@ -210,8 +208,8 @@ class TestListSessions:
         """Parent sees only visible_to_parent=true rows."""
         with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
-            repo.get_match_participants.return_value = {
-                "match_id": 1, "tutor_user_id": 2, "parent_user_id": 1,
+            repo.get_match_participants_for_share.return_value = {
+                "match_id": 1, "status": "active", "tutor_user_id": 2, "parent_user_id": 1,
             }
             repo.list_by_match.return_value = [
                 {"session_id": 50, "visible_to_parent": True},
@@ -225,6 +223,36 @@ class TestListSessions:
         assert resp.status_code == 200
         repo.list_by_match.assert_called_once_with(1, visible_only=True)
 
+    def test_list_rejected_match_denied(self, client, tutor_headers, mock_conn):
+        """BAC-1: participants of a rejected match cannot read session logs."""
+        with patch(_REPO_PATH) as MockRepo:
+            repo = MockRepo.return_value
+            repo.get_match_participants_for_share.return_value = {
+                "match_id": 1, "status": "rejected", "tutor_user_id": 2, "parent_user_id": 1,
+            }
+
+            resp = client.get(
+                self.ENDPOINT, params={"match_id": 1},
+                headers=tutor_headers,
+            )
+
+        assert resp.status_code == 403
+
+    def test_list_pending_match_denied(self, client, tutor_headers, mock_conn):
+        """BAC-1: participants of a pending match cannot read session logs."""
+        with patch(_REPO_PATH) as MockRepo:
+            repo = MockRepo.return_value
+            repo.get_match_participants_for_share.return_value = {
+                "match_id": 1, "status": "pending", "tutor_user_id": 2, "parent_user_id": 1,
+            }
+
+            resp = client.get(
+                self.ENDPOINT, params={"match_id": 1},
+                headers=tutor_headers,
+            )
+
+        assert resp.status_code == 403
+
 
 # ━━━━━━━━━━ Edit-log retrieval ━━━━━━━━━━
 
@@ -237,7 +265,7 @@ class TestEditLogs:
             repo = MockRepo.return_value
             repo.get_by_id.return_value = {"session_id": 50, "match_id": 1}
             repo.get_match_participants.return_value = {
-                "match_id": 1, "tutor_user_id": 2, "parent_user_id": 1,
+                "match_id": 1, "status": "active", "tutor_user_id": 2, "parent_user_id": 1,
             }
             repo.get_edit_logs.return_value = [
                 {
@@ -256,3 +284,27 @@ class TestEditLogs:
 
         assert resp.status_code == 200
         assert len(resp.json()["data"]) == 1
+
+    def test_get_edit_logs_parent_hidden_fields_filtered(self, client, parent_headers, mock_conn):
+        """BAC-3: parent cannot see edit-log entries for fields gated by visible_to_parent."""
+        with patch(_REPO_PATH) as MockRepo:
+            repo = MockRepo.return_value
+            repo.get_by_id.return_value = {"session_id": 50, "match_id": 1}
+            repo.get_match_participants.return_value = {
+                "match_id": 1, "status": "active", "tutor_user_id": 2, "parent_user_id": 1,
+            }
+            repo.get_edit_logs.return_value = [
+                {"session_id": 50, "field_name": "hours", "old_value": "2.0", "new_value": "3.0", "edited_at": "2025-04-01T15:00:00"},
+                {"session_id": 50, "field_name": "student_performance", "old_value": '"Good"', "new_value": '"Excellent"', "edited_at": "2025-04-01T15:01:00"},
+                {"session_id": 50, "field_name": "next_plan", "old_value": None, "new_value": '"Review ch4"', "edited_at": "2025-04-01T15:02:00"},
+            ]
+
+            resp = client.get(
+                self.ENDPOINT.format(session_id=50),
+                headers=parent_headers,
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert len(data) == 1
+        assert data[0]["field_name"] == "hours"

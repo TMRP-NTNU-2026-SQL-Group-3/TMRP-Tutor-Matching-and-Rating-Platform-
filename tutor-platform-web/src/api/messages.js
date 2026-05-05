@@ -11,7 +11,7 @@ export const messagesApi = {
     return api.get(`/api/messages/conversations/${conversationId}`)
   },
   sendMessage(conversationId, content) {
-    return api.post(`/api/messages/conversations/${conversationId}`, { content })
+    return api.post(`/api/messages/conversations/${conversationId}/messages`, { content })
   },
   search(query) {
     return api.get('/api/messages/search', { params: { q: query } })

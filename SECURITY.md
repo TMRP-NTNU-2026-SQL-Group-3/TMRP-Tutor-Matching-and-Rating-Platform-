@@ -144,6 +144,9 @@ Privileged actions (user role changes, password resets, admin-initiated operatio
 
 The following items represent acknowledged gaps relative to a fully hardened production system. They are documented here rather than treated as undisclosed risks.
 
+**Frontend localStorage identity cache (SEC-01):**
+`user_id`, `role`, `display_name`, and per-user notification history are persisted in `localStorage` for cross-tab and page-refresh continuity. This data is readable by any same-origin JavaScript, including an XSS payload. The residual risk is identity *disclosure* (`display_name`, `user_id`) rather than privilege escalation: the `verified` flag in `auth.js` gates all authorization decisions on a fresh `/api/auth/me` response (backed by an HttpOnly cookie the attacker cannot read), so cached role values cannot be forged into an elevated session. No `v-html` usage exists anywhere in the frontend codebase, reducing the XSS entry surface to effectively zero. If the threat model requires eliminating even the disclosure risk, `localStorage` would need to be replaced with server-side session state.
+
 **Architectural constraints (course requirements):**
 - The project was specified with a Microsoft Access front end for the database tier. The current codebase targets PostgreSQL, but some design decisions reflect that origin.
 - No WebSocket support; real-time messaging uses polling.

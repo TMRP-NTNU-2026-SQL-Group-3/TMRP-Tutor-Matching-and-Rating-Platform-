@@ -35,8 +35,26 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     # reconnaissance endpoint. 30/min covers normal browsing and SPA initial
     # loads while blocking bulk scraping without affecting real users.
     "/api/subjects": (30, 60),
+    # MEDIUM-RATE-1: tutor review scraping — cap all /api/tutors/* paths.
+    "/api/tutors": (30, 60),
+    # LOW-RATE-2: profile mutation endpoints that would be abused by enumeration.
+    "/api/auth/me": (10, 60),
+    "/api/tutors/profile": (10, 60),
     "default": (60, 60),
 }
+
+
+def _get_rate_limit(path: str) -> tuple[int, int]:
+    """Return (max_requests, window_seconds) for path using longest-prefix match."""
+    if path in RATE_LIMITS:
+        return RATE_LIMITS[path]
+    match = max(
+        (k for k in RATE_LIMITS if k != "default" and path.startswith(k)),
+        key=len,
+        default=None,
+    )
+    return RATE_LIMITS[match] if match else RATE_LIMITS["default"]
+
 
 # M-06: Paths that must fail CLOSED if the rate-limit DB is unreachable.
 # Rationale: on these endpoints a fail-open posture turns a DB outage into
@@ -193,7 +211,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         ip = request.client.host if request.client else "unknown"
         path = request.url.path
-        max_attempts, window = RATE_LIMITS.get(path, RATE_LIMITS["default"])
+        max_attempts, window = _get_rate_limit(path)
         bucket_key = f"{path}|{ip}"
         now = time.time()
 

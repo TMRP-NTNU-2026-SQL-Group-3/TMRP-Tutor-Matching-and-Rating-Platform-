@@ -21,7 +21,7 @@ import logging
 import random
 from datetime import datetime, time, timedelta, timezone
 
-from app.utils.security import hash_password
+from app.shared.infrastructure.security import hash_password
 
 logger = logging.getLogger("seed.generator")
 

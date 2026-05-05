@@ -139,11 +139,6 @@ class AuthService:
             "display_name": user["display_name"],
         }
 
-    def logout(self, *, refresh_token: str) -> None:
-        payload = decode_refresh_token(refresh_token)
-        if payload and (jti := payload.get("jti")):
-            invalidate_refresh_token(jti)
-
     def get_me(self, *, user_id: int) -> dict:
         user = self._repo.find_by_id(user_id)
         if not user:
@@ -152,8 +147,11 @@ class AuthService:
         return user
 
     def update_me(self, *, user_id: int, fields: dict) -> dict:
-        self._repo.update_me(user_id, fields=fields)
-        return self.get_me(user_id=user_id)
+        updated = self._repo.update_me(user_id, fields=fields)
+        if updated is None:
+            return self.get_me(user_id=user_id)
+        updated.pop("password_hash", None)
+        return updated
 
     def change_password(self, *, user_id: int, current_password: str, new_password: str) -> None:
         user = self._repo.find_by_id(user_id)

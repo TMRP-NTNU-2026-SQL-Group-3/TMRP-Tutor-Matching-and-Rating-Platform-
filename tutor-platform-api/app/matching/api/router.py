@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Header, Query
 
 from app.identity.api.dependencies import get_current_user, get_db, is_admin, require_role
 from app.matching.api.dependencies import get_match_service
-from app.matching.api.schemas import MatchCreate, MatchDetailResponse, MatchStatusUpdate
+from app.matching.api.schemas import MatchCreate, MatchDetailResponse, MatchListItemResponse, MatchStatusUpdate
 from app.matching.application.match_app_service import MatchAppService
 from app.matching.domain.value_objects import MatchStatus
 from app.middleware.rate_limit import check_and_record_bucket
@@ -80,6 +80,9 @@ def list_matches(
         user_id=int(user["sub"]), role=user["role"],
         page=page, page_size=page_size,
     )
+    data["items"] = [
+        MatchListItemResponse.model_validate(m).model_dump() for m in data["items"]
+    ]
     return ApiResponse(success=True, data=data)
 
 

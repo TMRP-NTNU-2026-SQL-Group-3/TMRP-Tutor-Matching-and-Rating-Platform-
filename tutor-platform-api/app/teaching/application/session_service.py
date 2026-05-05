@@ -6,12 +6,10 @@ gating (tutor-only endpoints) remains at the router via `require_role`.
 """
 
 from app.matching.domain.value_objects import MatchStatus
-from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.domain.exceptions import (
     DomainException,
     NotFoundError,
     PermissionDeniedError,
-    TooManyRequestsError,
 )
 from app.shared.domain.ports import IUnitOfWork
 from app.teaching.domain.exceptions import MatchNotActiveError, SessionNotFoundError
@@ -20,12 +18,13 @@ from app.teaching.domain.ports import ISessionRepository
 
 _ACTIVE_SESSION_STATUSES = {MatchStatus.ACTIVE.value, MatchStatus.TRIAL.value}
 
-# B6: Path-based rate-limiting in the middleware can't distinguish "60
-# session logs for one match in a minute" from "60 across 60 different
-# matches". Add a per-match+tutor service-layer bucket so a misbehaving
-# or runaway client can't flood a single match's log with notes.
-_SESSION_CREATE_LIMIT = 10
-_SESSION_CREATE_WINDOW = 60
+# Statuses where the match never entered an active teaching relationship;
+# participants of these matches have no legitimate claim to session logs.
+_SESSION_UNREADABLE_STATUSES = {MatchStatus.PENDING.value, MatchStatus.REJECTED.value}
+
+# Session fields not shown to parents (visible_to_parent gating); edit logs
+# for these fields must also be withheld from parent viewers.
+_PARENT_HIDDEN_FIELDS = frozenset({"student_performance", "next_plan"})
 
 
 def _normalize(value):
@@ -69,12 +68,6 @@ class SessionAppService:
             raise PermissionDeniedError("只有此配對的老師可以新增上課日誌")
         if match["status"] not in _ACTIVE_SESSION_STATUSES:
             raise MatchNotActiveError()
-        # Keyed on match+tutor so the bucket survives IP changes (mobile
-        # networks, roaming) but still isolates different matches from
-        # each other.
-        bucket = f"session:create|match={match_id}|tutor={tutor_user_id}"
-        if not check_and_record_bucket(bucket, _SESSION_CREATE_LIMIT, _SESSION_CREATE_WINDOW):
-            raise TooManyRequestsError("此配對的上課日誌新增頻率過高，請稍後再試")
         return self._repo.create(match_id=match_id, **fields)
 
     def list_for_match(self, *, match_id: int, user_id: int, is_admin: bool) -> list[dict]:
@@ -89,31 +82,27 @@ class SessionAppService:
             is_parent = match["parent_user_id"] == user_id
             if not is_tutor and not is_parent and not is_admin:
                 raise PermissionDeniedError("無權查看此配對的上課日誌")
+            # BAC-1: reject ex-participants of matches that were never active.
+            if not is_admin and match["status"] in _SESSION_UNREADABLE_STATUSES:
+                raise PermissionDeniedError("此配對狀態下無法查看上課日誌")
             # Parents only see entries the tutor flagged visible.
             return self._repo.list_by_match(match_id, visible_only=is_parent and not is_tutor)
 
     def update(self, *, session_id: int, tutor_user_id: int, updates: dict) -> dict:
-        session = self._repo.get_by_id(session_id)
-        if not session:
-            raise SessionNotFoundError()
-        match = self._repo.get_match_for_create(session["match_id"])
-        if not match or match["tutor_user_id"] != tutor_user_id:
-            raise PermissionDeniedError("只有此配對的老師可以修改上課日誌")
-
         if not updates:
             raise DomainException("未提供任何修改欄位")
-        # ARCH-8: treat explicit null as "set to NULL" rather than silently
-        # dropping the key. Only coerce non-null values to bool.
         if "visible_to_parent" in updates and updates["visible_to_parent"] is not None:
             updates["visible_to_parent"] = bool(updates["visible_to_parent"])
 
         with self._uow.begin():
-            # ARCH-5: lock the session row so a concurrent delete between the
-            # pre-flight check above and this read cannot silently drop the
-            # row after the permission check has already passed.
             fresh = self._repo.get_by_id_for_update(session_id)
             if not fresh:
                 raise SessionNotFoundError()
+            match = self._repo.get_match_for_create(fresh["match_id"])
+            if not match or match["tutor_user_id"] != tutor_user_id:
+                raise PermissionDeniedError("只有此配對的老師可以修改上課日誌")
+            if match["status"] not in _ACTIVE_SESSION_STATUSES:
+                raise MatchNotActiveError()
             diffs = []
             for field, new_val in updates.items():
                 old_val = fresh.get(field)
@@ -129,13 +118,13 @@ class SessionAppService:
         return {"session_id": session_id, "changed": True, "message": "上課日誌已更新"}
 
     def delete(self, *, session_id: int, tutor_user_id: int) -> None:
-        session = self._repo.get_by_id(session_id)
-        if not session:
-            raise SessionNotFoundError()
-        match = self._repo.get_match_for_create(session["match_id"])
-        if not match or match["tutor_user_id"] != tutor_user_id:
-            raise PermissionDeniedError("只有此配對的老師可以刪除上課日誌")
         with self._uow.begin():
+            session = self._repo.get_by_id_for_update(session_id)
+            if not session:
+                raise SessionNotFoundError()
+            match = self._repo.get_match_for_create(session["match_id"])
+            if not match or match["tutor_user_id"] != tutor_user_id:
+                raise PermissionDeniedError("只有此配對的老師可以刪除上課日誌")
             self._repo.delete(session_id)
 
     def get_edit_logs(self, *, session_id: int, user_id: int, is_admin: bool) -> list[dict]:
@@ -149,4 +138,8 @@ class SessionAppService:
         is_parent = match["parent_user_id"] == user_id
         if not is_tutor and not is_parent and not is_admin:
             raise PermissionDeniedError("無權查看此日誌的修改歷史")
-        return self._repo.get_edit_logs(session_id)
+        logs = self._repo.get_edit_logs(session_id)
+        # BAC-3: parents must not see edit history of fields they cannot read.
+        if is_parent and not is_tutor and not is_admin:
+            logs = [lg for lg in logs if lg["field_name"] not in _PARENT_HIDDEN_FIELDS]
+        return logs

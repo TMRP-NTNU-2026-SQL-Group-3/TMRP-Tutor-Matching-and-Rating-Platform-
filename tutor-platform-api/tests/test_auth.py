@@ -7,7 +7,7 @@ service call path that production actually runs.
 
 from unittest.mock import patch
 
-from app.utils.security import hash_password
+from app.shared.infrastructure.security import hash_password
 
 
 _REPO_PATH = "app.identity.api.router.PostgresUserRepository"

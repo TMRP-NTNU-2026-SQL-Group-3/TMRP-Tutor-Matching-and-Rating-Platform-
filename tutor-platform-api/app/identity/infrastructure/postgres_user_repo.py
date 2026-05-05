@@ -40,14 +40,14 @@ class PostgresUserRepository(BaseRepository, IUserRepository):
                 self.cursor.execute("INSERT INTO tutors (user_id) VALUES (%s)", (user_id,))
         return user_id
 
-    def update_me(self, user_id: int, *, fields: dict) -> None:
+    def update_me(self, user_id: int, *, fields: dict) -> dict | None:
         safe = {k: v for k, v in fields.items() if k in _UPDATABLE_COLUMNS}
         if not safe:
-            return
+            return None
         set_parts = [psql.SQL("{} = %s").format(psql.Identifier(k)) for k in safe]
-        query = psql.SQL("UPDATE users SET {} WHERE user_id = %s").format(
+        query = psql.SQL("UPDATE users SET {} WHERE user_id = %s RETURNING *").format(
             psql.SQL(", ").join(set_parts))
-        self.cursor.execute(query, list(safe.values()) + [user_id])
+        return self.fetch_one(query, tuple(list(safe.values()) + [user_id]))
 
     def update_password(self, user_id: int, *, password_hash: str) -> None:
         self.cursor.execute(

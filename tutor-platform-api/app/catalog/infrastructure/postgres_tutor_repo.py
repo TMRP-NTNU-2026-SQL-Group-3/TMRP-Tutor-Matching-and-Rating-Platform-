@@ -9,40 +9,6 @@ from app.shared.infrastructure.database_tx import transaction
 
 class PostgresTutorRepository(BaseRepository, ITutorRepository):
 
-    def search(self, subject_id: int | None = None, school: str | None = None) -> list[dict]:
-        # B5: All dynamic SQL goes through psycopg2.sql.Composable so adding
-        # a new filter later cannot accidentally reintroduce string
-        # interpolation for an attacker-controlled value.
-        base = psql.SQL("""
-            SELECT t.tutor_id, t.user_id, t.university, t.department,
-                   t.grade_year, t.self_intro, t.max_students,
-                   t.show_university, t.show_department, t.show_grade_year,
-                   t.show_hourly_rate, t.show_subjects,
-                   u.display_name
-            FROM tutors t
-            INNER JOIN users u ON t.user_id = u.user_id
-        """)
-        conditions: list[psql.Composable] = []
-        params: list = []
-        if subject_id is not None:
-            conditions.append(psql.SQL(
-                "t.tutor_id IN (SELECT ts.tutor_id FROM tutor_subjects ts WHERE ts.subject_id = {})"
-            ).format(psql.Placeholder()))
-            params.append(subject_id)
-        if school:
-            escaped = escape_like(school)
-            conditions.append(psql.SQL(
-                "t.university LIKE {} ESCAPE '\\'"
-            ).format(psql.Placeholder()))
-            params.append(f"%{escaped}%")
-
-        parts: list[psql.Composable] = [base]
-        if conditions:
-            parts.append(psql.SQL(" WHERE "))
-            parts.append(psql.SQL(" AND ").join(conditions))
-        parts.append(psql.SQL(" ORDER BY t.tutor_id DESC"))
-        return self.fetch_all(psql.Composed(parts), tuple(params))
-
     def search_with_stats(
         self,
         subject_id: int | None = None,

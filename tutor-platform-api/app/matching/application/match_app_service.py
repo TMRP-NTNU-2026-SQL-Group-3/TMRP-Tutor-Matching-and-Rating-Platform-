@@ -177,13 +177,24 @@ class MatchAppService:
                 is_tutor = fresh.tutor_user_id == user_id
                 if not is_parent and not is_tutor and not is_admin:
                     raise MatchPermissionDeniedError("無權操作此配對")
+                locked_old_status = fresh.status.value
+                state_machine.resolve_transition(
+                    current=fresh.status,
+                    action=action,
+                    actor_is_parent=is_parent,
+                    actor_is_tutor=is_tutor,
+                    actor_is_admin=is_admin,
+                    actor_user_id=user_id,
+                    terminated_by=fresh.terminated_by,
+                    want_trial=fresh.contract.want_trial,
+                )
                 self._match_repo.set_terminating(
                     match_id, user_id, reason, fresh.status.value
                 )
             new_status = MatchStatus.TERMINATING
             self._audit_admin_transition(
                 match_id, user_id, is_admin, action,
-                old_status.value, MatchStatus.TERMINATING.value, reason,
+                locked_old_status, MatchStatus.TERMINATING.value, reason,
             )
 
         elif action == Action.DISAGREE_TERMINATE:
@@ -195,6 +206,7 @@ class MatchAppService:
                 is_tutor = fresh.tutor_user_id == user_id
                 if not is_parent and not is_tutor and not is_admin:
                     raise MatchPermissionDeniedError("無權操作此配對")
+                locked_old_status = fresh.status.value
                 # ERR-1: previous_status_before_terminating raises ValueError for
                 # a malformed termination_reason (e.g. imported via CSV). Catch
                 # and surface as a domain error so the caller gets a 422, not a 500.
@@ -213,7 +225,7 @@ class MatchAppService:
                 new_status = MatchStatus(prev)
             self._audit_admin_transition(
                 match_id, user_id, is_admin, action,
-                old_status.value, new_status.value, reason,
+                locked_old_status, new_status.value, reason,
             )
 
         elif action == Action.CONFIRM_TRIAL:
@@ -250,6 +262,7 @@ class MatchAppService:
                 is_tutor = fresh.tutor_user_id == user_id
                 if not is_parent and not is_tutor and not is_admin:
                     raise MatchPermissionDeniedError("無權操作此配對")
+                locked_old_status = fresh.status.value
                 new_status = state_machine.resolve_transition(
                     current=fresh.status,
                     action=action,
@@ -279,7 +292,7 @@ class MatchAppService:
                     self._match_repo.update_status(match_id, new_status.value)
             self._audit_admin_transition(
                 match_id, user_id, is_admin, action,
-                old_status.value, new_status.value, reason,
+                locked_old_status, new_status.value, reason,
             )
 
         elif action == Action.RESUME:
@@ -296,6 +309,7 @@ class MatchAppService:
                 is_tutor = fresh.tutor_user_id == user_id
                 if not is_parent and not is_tutor and not is_admin:
                     raise MatchPermissionDeniedError("無權操作此配對")
+                locked_old_status = fresh.status.value
                 new_status = state_machine.resolve_transition(
                     current=fresh.status,
                     action=action,
@@ -315,7 +329,7 @@ class MatchAppService:
                 self._match_repo.update_status(match_id, new_status.value)
             self._audit_admin_transition(
                 match_id, user_id, is_admin, action,
-                old_status.value, new_status.value, reason,
+                locked_old_status, new_status.value, reason,
             )
 
         else:
@@ -328,6 +342,10 @@ class MatchAppService:
                 fresh = self._match_repo.find_by_id_for_update(match_id)
                 if fresh is None:
                     raise MatchNotFoundError()
+                is_parent = fresh.parent_user_id == user_id
+                is_tutor = fresh.tutor_user_id == user_id
+                if not is_parent and not is_tutor and not is_admin:
+                    raise MatchPermissionDeniedError("無權操作此配對")
                 locked_old_status = fresh.status.value
                 new_status = state_machine.resolve_transition(
                     current=fresh.status,

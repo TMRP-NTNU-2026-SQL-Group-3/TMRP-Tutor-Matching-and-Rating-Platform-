@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.shared.infrastructure.database import get_connection, release_connection
 from app.analytics.infrastructure.postgres_stats_repo import PostgresStatsRepository as StatsRepository
@@ -22,11 +22,11 @@ def _parse_month(month: str | None) -> tuple[int, int] | str:
             return "月份格式應為 YYYY-MM"
         if not (1 <= mon <= 12):
             return "無效的月份值（1-12）"
-        max_year = datetime.now().year + 10
+        max_year = datetime.now(timezone.utc).year + 10
         if not (2000 <= year <= max_year):
             return f"無效的年份值（2000-{max_year}）"
     else:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         year, mon = now.year, now.month
     return year, mon
 

@@ -57,10 +57,17 @@ def get_messages(
         limit=limit,
         before_id=before_id,
     )
-    return ApiResponse(success=True, data=messages)
+    return ApiResponse(
+        success=True,
+        data={
+            "items": messages,
+            "has_more": len(messages) == limit,
+            "oldest_message_id": messages[0]["message_id"] if messages else None,
+        },
+    )
 
 
-@router.post("/conversations/{conversation_id}", status_code=201, summary="傳送訊息", response_model=ApiResponse)
+@router.post("/conversations/{conversation_id}/messages", status_code=201, summary="傳送訊息", response_model=ApiResponse)
 def send_message(
     conversation_id: int,
     body: MessageSend,

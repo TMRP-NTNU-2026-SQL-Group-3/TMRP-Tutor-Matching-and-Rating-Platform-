@@ -11,6 +11,7 @@ from app.admin.application.import_service import AdminImportService, MAX_UPLOAD_
 from app.admin.domain.tables import ALLOWED_TABLES, validate_exportable_table, validate_table
 from app.admin.infrastructure.table_admin_repo import TableAdminRepository
 from app.identity.api.dependencies import get_db, require_role
+from app.shared.infrastructure.database_tx import transaction
 from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
 from app.shared.infrastructure.security import (
@@ -46,8 +47,8 @@ class _AdminPasswordResetBody(BaseModel):
 _ADMIN_RESET_CONFIRM_USER_WINDOW = 604800  # 7 days
 
 # SEC-11: fixed advisory lock key that serializes concurrent DB-reset flows.
-# Using a session-level lock (not xact-level) so the lock survives any
-# savepoints or partial rollbacks inside the reset operation.
+# pg_try_advisory_xact_lock is transaction-scoped; the lock is held for the
+# lifetime of the transaction(conn) block that wraps the reset sequence.
 _DB_RESET_LOCK_KEY = 7_329_847_234
 
 
@@ -69,18 +70,10 @@ def seed_data(
     from seed.generator import run_seed
     # B8: run_seed no longer commits internally. Own the transaction here so
     # a mid-run failure rolls everything back instead of leaving partial rows.
-    try:
+    with transaction(repo.conn):
         result = run_seed(repo.conn)
-    except Exception:
-        repo.conn.rollback()
-        raise
     if result.get("skipped"):
         return ApiResponse(success=True, data=result, message=result.get("message", "已跳過"))
-    try:
-        repo.conn.commit()
-    except Exception:
-        repo.conn.rollback()
-        raise
     total = sum(v for v in result.values() if isinstance(v, int))
     return ApiResponse(success=True, data=result, message=f"已產生 {total} 筆假資料")
 
@@ -115,7 +108,12 @@ def import_csv(
     return ApiResponse(success=True, data={"count": count}, message=f"已匯入 {count} 筆資料至 {table_name}")
 
 
-@router.get("/export/{table_name}", summary="匯出 CSV")
+@router.get(
+    "/export/{table_name}",
+    summary="匯出 CSV",
+    response_class=FileResponse,
+    responses={200: {"content": {"text/csv": {}}, "description": "CSV 檔案"}},
+)
 def export_csv(
     table_name: str,
     user=Depends(require_role("admin")),
@@ -185,88 +183,88 @@ def confirm_reset(
         )
         raise HTTPException(status_code=429, detail="此帳號近期已執行過重設操作，請 7 天後再試")
 
-    # SEC-11: serialize concurrent reset flows so two admins cannot both
-    # complete the two-step flow and have the second wipe an already-empty DB.
-    # pg_try_advisory_xact_lock is transaction-scoped: the get_db dependency
-    # always calls conn.rollback() after the endpoint returns, which releases
-    # the lock automatically — no manual finally/unlock needed.
-    with conn.cursor() as _lk_cur:
-        _lk_cur.execute("SELECT pg_try_advisory_xact_lock(%s::bigint)", (_DB_RESET_LOCK_KEY,))
-        _lock_acquired = _lk_cur.fetchone()[0]
-    if not _lock_acquired:
+    # SEC-11: serialize concurrent reset flows. pg_try_advisory_xact_lock is
+    # transaction-scoped; wrapping everything in transaction(conn) guarantees
+    # the lock is held through reset_database() completion and cannot be
+    # released early by an accidental auto-commit on conn.
+    with transaction(conn):
+        with conn.cursor() as _lk_cur:
+            _lk_cur.execute("SELECT pg_try_advisory_xact_lock(%s::bigint)", (_DB_RESET_LOCK_KEY,))
+            _lock_acquired = _lk_cur.fetchone()[0]
+        if not _lock_acquired:
+            logger.warning(
+                "Admin reset confirm: concurrent lock blocked user_id=%s ip=%s",
+                user.get("sub"),
+                request.client.host if request.client else "unknown",
+            )
+            raise HTTPException(status_code=409, detail="另一個重設操作正在進行中，請稍後再試")
+
+        payload = decode_reset_confirmation_token(reset_token)
+        if not payload or payload.get("sub") != str(user["sub"]):
+            logger.warning(
+                "Admin reset confirm: invalid/mismatched reset token user_id=%s ip=%s",
+                user.get("sub"),
+                request.client.host if request.client else "unknown",
+            )
+            raise HTTPException(status_code=401, detail="Reset token 無效或已過期")
+
+        # LOW-4: burn the reset JTI up-front so neither a successful nor a failed
+        # attempt leaves the token replayable within its 5-minute TTL. If the
+        # insert finds an existing row, this token has already been used.
+        reset_jti = payload.get("jti")
+        if not reset_jti or not consume_reset_confirmation_jti(reset_jti):
+            logger.warning(
+                "Admin reset confirm: reset token replay rejected user_id=%s ip=%s jti=%s",
+                user.get("sub"),
+                request.client.host if request.client else "unknown",
+                reset_jti,
+            )
+            raise HTTPException(status_code=401, detail="Reset token 已使用或無效")
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT password_hash FROM users WHERE user_id = %s FOR UPDATE",
+                (int(user["sub"]),),
+            )
+            row = cur.fetchone()
+        if not row or not verify_password(password, row[0]):
+            logger.warning(
+                "Admin reset confirm: password re-verification FAILED user_id=%s ip=%s",
+                user.get("sub"),
+                request.client.host if request.client else "unknown",
+            )
+            raise HTTPException(status_code=401, detail="密碼驗證失敗")
+
+        backup_dir = Path("data/backups")
+        try:
+            backup_path = service.export_all_tables_to_zip(
+                export_dir=backup_dir,
+                zip_name=f"pre-reset-{payload['jti']}.zip",
+                # DR artefact written to a server-local path — include users so a
+                # mistaken reset is actually recoverable from this backup.
+                include_sensitive=True,
+            )
+        except Exception:
+            # An empty DB has nothing to export; fall through without a backup
+            # rather than blocking a legitimate reset. Still log so the audit
+            # trail shows the attempt.
+            logger.warning("Pre-reset backup skipped (export failed)")
+            backup_path = None
+
         logger.warning(
-            "Admin reset confirm: concurrent lock blocked user_id=%s ip=%s",
+            "Admin reset CONFIRMED user_id=%s ip=%s jti=%s backup=%s",
             user.get("sub"),
             request.client.host if request.client else "unknown",
+            user.get("jti"),
+            backup_path is not None,
         )
-        raise HTTPException(status_code=409, detail="另一個重設操作正在進行中，請稍後再試")
-
-    payload = decode_reset_confirmation_token(reset_token)
-    if not payload or payload.get("sub") != str(user["sub"]):
-        logger.warning(
-            "Admin reset confirm: invalid/mismatched reset token user_id=%s ip=%s",
-            user.get("sub"),
-            request.client.host if request.client else "unknown",
-        )
-        raise HTTPException(status_code=401, detail="Reset token 無效或已過期")
-
-    # LOW-4: burn the reset JTI up-front so neither a successful nor a failed
-    # attempt leaves the token replayable within its 5-minute TTL. If the
-    # insert finds an existing row, this token has already been used.
-    reset_jti = payload.get("jti")
-    if not reset_jti or not consume_reset_confirmation_jti(reset_jti):
-        logger.warning(
-            "Admin reset confirm: reset token replay rejected user_id=%s ip=%s jti=%s",
-            user.get("sub"),
-            request.client.host if request.client else "unknown",
-            reset_jti,
-        )
-        raise HTTPException(status_code=401, detail="Reset token 已使用或無效")
-
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT password_hash FROM users WHERE user_id = %s FOR UPDATE",
-            (int(user["sub"]),),
-        )
-        row = cur.fetchone()
-    if not row or not verify_password(password, row[0]):
-        logger.warning(
-            "Admin reset confirm: password re-verification FAILED user_id=%s ip=%s",
-            user.get("sub"),
-            request.client.host if request.client else "unknown",
-        )
-        raise HTTPException(status_code=401, detail="密碼驗證失敗")
-
-    backup_dir = Path("data/backups")
-    try:
-        backup_path = service.export_all_tables_to_zip(
-            export_dir=backup_dir,
-            zip_name=f"pre-reset-{payload['jti']}.zip",
-            # DR artefact written to a server-local path — include users so a
-            # mistaken reset is actually recoverable from this backup.
-            include_sensitive=True,
-        )
-    except Exception:
-        # An empty DB has nothing to export; fall through without a backup
-        # rather than blocking a legitimate reset. Still log so the audit
-        # trail shows the attempt.
-        logger.warning("Pre-reset backup skipped (export failed)")
-        backup_path = None
-
-    logger.warning(
-        "Admin reset CONFIRMED user_id=%s ip=%s jti=%s backup=%s",
-        user.get("sub"),
-        request.client.host if request.client else "unknown",
-        user.get("jti"),
-        backup_path,
-    )
-    deleted = service.reset_database(admin_user_id=int(user["sub"]))
-    total = sum(deleted.values())
+        deleted = service.reset_database(admin_user_id=int(user["sub"]))
+        total = sum(deleted.values())
     # Return only a boolean: the backup path lives on the server filesystem
     # and its filename embeds the reset JTI. Surfacing it invites a caller
     # to infer paths and gives an attacker with stolen admin creds a
-    # predictable artefact name to target. The full path is already in the
-    # server log above for operator recovery.
+    # predictable artefact name to target. The log above records only whether
+    # a backup was created (True/False), not the path.
     return ApiResponse(
         success=True,
         data={"deleted": deleted, "backup_created": backup_path is not None},
@@ -306,25 +304,19 @@ def anonymize_user(
         "Admin user_id=%s anonymizing user_id=%s (role=%s)",
         user.get("sub"), user_id, target_role,
     )
-    try:
-        updated = repo.anonymize_user(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="該使用者仍有進行中的配對，請先結束後再進行匿名化")
-    if not updated:
-        raise HTTPException(status_code=404, detail="使用者不存在")
-    # SEC-11: persist to audit_log in the same transaction so the trail
-    # cannot be lost if external log aggregation drops the warning above.
-    repo.record_admin_action(
-        actor_user_id=int(user["sub"]),
-        action="anonymize_user",
-        resource_id=user_id,
-        old_value=target_role,
-    )
-    try:
-        repo.conn.commit()
-    except Exception:
-        repo.conn.rollback()
-        raise
+    with transaction(repo.conn):
+        try:
+            updated = repo.anonymize_user(user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="該使用者仍有進行中的配對，請先結束後再進行匿名化")
+        if not updated:
+            raise HTTPException(status_code=404, detail="使用者不存在")
+        repo.record_admin_action(
+            actor_user_id=int(user["sub"]),
+            action="anonymize_user",
+            resource_id=user_id,
+            old_value=target_role,
+        )
     return ApiResponse(
         success=True,
         data={"user_id": user_id},
@@ -340,21 +332,15 @@ def admin_reset_user_password(
     user=Depends(require_role("admin")),
     repo: TableAdminRepository = Depends(get_admin_repo),
 ):
-    found = repo.reset_user_password(user_id, hash_password(body.new_password))
-    if not found:
-        raise HTTPException(status_code=404, detail="使用者不存在")
-    # SEC-11: persist to audit_log in the same transaction so the trail
-    # survives even if external log aggregation is unavailable.
-    repo.record_admin_action(
-        actor_user_id=int(user["sub"]),
-        action="admin_reset_password",
-        resource_id=user_id,
-    )
-    try:
-        repo.conn.commit()
-    except Exception:
-        repo.conn.rollback()
-        raise
+    with transaction(repo.conn):
+        found = repo.reset_user_password(user_id, hash_password(body.new_password))
+        if not found:
+            raise HTTPException(status_code=404, detail="使用者不存在")
+        repo.record_admin_action(
+            actor_user_id=int(user["sub"]),
+            action="admin_reset_password",
+            resource_id=user_id,
+        )
     # SEC-05: also emit to application log for real-time alerting.
     logger.warning(
         "Admin user_id=%s reset password for user_id=%s ip=%s",
@@ -389,7 +375,12 @@ def system_status(
     )
 
 
-@router.get("/export-all", summary="一鍵匯出全部")
+@router.get(
+    "/export-all",
+    summary="一鍵匯出全部",
+    response_class=FileResponse,
+    responses={200: {"content": {"application/zip": {}}, "description": "ZIP 壓縮檔"}},
+)
 def export_all(
     user=Depends(require_role("admin")),
     service: AdminImportService = Depends(get_admin_import_service),

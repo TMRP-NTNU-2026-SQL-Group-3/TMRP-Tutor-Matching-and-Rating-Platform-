@@ -37,7 +37,7 @@ class PostgresSessionRepository(BaseRepository, ISessionRepository):
 
     def get_match_participants(self, match_id: int) -> dict | None:
         return self.fetch_one(
-            """SELECT m.match_id, t.user_id AS tutor_user_id, st.parent_user_id
+            """SELECT m.match_id, m.status, t.user_id AS tutor_user_id, st.parent_user_id
                FROM matches m
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
                INNER JOIN students st ON m.student_id = st.student_id
@@ -47,7 +47,7 @@ class PostgresSessionRepository(BaseRepository, ISessionRepository):
 
     def get_match_participants_for_share(self, match_id: int) -> dict | None:
         return self.fetch_one(
-            """SELECT m.match_id, t.user_id AS tutor_user_id, st.parent_user_id
+            """SELECT m.match_id, m.status, t.user_id AS tutor_user_id, st.parent_user_id
                FROM matches m
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
                INNER JOIN students st ON m.student_id = st.student_id
