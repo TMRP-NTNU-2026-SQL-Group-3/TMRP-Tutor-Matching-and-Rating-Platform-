@@ -1,5 +1,6 @@
 <template>
-  <div>
+  <div v-if="verifying" class="text-center py-8 text-gray-400">驗證中...</div>
+  <div v-else>
     <PageHeader title="管理後台" />
 
     <!-- System status -->
@@ -241,6 +242,8 @@ import PageHeader from '@/components/common/PageHeader.vue'
 const router = useRouter()
 const toast = useToastStore()
 const auth = useAuthStore()
+
+const verifying = ref(true)
 
 const tables = [
   'users', 'tutors', 'students', 'subjects', 'tutor_subjects',
@@ -539,6 +542,7 @@ onMounted(async () => {
     router.push('/')
     return
   }
+  verifying.value = false
   fetchUsers()
   fetchSystemStatus()
 })

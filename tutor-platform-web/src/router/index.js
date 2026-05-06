@@ -106,12 +106,18 @@ router.beforeEach(async (to, from, next) => {
   // cached verification, so the cost is one function call. Removing the
   // !auth.verified guard closes the window where a prior (possibly poisoned)
   // cached role bypasses the check on subsequent in-session navigations.
+  //
+  // AUTH-01: auth.isLoggedIn is a Vue computed derived from user.value.
+  // A failed ensureVerified() clears user.value, so auth.isLoggedIn becomes
+  // false via reactivity — all guard checks below automatically see the
+  // updated state without a manual re-read.
   if (requiresAuth && auth.isLoggedIn) {
     try {
       await auth.ensureVerified()
     } catch {
-      // Server rejected the session — drop any cached user and fall through
-      // so the requiresAuth branch below bounces to /login.
+      // Session invalid — ensureVerified() clears user.value, making
+      // auth.isLoggedIn false via reactivity. The requiresAuth check below
+      // then redirects to /login.
     }
   }
   if (to.meta.guest && auth.isLoggedIn && !auth.verified) {

@@ -1,8 +1,6 @@
 import axios from 'axios'
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { useMatchStore } from './match'
-import { useMessageStore } from './message'
 import { useTutorStore } from './tutor'
 import { useToastStore } from './toast'
 import { useNotificationStore } from './notifications'
@@ -108,8 +106,6 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('user')
 
     // Clear other stores to prevent the next user from seeing stale data.
-    useMatchStore().setMatches([])
-    useMessageStore().setConversations([])
     const tutorStore = useTutorStore()
     tutorStore.setResults([])
     tutorStore.setFilters({})

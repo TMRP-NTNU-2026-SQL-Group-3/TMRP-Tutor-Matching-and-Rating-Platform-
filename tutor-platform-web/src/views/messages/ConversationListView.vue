@@ -50,7 +50,7 @@
         </div>
         <div v-if="c.last_message_at" class="flex flex-col items-end shrink-0 text-xs text-gray-400 gap-0.5">
           <span :title="formatDateTimeFull(c.last_message_at)">{{ formatRelative(c.last_message_at) }}</span>
-          <span class="text-gray-300">{{ formatDate(c.last_message_at) }}</span>
+          <span class="text-gray-300">{{ formatDateTimeShort(c.last_message_at) }}</span>
         </div>
       </div>
       <div v-if="filteredConversations.length > pagedConversations.length" class="mt-3 text-center">
@@ -137,8 +137,6 @@ const filteredConversations = computed(() => {
 const pagedConversations = computed(() =>
   filteredConversations.value.slice(0, displayPage.value * PAGE_SIZE)
 )
-
-const formatDate = formatDateTimeShort
 
 function formatPreview(c) {
   const raw = (c.last_message_content || '').trim()

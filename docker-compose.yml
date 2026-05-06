@@ -88,8 +88,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "8000:8000"
+    # I-01: no ports: block here — the raw FastAPI backend must never be
+    # reachable from the public internet. Dev binding (127.0.0.1:8001:8000)
+    # lives in docker-compose.override.yml, which Docker auto-loads locally
+    # but is NOT applied when CI/prod runs `docker compose -f docker-compose.yml up`.
     volumes:
       - api-data:/app/data
       - api-logs:/app/logs

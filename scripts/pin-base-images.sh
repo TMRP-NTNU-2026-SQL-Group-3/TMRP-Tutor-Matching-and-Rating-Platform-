@@ -42,7 +42,9 @@ for ref in "${IMAGES[@]}"; do
     | while read -r f; do
         # Skip lines that already carry a digest for this base.
         grep -q "${ref}@sha256:" "$f" && continue || true
-        sed -i "s|${escaped_ref}\$|${escaped_new}|g; s|${escaped_ref}\([^0-9A-Za-z@]\)|${escaped_new}\1|g" "$f"
+        sed -i.bak "s|${escaped_ref}\$|${escaped_new}|g; s|${escaped_ref}\([^0-9A-Za-z@]\)|${escaped_new}\1|g" "$f" \
+          || { echo "pin-base-images: sed failed on $f" >&2; rm -f "${f}.bak"; exit 1; }
+        rm -f "${f}.bak"
       done
 done
 

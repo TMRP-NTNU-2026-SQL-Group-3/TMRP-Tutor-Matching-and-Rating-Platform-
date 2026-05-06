@@ -53,7 +53,4 @@ export const adminApi = {
   importAll(formData, clearFirst = false) {
     return postMultipart(`/api/admin/import-all?clear_first=${clearFirst}`, formData, { timeout: 120000 })
   },
-  getTaskStatus(taskId) {
-    return api.get(`/api/admin/tasks/${taskId}`)
-  },
 }

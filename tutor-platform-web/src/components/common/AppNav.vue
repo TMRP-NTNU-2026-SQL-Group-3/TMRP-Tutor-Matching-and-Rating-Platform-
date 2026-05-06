@@ -76,7 +76,8 @@ const props = defineProps({
   auth: {
     type: Object,
     required: true,
-    validator: (v) => v && ['parent', 'tutor', 'admin'].includes(v.role),
+    // AUTH-04: '' is valid during cold-start before the auth store resolves.
+    validator: (v) => v && ['', 'parent', 'tutor', 'admin'].includes(v.role),
   },
 })
 

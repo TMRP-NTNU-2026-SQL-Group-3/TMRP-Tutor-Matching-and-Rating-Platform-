@@ -19,11 +19,15 @@ WARNING — seed-only patterns:
 
 import logging
 import random
+import secrets
+import string
 from datetime import datetime, time, timedelta, timezone
 
 from app.shared.infrastructure.security import hash_password
 
 logger = logging.getLogger("seed.generator")
+
+_SEED_CHARS = string.ascii_letters + string.digits
 
 # ──────────────────────────────────────────────
 # Helpers
@@ -79,8 +83,6 @@ def run_seed(conn) -> dict:
         return {"skipped": True, "message": "Seed data already present; skipped"}
 
     now = datetime.now(timezone.utc)
-    hashed = hash_password("password123")
-
     counts = {}
 
     # ══════════════════════════════════════════
@@ -99,26 +101,35 @@ def run_seed(conn) -> dict:
 
     parent_user_ids = []
     tutor_user_ids = []
+    credentials: list[tuple[str, str]] = []  # (username, plain_password) — logged once below
 
     for username, role, display_name, phone, email in parent_data:
+        pw = "".join(secrets.choice(_SEED_CHARS) for _ in range(16))
+        credentials.append((username, pw))
         uid = _insert_and_get_id(
             cursor,
             "INSERT INTO users (username, password_hash, role, display_name, phone, email, created_at) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING user_id",
-            (username, hashed, role, display_name, phone, email, now - timedelta(days=random.randint(30, 90))),
+            (username, hash_password(pw), role, display_name, phone, email, now - timedelta(days=random.randint(30, 90))),
         )
         parent_user_ids.append(uid)
 
     for username, role, display_name, phone, email in tutor_data:
+        pw = "".join(secrets.choice(_SEED_CHARS) for _ in range(16))
+        credentials.append((username, pw))
         uid = _insert_and_get_id(
             cursor,
             "INSERT INTO users (username, password_hash, role, display_name, phone, email, created_at) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING user_id",
-            (username, hashed, role, display_name, phone, email, now - timedelta(days=random.randint(30, 90))),
+            (username, hash_password(pw), role, display_name, phone, email, now - timedelta(days=random.randint(30, 90))),
         )
         tutor_user_ids.append(uid)
 
     counts["users"] = 6
+    logger.warning(
+        "SEED CREDENTIALS (local dev only — never apply seed data to any internet-reachable host):\n%s",
+        "\n".join(f"  {u}: {p}" for u, p in credentials),
+    )
     logger.info("  6 users staged")
 
     # ══════════════════════════════════════════

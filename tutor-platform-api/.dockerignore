@@ -1,9 +1,12 @@
-__pycache__
+__pycache__/
 *.pyc
-.env
-data/
+.env*
+data/export/
+data/backups/
+data/huey.db
+data/tutoring.accdb
 logs/
 .git
 .venv
 venv
-*.accdb
+tests/

@@ -7,7 +7,4 @@ export const statsApi = {
   getExpense(params) {
     return api.get('/api/stats/expense', { params })
   },
-  getStudentProgress(studentId, params) {
-    return api.get(`/api/stats/student-progress/${studentId}`, { params })
-  }
 }

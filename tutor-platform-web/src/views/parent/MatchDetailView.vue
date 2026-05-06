@@ -224,7 +224,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useMatchDetail } from '@/composables/useMatchDetail'
 import { useConfirm } from '@/composables/useConfirm'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -320,5 +321,7 @@ async function handleSubmitReview() {
   }
 }
 
+const route = useRoute()
+watch(() => route.params.id, (id) => { if (id) fetchMatch() })
 onMounted(fetchMatch)
 </script>

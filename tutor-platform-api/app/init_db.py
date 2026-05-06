@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS users (
     display_name  VARCHAR(100) NOT NULL,
     phone         VARCHAR(30),
     email         VARCHAR(100),
-    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_users_role         CHECK (role IN ('parent', 'tutor', 'admin')),
+    CONSTRAINT chk_users_email_format CHECK (email IS NULL OR email LIKE '%@%')
 );
 
 CREATE TABLE IF NOT EXISTS tutors (
@@ -145,7 +147,9 @@ CREATE TABLE IF NOT EXISTS matches (
     -- (AFTER UPDATE OF students.parent_user_id).
     parent_user_id    INTEGER       REFERENCES users(user_id) ON DELETE RESTRICT,
     created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_matches_status CHECK (status IN ('pending','trial','active','paused',
+                                                    'terminating','ended','cancelled','rejected'))
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -272,6 +276,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 -- 唯一索引
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username     ON users (username);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email        ON users (email) WHERE email IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subjects_name      ON subjects (subject_name);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tutors_user_id     ON tutors (user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_pair ON conversations (user_a_id, user_b_id);
@@ -538,6 +543,36 @@ ALTER TABLE users ALTER COLUMN username      TYPE VARCHAR(100);
 ALTER TABLE users ALTER COLUMN display_name  TYPE VARCHAR(100);
 ALTER TABLE users ALTER COLUMN phone         TYPE VARCHAR(30);
 ALTER TABLE subjects ALTER COLUMN category   TYPE VARCHAR(30);
+
+-- I-07 / I-14: backfill CHECK constraints for databases created before these
+-- were added to the CREATE TABLE statements. The DO block is idempotent.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'users'::regclass AND conname = 'chk_users_role'
+    ) THEN
+        ALTER TABLE users ADD CONSTRAINT chk_users_role
+            CHECK (role IN ('parent', 'tutor', 'admin'));
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'users'::regclass AND conname = 'chk_users_email_format'
+    ) THEN
+        ALTER TABLE users ADD CONSTRAINT chk_users_email_format
+            CHECK (email IS NULL OR email LIKE '%@%');
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'matches'::regclass AND conname = 'chk_matches_status'
+    ) THEN
+        ALTER TABLE matches ADD CONSTRAINT chk_matches_status
+            CHECK (status IN ('pending','trial','active','paused',
+                              'terminating','ended','cancelled','rejected'));
+    END IF;
+END $$;
 """
 
 # ──────────────────────────────────────────────

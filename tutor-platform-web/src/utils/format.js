@@ -37,3 +37,8 @@ export function formatDateTimeFull(dt) {
     timeZoneName: 'short',
   })
 }
+
+export function parseTerminationReason(raw) {
+  if (!raw) return ''
+  return raw.includes('|') ? raw.split('|').slice(1).join('|') : raw
+}

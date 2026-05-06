@@ -1,6 +1,10 @@
-# Ad-hoc override: your host already uses 5432 and 8000 (local Postgres +
-# FastAPI dev server). Drop those host bindings so the compose stack can run
-# alongside the local dev setup. Port 80 (web) is free so it stays as-is.
+# WARNING: LOCAL DEVELOPMENT ONLY — NEVER USE IN PRODUCTION
+# This file sets DEBUG=true (exposes /docs, /redoc, /openapi.json) and
+# COOKIE_SECURE=false (auth cookies sent in cleartext). Applying it against a
+# public-facing deployment is a critical security misconfiguration.
+#
+# Ad-hoc override: drops port bindings so the stack runs alongside a local
+# Postgres + FastAPI dev server. Port 80 (web) stays as-is.
 # Invoke with:  docker compose -f docker-compose.yml -f docker-compose.run.yml up -d
 services:
   api:

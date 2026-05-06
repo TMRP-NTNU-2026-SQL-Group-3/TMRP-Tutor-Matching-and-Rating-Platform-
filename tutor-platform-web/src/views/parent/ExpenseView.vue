@@ -72,16 +72,20 @@ const data = ref(null)
 const loading = ref(false)
 const error = ref('')
 
+let _fetchSeq = 0
 async function fetchData() {
+  const seq = ++_fetchSeq
   loading.value = true
   error.value = ''
   data.value = null
   try {
-    data.value = await statsApi.getExpense({ month: month.value })
+    const result = await statsApi.getExpense({ month: month.value })
+    if (seq !== _fetchSeq) return
+    data.value = result
   } catch (e) {
-    error.value = e.message
+    if (seq === _fetchSeq) error.value = e.message
   } finally {
-    loading.value = false
+    if (seq === _fetchSeq) loading.value = false
   }
 }
 

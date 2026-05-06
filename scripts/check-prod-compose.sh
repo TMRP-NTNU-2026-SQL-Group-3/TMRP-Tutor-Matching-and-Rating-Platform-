@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Guard that docker-compose.yml (the production invocation base file) never
-# publishes the database port to the host. Dev binding lives in
-# docker-compose.override.yml, which is NOT loaded when CI/prod runs
-# `docker compose -f docker-compose.yml up`.
+# publishes the database (5432) or raw API (8000) ports to the host. Both dev
+# bindings live in docker-compose.override.yml, which is NOT loaded when
+# CI/prod runs `docker compose -f docker-compose.yml up`.
 #
 # Wire this into CI alongside the other lint/test steps:
 #   scripts/check-prod-compose.sh
@@ -42,4 +42,13 @@ if grep -Eq '^\s*-\s*"?[0-9.:]*5432:' "$COMPOSE_FILE"; then
   exit 1
 fi
 
-echo "check-prod-compose: OK — $COMPOSE_FILE does not expose 5432."
+# I-01: 8000 must not be published on the host either. Exposing the raw FastAPI
+# backend bypasses nginx's rate-limit zone, CSP injection, and XFF normalization.
+if grep -Eq '^\s*-\s*"?[0-9.:]*8000:' "$COMPOSE_FILE"; then
+  echo "check-prod-compose: 8000 host binding found in $COMPOSE_FILE" >&2
+  grep -nE '^\s*-\s*"?[0-9.:]*8000:' "$COMPOSE_FILE" >&2
+  echo "Move the binding to docker-compose.override.yml (dev only)." >&2
+  exit 1
+fi
+
+echo "check-prod-compose: OK — $COMPOSE_FILE does not expose 5432 or 8000."

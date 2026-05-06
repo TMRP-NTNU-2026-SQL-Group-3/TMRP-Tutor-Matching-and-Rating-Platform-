@@ -377,7 +377,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useMatchDetail } from '@/composables/useMatchDetail'
 import { useConfirm } from '@/composables/useConfirm'
 import { useToastStore } from '@/stores/toast'
@@ -585,8 +586,10 @@ async function onSessionDeleted() {
   }
 }
 
-function handleSessionFormCancel() {
-  if (sessionFormRef.value?.hasDirtyData?.() && !window.confirm('確定要取消？已輸入的資料將不會儲存。')) return
+async function handleSessionFormCancel() {
+  if (sessionFormRef.value?.hasDirtyData?.()) {
+    if (!await confirm({ title: '確定要取消？', message: '已輸入的資料將不會儲存。' })) return
+  }
   sessionError.value = ''
   showSessionForm.value = false
   sessionFormRef.value?.reset()
@@ -662,5 +665,7 @@ async function submitExam() {
   }
 }
 
+const route = useRoute()
+watch(() => route.params.id, (id) => { if (id) fetchMatch() })
 onMounted(fetchMatch)
 </script>

@@ -140,11 +140,11 @@ async function doSearch(filters = {}, targetPage = 1) {
     const res = await tutorsApi.search(params)
     tutors.value = res.items || []
     total.value = Number(res.total ?? 0)
-    page.value = targetPage
+    page.value = Math.min(targetPage, totalPages.value)
     router.replace({
       query: {
         ...(params.sort_by !== 'rating' ? { sort_by: params.sort_by } : {}),
-        ...(targetPage > 1 ? { page: String(targetPage) } : {}),
+        ...(page.value > 1 ? { page: String(page.value) } : {}),
       },
     }).catch(() => {})
   } catch (e) {
@@ -183,9 +183,10 @@ onMounted(async () => {
   } finally {
     subjectsLoading.value = false
   }
-  // FE-16: clamp to totalPages so an absurdly large ?page= value doesn't
-  // generate a massive SQL OFFSET on the backend.
-  const startPage = Math.min(Math.max(1, parseInt(route.query.page) || 1), totalPages.value)
+  // Pass the deep-linked page value through; clamping to totalPages happens
+  // inside doSearch after the response arrives so a valid ?page= is not
+  // discarded before any data is loaded.
+  const startPage = Math.max(1, parseInt(route.query.page) || 1)
   const initialFilters = { sort_by: filterInitial.value.sort_by }
   lastFilters.value = { ...initialFilters }
   await doSearch(initialFilters, startPage)

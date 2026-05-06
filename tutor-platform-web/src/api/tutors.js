@@ -22,7 +22,4 @@ export const tutorsApi = {
   updateVisibility(data) {
     return api.put('/api/tutors/profile/visibility', data)
   },
-  getReviews(tutorId) {
-    return api.get(`/api/tutors/${tutorId}/reviews`)
-  }
 }

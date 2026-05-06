@@ -23,6 +23,13 @@ export const confirmDialogState = {
 export function useConfirm() {
   return {
     confirm(opts) {
+      // AUTH-03: if a dialog is already open, reject it so the first caller's
+      // promise settles rather than hanging indefinitely.
+      if (_resolve) {
+        _visible.value = false
+        _resolve(false)
+        _resolve = null
+      }
       _options.value = typeof opts === 'string'
         ? { title: opts, message: '', confirmLabel: '確認', destructive: true }
         : { title: '', message: '', confirmLabel: '確認', destructive: true, ...opts }

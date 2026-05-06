@@ -7,6 +7,7 @@ import { sessionsApi } from '@/api/sessions'
 import { examsApi } from '@/api/exams'
 import { reviewsApi } from '@/api/reviews'
 import { REVIEW_LOCK_DAYS } from '@/constants'
+import { parseTerminationReason } from '@/utils/format'
 
 /**
  * Shared match-detail logic used by both the parent and tutor views.
@@ -32,10 +33,7 @@ export function useMatchDetail() {
 
   const userId = computed(() => auth.user?.user_id)
 
-  const displayReason = computed(() => {
-    const raw = match.value?.termination_reason || ''
-    return raw.includes('|') ? raw.split('|').slice(1).join('|') : raw
-  })
+  const displayReason = computed(() => parseTerminationReason(match.value?.termination_reason || ''))
 
   // ── Data loading ──
   let _fetchId = 0
@@ -62,6 +60,14 @@ export function useMatchDetail() {
       return false
     }
 
+    // BUG-02: clear stale data when navigating to a different match so old
+    // content doesn't flash while the new fetch is in flight.
+    if (match.value && match.value.match_id !== matchId) {
+      match.value = null
+      sessions.value = []
+      exams.value = []
+      reviews.value = []
+    }
     if (!match.value) loading.value = true
     else refetching.value = true
     error.value = ''

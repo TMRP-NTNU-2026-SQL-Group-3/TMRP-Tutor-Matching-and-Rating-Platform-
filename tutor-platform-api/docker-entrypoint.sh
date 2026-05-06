@@ -66,9 +66,9 @@ fi
 if [ -f /run/secrets/admin_password ]; then
   ADMIN_PASSWORD=$(read_secret /run/secrets/admin_password)
   case "$ADMIN_PASSWORD" in
-    ""|"REPLACE_ME"|"REPLACE_WITH_STRONG_PASSWORD_12PLUS_MIXED"|"admin"|"admin123"|"password"|"changeme")
+    ""|"REPLACE_ME"|"REPLACE_WITH_STRONG_PASSWORD_12PLUS_MIXED"|"REPLACE_WITH_A_STRONG_PASSWORD_MIN_8_CHARS"|"REPLACE_WITH_A_STRONG_PASSWORD_16PLUS_ALL_4_CLASSES"|"admin"|"admin123"|"password"|"changeme")
       echo "FATAL: /run/secrets/admin_password is empty or a known placeholder." >&2
-      echo "Edit ./secrets/admin_password.txt with a strong password (12+ chars, 3+ classes)." >&2
+      echo "Edit ./secrets/admin_password.txt with a strong password (16+ chars, all 4 classes: lower/upper/digit/symbol)." >&2
       exit 1
       ;;
   esac
