@@ -60,7 +60,7 @@ cp tutor-platform-api/.env.docker.example tutor-platform-api/.env.docker
 docker compose up -d --build
 ```
 
-Once healthy, the API is at <http://localhost:8000>. Swagger UI at <http://localhost:8000/docs> is only available when `ENABLE_DOCS=true` (and `DEBUG=true` — the startup validator rejects `ENABLE_DOCS=true` when `DEBUG=false`).
+With the auto-loaded `docker-compose.override.yml`, the API is reachable at <http://127.0.0.1:8001> on the host (the override binds `127.0.0.1:8001 → container:8000`). The production compose (`docker compose -f docker-compose.yml up`) does **not** publish the API port — all traffic must go through Nginx in the `web` container at `/api/*`. Swagger UI at `/docs` is only served when both `DEBUG=true` and `ENABLE_DOCS=true` (the startup validator rejects `ENABLE_DOCS=true` when `DEBUG=false`).
 
 The container's healthcheck (`GET /health`) only passes after:
 1. the connection pool is initialised,
@@ -187,7 +187,8 @@ tutor-platform-api/
 │   │   ├── security_headers.py # CSP, HSTS, X-Frame-Options, ...
 │   │   ├── access_log.py       # Structured request/response logs
 │   │   ├── rate_limit.py       # DB-backed sliding window (rate_limit_hits; per-path limits, fail-closed on sensitive endpoints)
-│   │   └── user_quota.py       # Per-user in-flight request cap (DB_PER_USER_QUOTA, default 5)
+│   │   ├── user_quota.py       # Per-user in-flight request cap (DB_PER_USER_QUOTA, default 5)
+│   │   └── csrf.py             # Double-submit cookie: validates X-CSRF-Token header == csrf_token cookie
 │   │
 │   ├── tasks/                  # huey tasks: import_export, scheduled, seed_tasks, stats_tasks
 │   └── utils/                  # csv_handler, logger, security helpers
@@ -201,8 +202,10 @@ tutor-platform-api/
 │   └── ...                     # Persistent volume in Docker
 │
 ├── logs/                       # Rotating log files
-└── tests/                      # pytest integration tests (conftest.py, test_auth,
-                                # test_matches, test_match_state_machine, test_sessions, test_reviews)
+└── tests/                      # pytest integration tests: test_auth, test_matches,
+                                # test_match_state_machine, test_sessions, test_reviews,
+                                # test_admin_operations, test_middleware, test_password_policy,
+                                # test_refresh_and_logout, test_sql_injection (+ conftest.py)
 ```
 
 > **DDD layout.** All HTTP routing, data access, and domain rules now live under `app/<context>/` Bounded Contexts plus the `app/shared/` kernel. Legacy flat layouts (`app/routers/`, `app/repositories/`, `app/models/`, top-level `config.py` / `database.py` / `exceptions.py`) have been removed. External API paths are unchanged.
@@ -361,7 +364,7 @@ pytest
 
 The `tests/` folder contains integration tests that hit a real PostgreSQL database. Configure the test database via the same `DATABASE_URL` variable (use a separate database — tests are destructive).
 
-Existing coverage includes `test_auth.py`, `test_matches.py`, `test_match_state_machine.py`, `test_sessions.py`, and `test_reviews.py`. New domain logic added under `app/<context>/domain/` should get pure unit tests that don't need FastAPI or the database; keep integration tests for API-level behaviour and DB constraints.
+Existing coverage spans authentication (`test_auth.py`, `test_refresh_and_logout.py`, `test_password_policy.py`), matching (`test_matches.py`, `test_match_state_machine.py`), teaching (`test_sessions.py`), reviews (`test_reviews.py`), admin operations (`test_admin_operations.py`), middleware behaviour (`test_middleware.py`), and SQL-injection regression suites (`test_sql_injection.py`). New domain logic added under `app/<context>/domain/` should get pure unit tests that don't need FastAPI or the database; keep integration tests for API-level behaviour and DB constraints.
 
 ---
 

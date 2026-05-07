@@ -136,9 +136,17 @@ Once the containers are healthy:
 | Service | URL |
 |---------|-----|
 | Frontend | http://localhost (host 80 → container 8080, Nginx runs non-root) |
-| API | http://localhost:8000 |
-| Swagger UI | http://localhost:8000/docs (only when `DEBUG=true`) |
-| PostgreSQL | 127.0.0.1:5433 (bound to loopback; credentials from repo-root `.env`) |
+| API (dev only) | http://127.0.0.1:8001 (bound to loopback by `docker-compose.override.yml`; the production compose does not publish the API port at all — all traffic must go through Nginx at `/api/*`) |
+| Swagger UI (dev only) | http://127.0.0.1:8001/docs (requires both `DEBUG=true` and `ENABLE_DOCS=true`) |
+| PostgreSQL (dev only) | 127.0.0.1:5433 (bound to loopback by `docker-compose.override.yml`; credentials from repo-root `.env`) |
+
+`docker-compose.override.yml` is auto-loaded by `docker compose up` and exposes the API and database on loopback so you can hit them from the host. To run without those host bindings (the intended production posture), pass the production file explicitly:
+
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
+
+In production compose, only the `web` container is reachable from the host — the API and database talk only over the compose network.
 
 Stop and remove containers:
 
@@ -206,8 +214,12 @@ Running without Docker is useful for active development and debugging.
 
 ```
 project-root/
-├── docker-compose.yml           # Four services: db, api, worker, web
+├── docker-compose.yml           # Production stack: db, api, worker, web (no host port bindings for db/api)
+├── docker-compose.override.yml  # Auto-loaded in dev; binds db→127.0.0.1:5433 and api→127.0.0.1:8001
+├── docker-compose.run.yml       # Optional: drops API ports + flips DEBUG/COOKIE_SECURE for local-Postgres runs
 ├── .env.example                 # Repo-root env template (DB credentials for compose)
+├── secrets/                     # Docker secrets (db_password, jwt_secret_key, jwt_secret_key_previous, admin_password)
+├── scripts/                     # Helper shell scripts (check-prod-compose.sh, pin-base-images.sh)
 ├── docs/                        # Specifications and design notes
 │   ├── project-spec.md          # Full system specification (v5.1)
 │   └── database-schema.md       # Complete database schema reference
@@ -231,7 +243,7 @@ project-root/
 │   │   ├── messaging/           # BC: conversations and messages
 │   │   ├── analytics/           # BC: income / expense statistics
 │   │   ├── admin/               # BC: CSV import-export, seed, task status
-│   │   ├── middleware/          # request_id, body_size_limit, security_headers, access_log, rate_limit, user_quota
+│   │   ├── middleware/          # request_id, body_size_limit, security_headers, access_log, user_quota, csrf, rate_limit
 │   │   ├── tasks/               # Huey background tasks
 │   │   └── utils/               # csv_handler, security, logger
 │   ├── seed/                    # Fake data generator
@@ -249,16 +261,16 @@ project-root/
         ├── App.vue
         ├── constants.js         # Shared enums (roles, match status, ...)
         ├── router/index.js      # Route table + role guards
-        ├── stores/              # Pinia: auth, tutor, match, message, toast
+        ├── stores/              # Pinia: auth, tutor, toast, notifications
         ├── api/                 # Axios services, one file per resource (+ baseURL, authHandler)
         ├── views/
-        │   ├── LoginView.vue / RegisterView.vue
-        │   ├── parent/          # Dashboard, Search, TutorDetail, MatchDetail, Students, Expense
+        │   ├── LoginView.vue / RegisterView.vue / NotFoundView.vue
+        │   ├── parent/          # Dashboard, Search, TutorDetail, MatchDetail, Students, Profile, Expense
         │   ├── tutor/           # Dashboard, Profile, MatchDetail, Income
         │   ├── messages/        # ConversationList, Chat
         │   └── admin/           # AdminDashboard
         ├── components/          # common, match, review, session, stats, tutor
-        └── composables/         # useMatchDetail
+        └── composables/         # useMatchDetail, useConfirm
 ```
 
 ---

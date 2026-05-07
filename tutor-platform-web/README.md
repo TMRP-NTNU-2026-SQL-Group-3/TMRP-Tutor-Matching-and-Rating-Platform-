@@ -113,10 +113,10 @@ tutor-platform-web/
     │   └── index.js            # Route table, role-based navigation guards
     │
     ├── stores/                 # Pinia stores
-    │   ├── auth.js             # JWT, current user, role, login/logout, refresh
+    │   ├── auth.js             # Current user, role, verified flag, login/logout/refresh flow
+    │   │                       # (tokens themselves live in HttpOnly cookies — never in JS)
     │   ├── tutor.js            # Tutor search filters, results, profile cache
-    │   ├── match.js            # Match list, status transitions
-    │   ├── message.js          # Conversations, unread counts
+    │   ├── notifications.js    # In-app notification history (per-user localStorage, 1 h TTL)
     │   └── toast.js            # Global toast notifications
     │
     ├── api/                    # Axios service layer (one file per resource)
@@ -138,12 +138,14 @@ tutor-platform-web/
     ├── views/                  # Page-level components (mapped by router)
     │   ├── LoginView.vue
     │   ├── RegisterView.vue
+    │   ├── NotFoundView.vue    # 404 fallback for unmatched routes
     │   ├── parent/
     │   │   ├── DashboardView.vue
     │   │   ├── SearchView.vue
     │   │   ├── TutorDetailView.vue
     │   │   ├── MatchDetailView.vue
     │   │   ├── StudentsView.vue
+    │   │   ├── ProfileView.vue
     │   │   └── ExpenseView.vue
     │   ├── tutor/
     │   │   ├── DashboardView.vue
@@ -157,7 +159,8 @@ tutor-platform-web/
     │       └── AdminDashboardView.vue
     │
     ├── components/             # Reusable UI
-    │   ├── common/              # Buttons, modals, toasts, loaders
+    │   ├── common/              # AppNav, PageHeader, StatCard, StatusBadge, EmptyState,
+    │   │                        # ConfirmDialog, ToastNotification, NotificationBell
     │   ├── tutor/               # Tutor card, availability editor, subject picker
     │   ├── match/               # Status badge, invitation form, timeline
     │   ├── session/             # Session form, edit-history viewer
@@ -165,7 +168,8 @@ tutor-platform-web/
     │   └── stats/               # Income/expense charts (Chart.js)
     │
     └── composables/
-        └── useMatchDetail.js    # Shared logic between parent/tutor MatchDetail views
+        ├── useMatchDetail.js    # Shared logic between parent/tutor MatchDetail views
+        └── useConfirm.js        # Promise-based wrapper around the global ConfirmDialog
 ```
 
 The `@/` alias (configured in `vite.config.js`) resolves to `src/`, so imports like `import { useAuthStore } from '@/stores/auth'` work from anywhere.
@@ -190,11 +194,12 @@ Pinia is the single source of truth for cross-view state. Stores are deliberatel
 
 | Store | Responsibility |
 |-------|----------------|
-| `auth` | Access & refresh tokens, current user, login / logout / refresh flow, role |
+| `auth` | Current user, role, `verified` flag, login / logout / refresh-on-401 flow. Tokens live in HttpOnly cookies and are never accessible to JavaScript; only non-sensitive user info is cached in `localStorage`. |
 | `tutor` | Search filters, paginated results, cached tutor profiles |
-| `match` | Match list, selected match detail, status transition actions |
-| `message` | Conversation list, unread counts (polled), active thread messages |
+| `notifications` | In-app notification history, scoped per-user in `localStorage` with a 1-hour TTL so a shared device cannot leak the previous session's notifications |
 | `toast` | Global toast queue; call `toast.success(...)` / `toast.error(...)` from anywhere |
+
+Match list, conversation list, and chat history are kept as component-local state in their respective views — they did not justify a dedicated store.
 
 ---
 
@@ -203,8 +208,9 @@ Pinia is the single source of truth for cross-view state. Stores are deliberatel
 `src/api/index.js` configures a single axios instance:
 
 - `baseURL` from `baseURL.js` (see Environment Variables).
-- **Request interceptor** — attaches `Authorization: Bearer <access_token>` from the auth store.
-- **Response interceptor** — on 401, attempts a refresh-token call and retries the original request once; on 2xx, unwraps the `{ success, data, message }` envelope.
+- `withCredentials: true` — auth tokens travel as HttpOnly cookies, sent automatically by the browser on every request. JS never holds the access or refresh token.
+- **Request interceptor** — attaches a shared `AbortController` signal (so `logout()` can cancel every in-flight request) and, on mutating methods (POST/PUT/PATCH/DELETE), reflects the readable `csrf_token` cookie into an `X-CSRF-Token` header plus `X-Requested-With: XMLHttpRequest`. This implements the double-submit-cookie CSRF defence enforced by the backend's `CSRFMiddleware`.
+- **Response interceptor** — unwraps the `{ success, data, message }` envelope on JSON responses (passes blobs and HTML upstream errors through untouched); on 401, runs a single in-flight `POST /api/auth/refresh` and retries the original request once; on 5xx / network errors, retries up to twice with exponential backoff. 5xx error messages are sanitised to a generic string before reaching the user, while the raw message is logged in dev mode.
 - Per-resource modules (`auth.js`, `tutors.js`, ...) export named functions mirroring backend endpoints — keeps call sites small and greppable.
 
 Example:
