@@ -19,6 +19,9 @@ export const adminApi = {
   listUsers() {
     return api.get('/api/admin/users')
   },
+  listTables() {
+    return api.get('/api/admin/tables')
+  },
   seedData() {
     // FE-13: seed can generate thousands of rows; 30s default is too short.
     return api.post('/api/admin/seed', undefined, { timeout: 120000 })

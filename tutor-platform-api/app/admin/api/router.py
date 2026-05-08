@@ -8,7 +8,13 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.admin.api.dependencies import get_admin_import_service, get_admin_repo
 from app.admin.application.import_service import AdminImportService, MAX_UPLOAD_SIZE
-from app.admin.domain.tables import ALLOWED_TABLES, validate_exportable_table, validate_table
+from app.admin.domain.tables import (
+    ALLOWED_TABLES,
+    EXPORTABLE_TABLES,
+    DELETE_ORDER,
+    validate_exportable_table,
+    validate_table,
+)
 from app.admin.infrastructure.table_admin_repo import TableAdminRepository
 from app.identity.api.dependencies import get_db, require_role
 from app.shared.infrastructure.database_tx import transaction
@@ -50,6 +56,21 @@ _ADMIN_RESET_CONFIRM_USER_WINDOW = 604800  # 7 days
 # pg_try_advisory_xact_lock is transaction-scoped; the lock is held for the
 # lifetime of the transaction(conn) block that wraps the reset sequence.
 _DB_RESET_LOCK_KEY = 7_329_847_234
+
+
+@router.get("/tables", summary="可操作的資料表清單", response_model=ApiResponse)
+def list_tables(user=Depends(require_role("admin"))):
+    # Surface the server-authoritative table allow/deny lists so the SPA can
+    # disable export controls for tables in EXPORT_DENYLIST (e.g. `users`,
+    # which contains password_hash) instead of letting the click round-trip
+    # to a 4xx. The DELETE_ORDER tuple preserves the dependency-aware order
+    # used by import/export so the dropdowns render in a stable, meaningful
+    # sequence rather than the unordered set form.
+    exportable = [t for t in DELETE_ORDER if t in EXPORTABLE_TABLES]
+    return ApiResponse(
+        success=True,
+        data={"allowed": list(DELETE_ORDER), "exportable": exportable},
+    )
 
 
 @router.get("/users", summary="使用者列表", response_model=ApiResponse)

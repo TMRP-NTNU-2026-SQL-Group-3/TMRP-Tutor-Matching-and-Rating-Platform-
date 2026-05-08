@@ -277,6 +277,8 @@ project-root/
 
 ## System Architecture
 
+> For the full architectural reference — C4-style diagrams (context, container, components), bounded-context maps, request/auth flows, match state machine, and ER view — see [`docs/architecture.md`](docs/architecture.md).
+
 Four processes, connected by HTTP and a shared PostgreSQL database:
 
 ```
@@ -528,6 +530,7 @@ See `SECURITY.md` for the full checklist and environment configuration requireme
 ## Documentation
 
 - **`docs/project-spec.md` (v5.1)** — Full system specification. Sections 1–5 are accessible to all team members; sections 6–13 are the technical reference (DB schema, API endpoints, frontend routes, async tasks).
+- **[`docs/architecture.md`](docs/architecture.md)** — System architecture reference: C4-style diagrams (context, container, components), backend bounded contexts, frontend module map, request/auth flows, match state machine, ER view, and cross-cutting concerns. All diagrams in Mermaid.
 - **[`docs/database-schema.md`](docs/database-schema.md)** — Complete database schema reference with table structure, relationships, and constraints.
 - **`SECURITY.md`** — Security controls, known limitations, required production environment configuration, and token rotation procedure.
 

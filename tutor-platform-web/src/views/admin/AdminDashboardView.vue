@@ -86,8 +86,6 @@
               <th class="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">帳號</th>
               <th class="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">顯示名稱</th>
               <th class="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">角色</th>
-              <th class="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
-              <th class="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">電話</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
@@ -105,8 +103,6 @@
                   {{ u.role }}
                 </span>
               </td>
-              <td class="px-3 py-2.5 text-sm text-gray-500">{{ u.email || '-' }}</td>
-              <td class="px-3 py-2.5 text-sm text-gray-500">{{ u.phone || '-' }}</td>
             </tr>
           </tbody>
         </table>
@@ -122,7 +118,7 @@
         <div class="flex gap-2 items-center">
           <select v-model="exportTable"
             class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition">
-            <option v-for="t in tables" :key="t" :value="t">{{ t }}</option>
+            <option v-for="t in exportableTables" :key="t" :value="t">{{ t }}</option>
           </select>
           <button @click="handleExport" :disabled="exporting"
             class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 shrink-0">
@@ -245,11 +241,20 @@ const auth = useAuthStore()
 
 const verifying = ref(true)
 
-const tables = [
+// Server-authoritative table lists fetched on mount via adminApi.listTables().
+// `tables` is the full allow-list (used by import / status drilldown);
+// `exportableTables` strips EXPORT_DENYLIST entries (e.g. `users` — keeps
+// password_hash out of downloadable artefacts) so the export dropdown only
+// surfaces tables the backend will actually serve.
+// Fall back to the full list before the fetch resolves so the UI is not
+// momentarily empty; the response replaces these values within one tick.
+const FALLBACK_TABLES = [
   'users', 'tutors', 'students', 'subjects', 'tutor_subjects',
   'tutor_availability', 'matches', 'sessions', 'session_edit_logs',
   'exams', 'reviews', 'conversations', 'messages',
 ]
+const tables = ref([...FALLBACK_TABLES])
+const exportableTables = ref(FALLBACK_TABLES.filter(t => t !== 'users'))
 
 const users = ref([])
 const loadingUsers = ref(false)
@@ -318,6 +323,26 @@ async function fetchUsers() {
     error.value = e.message
   } finally {
     loadingUsers.value = false
+  }
+}
+
+async function fetchTables() {
+  try {
+    const result = await adminApi.listTables()
+    if (Array.isArray(result?.allowed) && result.allowed.length) {
+      tables.value = result.allowed
+    }
+    if (Array.isArray(result?.exportable) && result.exportable.length) {
+      exportableTables.value = result.exportable
+      // Reconcile the dropdown selection so it never points at a table the
+      // server now refuses to export (e.g. the deny-list grew between deploys).
+      if (!result.exportable.includes(exportTable.value)) {
+        exportTable.value = result.exportable[0]
+      }
+    }
+  } catch {
+    // Fallback list is already in place; surfacing a toast here would be
+    // noise on every dashboard load when admin endpoints are flaky.
   }
 }
 
@@ -543,6 +568,7 @@ onMounted(async () => {
     return
   }
   verifying.value = false
+  fetchTables()
   fetchUsers()
   fetchSystemStatus()
 })

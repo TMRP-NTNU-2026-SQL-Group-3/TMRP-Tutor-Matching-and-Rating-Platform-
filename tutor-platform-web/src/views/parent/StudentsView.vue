@@ -116,7 +116,8 @@ async function fetchStudents() {
   loading.value = true
   error.value = ''
   try {
-    students.value = await studentsApi.list()
+    const result = await studentsApi.list()
+    students.value = result?.items ?? []
   } catch (e) {
     error.value = e.message
   } finally {
