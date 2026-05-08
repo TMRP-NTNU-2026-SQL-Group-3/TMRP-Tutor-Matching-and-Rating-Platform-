@@ -600,12 +600,44 @@ SEED_SUBJECTS: list[tuple[str, str]] = [
 # ──────────────────────────────────────────────
 
 
+# Stable 64-bit key for the bootstrap advisory lock. Used by run_bootstrap()
+# below to serialise schema creation + seed + admin-user creation across
+# concurrent uvicorn workers. Any constant works.
+_BOOTSTRAP_LOCK_KEY = 0x544D5250_424F4F54  # "TMRP" "BOOT"
+
+
 def create_schema(conn) -> None:
     """Create all 13 tables, indexes and foreign keys (idempotent via IF NOT EXISTS)."""
     cursor = conn.cursor()
     cursor.execute(SCHEMA_DDL)
     conn.commit()
     logger.info("  Tables and indexes created")
+
+
+def run_bootstrap(conn, settings: Settings | None = None) -> None:
+    """Run create_schema + seed_subjects + ensure_admin_user + verify_bootstrap
+    under a Postgres advisory lock.
+
+    Why the lock: with `uvicorn --workers N`, every worker runs lifespan
+    startup and would otherwise execute the full DDL bundle concurrently.
+    `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD CONSTRAINT` and the
+    seed/admin SELECT-then-INSERT pairs are not atomic across sessions, so
+    concurrent runs can deadlock, raise duplicate_object / "tuple
+    concurrently updated", or insert duplicate rows — killing one worker
+    and triggering a supervisor restart. The advisory lock serialises all
+    workers; second-and-later runs find the schema already in place and
+    no-op via the existing IF NOT EXISTS / SELECT-COUNT guards.
+    """
+    cursor = conn.cursor()
+    cursor.execute("SELECT pg_advisory_lock(%s)", (_BOOTSTRAP_LOCK_KEY,))
+    try:
+        create_schema(conn)
+        seed_subjects(conn)
+        ensure_admin_user(conn, settings)
+        verify_bootstrap(conn, settings)
+    finally:
+        cursor.execute("SELECT pg_advisory_unlock(%s)", (_BOOTSTRAP_LOCK_KEY,))
+        conn.commit()
 
 
 def seed_subjects(conn) -> None:

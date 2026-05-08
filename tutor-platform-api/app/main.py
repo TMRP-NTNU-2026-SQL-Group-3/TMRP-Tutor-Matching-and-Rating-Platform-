@@ -193,14 +193,13 @@ async def lifespan(app: FastAPI):
     logger.info("PostgreSQL connection pool initialized")
 
     try:
-        from app.init_db import create_schema, seed_subjects, ensure_admin_user, verify_bootstrap
+        from app.init_db import run_bootstrap
 
         conn = get_connection()
         try:
-            create_schema(conn)
-            seed_subjects(conn)
-            ensure_admin_user(conn, settings)
-            verify_bootstrap(conn, settings)
+            # Serialised across workers via a Postgres advisory lock so concurrent
+            # uvicorn workers don't race on DDL / seed inserts.
+            run_bootstrap(conn, settings)
         finally:
             release_connection(conn)
         logger.info("Database initialization and admin-user check complete")
