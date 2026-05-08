@@ -785,7 +785,7 @@ graph TB
     ST --> Pg
     SC --> Pg
 
-    Admin -.->|polls<br/>GET /api/admin/tasks/{task_id}| Q
+    Admin -.->|"polls<br/>GET /api/admin/tasks/{task_id}"| Q
 ```
 
 | Task | Module | Trigger | Purpose |
