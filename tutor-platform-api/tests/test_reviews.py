@@ -14,7 +14,7 @@ _REPO_PATH = "app.review.api.router.PostgresReviewRepository"
 def _match_participants(**overrides):
     base = {
         "match_id": 1,
-        "status": "active",
+        "status": "ended",
         "tutor_user_id": 2,
         "parent_user_id": 1,
         "session_count": 1,
@@ -26,7 +26,7 @@ def _match_participants(**overrides):
 # ━━━━━━━━━━ Create review ━━━━━━━━━━
 
 class TestCreateReview:
-    ENDPOINT = "/api/reviews"
+    ENDPOINT = "/api/matches/{match_id}/reviews"
 
     def test_parent_to_tutor_success(self, client, parent_headers, mock_conn):
         """Parent reviewing tutor succeeds."""
@@ -35,15 +35,14 @@ class TestCreateReview:
             repo.get_match_for_create.return_value = _match_participants()
             repo.create.return_value = 10
 
-            resp = client.post(self.ENDPOINT, json={
-                "match_id": 1,
+            resp = client.post(self.ENDPOINT.format(match_id=1), json={
                 "review_type": "parent_to_tutor",
                 "rating_1": 5, "rating_2": 4,
                 "rating_3": 5, "rating_4": 4,
                 "comment": "很棒的老師",
             }, headers=parent_headers)
 
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert resp.json()["data"]["review_id"] == 10
 
     def test_tutor_to_parent_success(self, client, tutor_headers, mock_conn):
@@ -53,13 +52,12 @@ class TestCreateReview:
             repo.get_match_for_create.return_value = _match_participants()
             repo.create.return_value = 11
 
-            resp = client.post(self.ENDPOINT, json={
-                "match_id": 1,
+            resp = client.post(self.ENDPOINT.format(match_id=1), json={
                 "review_type": "tutor_to_parent",
                 "rating_1": 4, "rating_2": 3,
             }, headers=tutor_headers)
 
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert resp.json()["data"]["review_id"] == 11
 
     def test_tutor_to_student_success(self, client, tutor_headers, mock_conn):
@@ -69,13 +67,12 @@ class TestCreateReview:
             repo.get_match_for_create.return_value = _match_participants()
             repo.create.return_value = 12
 
-            resp = client.post(self.ENDPOINT, json={
-                "match_id": 1,
+            resp = client.post(self.ENDPOINT.format(match_id=1), json={
                 "review_type": "tutor_to_student",
                 "rating_1": 5, "rating_2": 5,
             }, headers=tutor_headers)
 
-        assert resp.status_code == 200
+        assert resp.status_code == 201
 
     def test_duplicate_review_rejected(self, client, parent_headers, mock_conn):
         """Duplicate review returns 409.
@@ -91,8 +88,7 @@ class TestCreateReview:
             repo.get_match_for_create.return_value = _match_participants()
             repo.create.side_effect = UniqueViolation()
 
-            resp = client.post(self.ENDPOINT, json={
-                "match_id": 1,
+            resp = client.post(self.ENDPOINT.format(match_id=1), json={
                 "review_type": "parent_to_tutor",
                 "rating_1": 5, "rating_2": 4,
                 "rating_3": 5, "rating_4": 4,
@@ -107,8 +103,7 @@ class TestCreateReview:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
 
-            resp = client.post(self.ENDPOINT, json={
-                "match_id": 1,
+            resp = client.post(self.ENDPOINT.format(match_id=1), json={
                 "review_type": "tutor_to_parent",
                 "rating_1": 3, "rating_2": 3,
             }, headers=parent_headers)
@@ -121,8 +116,7 @@ class TestCreateReview:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = _match_participants()
 
-            resp = client.post(self.ENDPOINT, json={
-                "match_id": 1,
+            resp = client.post(self.ENDPOINT.format(match_id=1), json={
                 "review_type": "student_to_tutor",
                 "rating_1": 3, "rating_2": 3,
             }, headers=parent_headers)
@@ -135,8 +129,7 @@ class TestCreateReview:
             repo = MockRepo.return_value
             repo.get_match_for_create.return_value = None
 
-            resp = client.post(self.ENDPOINT, json={
-                "match_id": 999,
+            resp = client.post(self.ENDPOINT.format(match_id=999), json={
                 "review_type": "parent_to_tutor",
                 "rating_1": 5, "rating_2": 5,
                 "rating_3": 5, "rating_4": 5,
@@ -212,7 +205,7 @@ class TestReviewLock:
 # ━━━━━━━━━━ List reviews ━━━━━━━━━━
 
 class TestListReviews:
-    ENDPOINT = "/api/reviews"
+    ENDPOINT = "/api/matches/{match_id}/reviews"
 
     def test_list_as_participant(self, client, parent_headers, mock_conn):
         """Participant can list reviews."""
@@ -224,7 +217,7 @@ class TestListReviews:
             ]
 
             resp = client.get(
-                self.ENDPOINT, params={"match_id": 1},
+                self.ENDPOINT.format(match_id=1),
                 headers=parent_headers,
             )
 
@@ -239,7 +232,7 @@ class TestListReviews:
             repo.list_by_match.return_value = []
 
             resp = client.get(
-                self.ENDPOINT, params={"match_id": 1},
+                self.ENDPOINT.format(match_id=1),
                 headers=admin_headers,
             )
 

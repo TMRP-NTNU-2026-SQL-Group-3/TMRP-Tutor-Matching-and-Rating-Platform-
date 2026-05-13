@@ -18,7 +18,7 @@ def _edit_log_insert_calls(repo) -> list:
 # ━━━━━━━━━━ Create session ━━━━━━━━━━
 
 class TestCreateSession:
-    ENDPOINT = "/api/sessions"
+    ENDPOINT = "/api/matches/{match_id}/sessions"
 
     def test_create_success(self, client, tutor_headers, mock_conn):
         """Tutor creates a session record successfully."""
@@ -29,14 +29,13 @@ class TestCreateSession:
             }
             repo.create.return_value = 50
 
-            resp = client.post(self.ENDPOINT, json={
-                "match_id": 1,
+            resp = client.post(self.ENDPOINT.format(match_id=1), json={
                 "session_date": "2025-04-01T14:00:00",
                 "hours": 2.0,
                 "content_summary": "複習第三章",
             }, headers=tutor_headers)
 
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert resp.json()["data"]["session_id"] == 50
 
     def test_create_trial_match_allowed(self, client, tutor_headers, mock_conn):
@@ -48,14 +47,13 @@ class TestCreateSession:
             }
             repo.create.return_value = 51
 
-            resp = client.post(self.ENDPOINT, json={
-                "match_id": 1,
+            resp = client.post(self.ENDPOINT.format(match_id=1), json={
                 "session_date": "2025-04-01T14:00:00",
                 "hours": 1.5,
                 "content_summary": "試教數學",
             }, headers=tutor_headers)
 
-        assert resp.status_code == 200
+        assert resp.status_code == 201
 
     def test_create_paused_match_denied(self, client, tutor_headers, mock_conn):
         """Paused match cannot accept new sessions."""
@@ -65,8 +63,7 @@ class TestCreateSession:
                 "match_id": 1, "status": "paused", "tutor_user_id": 2,
             }
 
-            resp = client.post(self.ENDPOINT, json={
-                "match_id": 1,
+            resp = client.post(self.ENDPOINT.format(match_id=1), json={
                 "session_date": "2025-04-01T14:00:00",
                 "hours": 2.0,
                 "content_summary": "暫停中",
@@ -77,8 +74,7 @@ class TestCreateSession:
 
     def test_parent_cannot_create(self, client, parent_headers, mock_conn):
         """Parent cannot create session records (403)."""
-        resp = client.post(self.ENDPOINT, json={
-            "match_id": 1,
+        resp = client.post(self.ENDPOINT.format(match_id=1), json={
             "session_date": "2025-04-01T14:00:00",
             "hours": 2.0,
             "content_summary": "test",
@@ -93,8 +89,7 @@ class TestCreateSession:
                 "match_id": 1, "status": "active", "tutor_user_id": 999,
             }
 
-            resp = client.post(self.ENDPOINT, json={
-                "match_id": 1,
+            resp = client.post(self.ENDPOINT.format(match_id=1), json={
                 "session_date": "2025-04-01T14:00:00",
                 "hours": 2.0,
                 "content_summary": "不是我的課",
@@ -181,7 +176,7 @@ class TestUpdateSession:
 # ━━━━━━━━━━ List sessions ━━━━━━━━━━
 
 class TestListSessions:
-    ENDPOINT = "/api/sessions"
+    ENDPOINT = "/api/matches/{match_id}/sessions"
 
     def test_list_as_tutor(self, client, tutor_headers, mock_conn):
         """Tutor lists all sessions for the match."""
@@ -196,7 +191,7 @@ class TestListSessions:
             ]
 
             resp = client.get(
-                self.ENDPOINT, params={"match_id": 1},
+                self.ENDPOINT.format(match_id=1),
                 headers=tutor_headers,
             )
 
@@ -216,7 +211,7 @@ class TestListSessions:
             ]
 
             resp = client.get(
-                self.ENDPOINT, params={"match_id": 1},
+                self.ENDPOINT.format(match_id=1),
                 headers=parent_headers,
             )
 
@@ -232,7 +227,7 @@ class TestListSessions:
             }
 
             resp = client.get(
-                self.ENDPOINT, params={"match_id": 1},
+                self.ENDPOINT.format(match_id=1),
                 headers=tutor_headers,
             )
 
@@ -247,7 +242,7 @@ class TestListSessions:
             }
 
             resp = client.get(
-                self.ENDPOINT, params={"match_id": 1},
+                self.ENDPOINT.format(match_id=1),
                 headers=tutor_headers,
             )
 
