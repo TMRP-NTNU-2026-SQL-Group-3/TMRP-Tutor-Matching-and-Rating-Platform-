@@ -424,14 +424,14 @@ def import_all(
     service: AdminImportService = Depends(get_admin_import_service),
 ):
     logger.warning("Admin user_id=%s 執行一鍵匯入 (clear_first=%s)", user.get("sub"), clear_first)
-    data = file.file.read(MAX_UPLOAD_SIZE + 1)
-    if len(data) > MAX_UPLOAD_SIZE:
+    zip_bytes = file.file.read(MAX_UPLOAD_SIZE + 1)
+    if len(zip_bytes) > MAX_UPLOAD_SIZE:
         raise HTTPException(
             status_code=413,
             detail=f"上傳檔案過大（上限 {MAX_UPLOAD_SIZE // 1024 // 1024} MB）",
         )
     outcome = service.import_zip(
-        zip_bytes=data,
+        zip_bytes=zip_bytes,
         admin_user_id=int(user["sub"]),
         clear_first=clear_first,
     )

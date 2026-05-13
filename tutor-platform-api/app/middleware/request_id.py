@@ -3,7 +3,7 @@ import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
-# Allowlist: UUID-style identifiers (hex digits and hyphens), capped at 64 chars.
+# Allowlist: alphanumeric characters, hyphens, and underscores, capped at 64 chars.
 # Rejects any value containing CRLF, spaces, or other control characters that
 # could be used for log injection or header splitting.
 _SAFE_REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9\-_]{1,64}$")

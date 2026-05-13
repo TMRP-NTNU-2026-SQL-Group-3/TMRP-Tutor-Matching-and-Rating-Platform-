@@ -357,7 +357,7 @@ def _is_token_revoked_for_user(user_id: int, issued_at: float) -> bool:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT 1 FROM user_token_revocations WHERE user_id = %s "
-                "AND EXTRACT(EPOCH FROM revoked_at) > %s",
+                "AND EXTRACT(EPOCH FROM revoked_at) >= %s",
                 (user_id, issued_at),
             )
             exists = cur.fetchone() is not None
