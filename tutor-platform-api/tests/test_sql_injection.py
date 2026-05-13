@@ -16,6 +16,9 @@ _AUTH_REPO = "app.identity.infrastructure.postgres_user_repo.PostgresUserReposit
 _MATCH_REPO = "app.matching.api.dependencies.PostgresMatchRepository"
 _CATALOG = "app.matching.api.dependencies.CatalogQueryAdapter"
 _REVIEW_REPO = "app.review.api.router.PostgresReviewRepository"
+_SESSION_REPO = "app.teaching.api.dependencies.PostgresSessionRepository"
+_MSG_MSG_REPO = "app.messaging.api.dependencies.PostgresMessageRepository"
+_MSG_CONV_REPO = "app.messaging.api.dependencies.PostgresConversationRepository"
 
 
 INJECTION_PAYLOADS = [
@@ -136,3 +139,136 @@ class TestMatchCreateInjection:
 
         _, kwargs = match_repo.create.call_args
         assert kwargs.get("invite_message") == payload
+
+
+# ━━━━━━━━━━ Review comment ━━━━━━━━━━
+
+class TestReviewCommentInjection:
+    ENDPOINT = "/api/matches/1/reviews"
+
+    @pytest.mark.parametrize("payload", INJECTION_PAYLOADS)
+    def test_comment_injection_no_500(self, client, parent_headers, mock_conn, payload):
+        """Injection payload in review comment must not cause an unhandled 500."""
+        with patch(_REVIEW_REPO) as MockRepo:
+            repo = MockRepo.return_value
+            repo.get_match_for_create.return_value = {
+                "match_id": 1, "status": "ended",
+                "tutor_user_id": 2, "parent_user_id": 1,
+                "session_count": 1,
+            }
+            repo.create.return_value = 42
+
+            resp = client.post(self.ENDPOINT, json={
+                "review_type": "parent_to_tutor",
+                "rating_1": 5, "rating_2": 5, "rating_3": 5, "rating_4": 5,
+                "comment": payload,
+            }, headers=parent_headers)
+
+        assert resp.status_code != 500
+
+    @pytest.mark.parametrize("payload", INJECTION_PAYLOADS)
+    def test_comment_passed_as_parameter(self, client, parent_headers, mock_conn, payload):
+        """review_repo.create must receive comment as a raw string argument."""
+        with patch(_REVIEW_REPO) as MockRepo:
+            repo = MockRepo.return_value
+            repo.get_match_for_create.return_value = {
+                "match_id": 1, "status": "ended",
+                "tutor_user_id": 2, "parent_user_id": 1,
+                "session_count": 1,
+            }
+            repo.create.return_value = 42
+
+            client.post(self.ENDPOINT, json={
+                "review_type": "parent_to_tutor",
+                "rating_1": 5, "rating_2": 5, "rating_3": 5, "rating_4": 5,
+                "comment": payload,
+            }, headers=parent_headers)
+
+        _, kwargs = repo.create.call_args
+        assert kwargs.get("comment") == payload
+
+
+# ━━━━━━━━━━ Session content_summary ━━━━━━━━━━
+
+class TestSessionContentSummaryInjection:
+    ENDPOINT = "/api/matches/1/sessions"
+
+    @pytest.mark.parametrize("payload", INJECTION_PAYLOADS)
+    def test_content_summary_injection_no_500(self, client, tutor_headers, mock_conn, payload):
+        """Injection payload in content_summary must not cause an unhandled 500."""
+        with patch(_SESSION_REPO) as MockRepo:
+            repo = MockRepo.return_value
+            repo.get_match_for_create.return_value = {
+                "match_id": 1, "status": "active", "tutor_user_id": 2,
+            }
+            repo.create.return_value = 50
+
+            resp = client.post(self.ENDPOINT, json={
+                "session_date": "2025-04-01T14:00:00",
+                "hours": 2.0,
+                "content_summary": payload,
+            }, headers=tutor_headers)
+
+        assert resp.status_code != 500
+
+    @pytest.mark.parametrize("payload", INJECTION_PAYLOADS)
+    def test_content_summary_passed_as_parameter(self, client, tutor_headers, mock_conn, payload):
+        """session_repo.create must receive content_summary as a raw string argument."""
+        with patch(_SESSION_REPO) as MockRepo:
+            repo = MockRepo.return_value
+            repo.get_match_for_create.return_value = {
+                "match_id": 1, "status": "active", "tutor_user_id": 2,
+            }
+            repo.create.return_value = 50
+
+            client.post(self.ENDPOINT, json={
+                "session_date": "2025-04-01T14:00:00",
+                "hours": 2.0,
+                "content_summary": payload,
+            }, headers=tutor_headers)
+
+        _, kwargs = repo.create.call_args
+        assert kwargs.get("content_summary") == payload
+
+
+# ━━━━━━━━━━ Message content ━━━━━━━━━━
+
+class TestMessageContentInjection:
+    ENDPOINT = "/api/messages/conversations/1/messages"
+
+    @pytest.mark.parametrize("payload", INJECTION_PAYLOADS)
+    def test_content_injection_no_500(self, client, parent_headers, mock_conn, payload):
+        """Injection payload in message content must not cause an unhandled 500."""
+        with (
+            patch(_MSG_MSG_REPO) as MockMsgRepo,
+            patch(_MSG_CONV_REPO) as MockConvRepo,
+        ):
+            MockConvRepo.return_value.user_is_participant.return_value = True
+            MockMsgRepo.return_value.send_message.return_value = 10
+
+            resp = client.post(
+                self.ENDPOINT,
+                json={"content": payload},
+                headers=parent_headers,
+            )
+
+        assert resp.status_code != 500
+
+    @pytest.mark.parametrize("payload", INJECTION_PAYLOADS)
+    def test_content_passed_as_parameter(self, client, parent_headers, mock_conn, payload):
+        """msg_repo.send_message must receive content as a raw positional argument."""
+        with (
+            patch(_MSG_MSG_REPO) as MockMsgRepo,
+            patch(_MSG_CONV_REPO) as MockConvRepo,
+        ):
+            MockConvRepo.return_value.user_is_participant.return_value = True
+            MockMsgRepo.return_value.send_message.return_value = 10
+
+            client.post(
+                self.ENDPOINT,
+                json={"content": payload},
+                headers=parent_headers,
+            )
+
+        args, _ = MockMsgRepo.return_value.send_message.call_args
+        assert args[2] == payload

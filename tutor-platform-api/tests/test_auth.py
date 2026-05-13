@@ -201,3 +201,50 @@ class TestGetMe:
             headers={"Authorization": "Bearer invalid.jwt.token"},
         )
         assert resp.status_code == 401
+
+
+# ━━━━━━━━━━ Update me ━━━━━━━━━━
+
+_CSRF_TEST_TOKEN = "test-csrf-token"
+
+
+class TestUpdateMe:
+    ENDPOINT = "/api/auth/me"
+
+    def test_update_me_success(self, client, parent_headers, mock_conn):
+        """Authenticated user with valid CSRF token can update their profile."""
+        with patch(_REPO_PATH) as MockRepo:
+            MockRepo.return_value.update_me.return_value = {
+                "user_id": 1,
+                "username": "parent01",
+                "display_name": "Updated Name",
+                "role": "parent",
+            }
+
+            resp = client.put(
+                self.ENDPOINT,
+                json={"display_name": "Updated Name"},
+                headers=parent_headers,
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["display_name"] == "Updated Name"
+
+    def test_update_me_missing_csrf_returns_403(self, client, parent_token):
+        """PUT /api/auth/me without X-CSRF-Token header is rejected by CSRF middleware."""
+        resp = client.put(
+            self.ENDPOINT,
+            json={"display_name": "anything"},
+            headers={"Authorization": f"Bearer {parent_token}"},
+        )
+        assert resp.status_code == 403
+        assert "CSRF" in resp.json()["message"]
+
+    def test_update_me_requires_auth(self, client):
+        """PUT /api/auth/me without Authorization returns 401 (CSRF passes, auth check fails)."""
+        resp = client.put(
+            self.ENDPOINT,
+            json={"display_name": "anything"},
+            headers={"X-CSRF-Token": _CSRF_TEST_TOKEN},
+        )
+        assert resp.status_code == 401

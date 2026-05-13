@@ -75,3 +75,14 @@ class TestCSRFMiddleware:
         )
         # May return 400/422 for bad credentials/schema, but never 403 from CSRF.
         assert resp.status_code != 403
+
+
+class TestCSRFExemptPathsInvariant:
+    def test_exempt_set_has_not_grown(self):
+        """_CSRF_EXEMPT_PATHS must contain exactly the two pre-authentication paths.
+
+        Adding any path to this set silently removes CSRF protection for it.
+        Any change to this set must be a deliberate, reviewed security decision.
+        """
+        from app.middleware.csrf import _CSRF_EXEMPT_PATHS
+        assert _CSRF_EXEMPT_PATHS == frozenset({"/api/auth/login", "/api/auth/register"})

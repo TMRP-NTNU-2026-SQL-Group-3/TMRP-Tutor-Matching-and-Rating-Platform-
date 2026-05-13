@@ -44,6 +44,9 @@ def search_tutors(
     sort_by: SortBy = Query(SortBy.rating),
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    # SEC-15: auth required — tutor listings expose PII (display name, school,
+    # hourly rate) restricted to verified account holders. Unlike /api/subjects,
+    # this endpoint is not public. See test_tutors.py::test_unauthenticated_returns_401.
     user=Depends(get_current_user),
     repo: PostgresTutorRepository = Depends(get_tutor_repo),
     service: TutorService = Depends(get_tutor_service),

@@ -53,7 +53,14 @@ class TestSearchTutors:
         assert resp.status_code == 403
 
     def test_unauthenticated_returns_401(self, client):
-        """Tutor search requires a valid session."""
+        """Anonymous browse of the tutor catalog returns 401 — intentional security invariant.
+
+        SEC-15: GET /api/tutors requires authentication. Unlike GET /api/subjects
+        (public catalog), tutor search exposes PII (display names, school
+        affiliations, hourly rates) that the platform restricts to verified
+        account holders. Removing get_current_user from the Depends() chain
+        must cause this test to fail.
+        """
         resp = client.get(self.ENDPOINT)
         assert resp.status_code == 401
 
