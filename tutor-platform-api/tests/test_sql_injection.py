@@ -10,16 +10,12 @@ All tests use the same mock-repo strategy as the rest of the suite (no real DB).
 """
 
 import pytest
-from unittest.mock import call, patch
-
-from app.shared.infrastructure.security import hash_password
-
+from unittest.mock import patch
 
 _AUTH_REPO = "app.identity.infrastructure.postgres_user_repo.PostgresUserRepository"
 _MATCH_REPO = "app.matching.api.dependencies.PostgresMatchRepository"
 _CATALOG = "app.matching.api.dependencies.CatalogQueryAdapter"
 _REVIEW_REPO = "app.review.api.router.PostgresReviewRepository"
-_MSG_REPO = "app.messaging.api.router.PostgresMessageRepository"
 
 
 INJECTION_PAYLOADS = [

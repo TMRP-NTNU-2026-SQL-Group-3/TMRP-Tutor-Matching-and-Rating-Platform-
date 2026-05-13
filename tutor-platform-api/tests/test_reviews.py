@@ -230,7 +230,7 @@ class TestListReviews:
         assert resp.status_code == 200
         assert len(resp.json()["data"]) == 1
 
-    def test_list_non_participant_denied(self, client, admin_headers, mock_conn):
+    def test_list_as_admin(self, client, admin_headers, mock_conn):
         """Admin can list any match's reviews."""
         with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
@@ -330,3 +330,28 @@ class TestMandatoryRatingAxisProtection:
                 headers=parent_headers,
             )
         assert resp.status_code == 200
+
+    def test_legacy_null_axis_blocked(self, client, parent_headers, mock_conn):
+        """Service blocks an update that leaves a mandatory axis null in stored data.
+
+        Covers the case where a parent_to_tutor review was imported with a null
+        rating_3. F-12 (schema) prevents explicit null via PATCH, but this
+        service-level check (F-15) catches the merged state when the stored
+        value is already null and the caller omits the field entirely.
+        """
+        with patch(_REPO_PATH) as MockRepo:
+            repo = MockRepo.return_value
+            repo.get_for_update.return_value = {
+                "reviewer_user_id": 1,
+                "is_locked": False,
+                "created_at": datetime.now(timezone.utc),
+                "review_type": "parent_to_tutor",
+                "rating_1": 5, "rating_2": 4, "rating_3": None, "rating_4": 4,
+                "comment": None,
+            }
+            resp = client.patch(
+                self.ENDPOINT.format(review_id=10),
+                json={"comment": "補充說明"},
+                headers=parent_headers,
+            )
+        assert resp.status_code == 422
