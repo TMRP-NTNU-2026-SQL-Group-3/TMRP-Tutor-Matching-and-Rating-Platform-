@@ -11,6 +11,7 @@ from app.shared.infrastructure.security import hash_password
 
 
 _REPO_PATH = "app.identity.infrastructure.postgres_user_repo.PostgresUserRepository"
+_CSRF_TEST_TOKEN = "test-csrf-token"
 
 
 # ━━━━━━━━━━ Register ━━━━━━━━━━
@@ -204,9 +205,6 @@ class TestGetMe:
 
 
 # ━━━━━━━━━━ Update me ━━━━━━━━━━
-
-_CSRF_TEST_TOKEN = "test-csrf-token"
-
 
 class TestUpdateMe:
     ENDPOINT = "/api/auth/me"

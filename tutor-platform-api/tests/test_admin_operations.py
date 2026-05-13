@@ -5,6 +5,7 @@ TableAdminRepository is patched at its import site in
 app.admin.api.dependencies so the mocked class is returned by get_admin_repo.
 """
 
+import json
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -224,11 +225,10 @@ class TestAdminGetTask:
 
     def test_task_completed_json_result_returned(self, client, admin_headers):
         """A completed task with a valid JSON payload is returned as completed status."""
-        import json as _json
         with patch("app.worker.huey") as mock_huey:
             empty = object()
             mock_huey.EmptyData = empty
-            mock_huey.storage.peek_data.return_value = _json.dumps({"count": 5}).encode()
+            mock_huey.storage.peek_data.return_value = json.dumps({"count": 5}).encode()
 
             resp = client.get(
                 self.ENDPOINT.format(task_id="task-done"),
