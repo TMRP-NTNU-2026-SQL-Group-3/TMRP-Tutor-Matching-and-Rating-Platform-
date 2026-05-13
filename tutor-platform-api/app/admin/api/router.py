@@ -423,6 +423,13 @@ def import_all(
     user=Depends(require_role("admin")),
     service: AdminImportService = Depends(get_admin_import_service),
 ):
+    # SEC-21: validate Content-Type before reading the body, consistent with import_csv.
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if content_type not in ("application/zip", "application/x-zip-compressed", "application/octet-stream"):
+        raise HTTPException(
+            status_code=415,
+            detail="僅接受 ZIP 格式（Content-Type: application/zip）",
+        )
     logger.warning("Admin user_id=%s 執行一鍵匯入 (clear_first=%s)", user.get("sub"), clear_first)
     zip_bytes = file.file.read(MAX_UPLOAD_SIZE + 1)
     if len(zip_bytes) > MAX_UPLOAD_SIZE:
