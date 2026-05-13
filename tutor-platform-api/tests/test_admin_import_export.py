@@ -9,7 +9,8 @@ Covers:
 Key invariants tested:
   - EXPORT_DENYLIST: the `users` table must be refused on export (400).
   - clear_first=True path on import-all is accepted and forwarded to the service.
-  - Content-Type enforcement on single-table import (415 on wrong type).
+  - Content-Type enforcement on single-table CSV import (415 on wrong type).
+  - Content-Type enforcement on bulk ZIP import (415 on wrong type).
   - Admin role is required on every endpoint (403 for non-admin).
 
 AdminImportService is patched at its construction site in
@@ -199,6 +200,18 @@ class TestImportAll:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert "errors" in data
+
+    def test_wrong_content_type_returns_415(self, client, admin_headers, mock_conn):
+        """Non-ZIP Content-Type is rejected before the service is called."""
+        with patch(_IMPORT_SERVICE):
+            resp = client.post(
+                self.ENDPOINT,
+                files={"file": ("all.tar.gz", b"\x1f\x8b", "application/gzip")},
+                headers=_ah(admin_headers),
+                cookies=_ck(),
+            )
+
+        assert resp.status_code == 415
 
     def test_non_admin_returns_403(self, client, parent_headers, mock_conn):
         resp = client.post(
