@@ -24,7 +24,7 @@ from app.shared.infrastructure.config import settings
 logger = logging.getLogger("app.review")
 
 _VALID_TYPES = frozenset({"parent_to_tutor", "tutor_to_parent", "tutor_to_student"})
-_REVIEWABLE_STATUSES = frozenset({"active", "paused", "ended"})
+_REVIEWABLE_STATUSES = frozenset({"ended"})
 
 
 class ReviewAppService:

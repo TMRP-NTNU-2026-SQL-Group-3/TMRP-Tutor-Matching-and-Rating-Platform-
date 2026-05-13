@@ -18,8 +18,7 @@ def _check_exam_type(v: str) -> str:
 ExamType = Annotated[str, AfterValidator(_check_exam_type)]
 
 
-class SessionCreate(BaseModel):
-    match_id: int = Field(..., description="配對 ID")
+class SessionCreateBody(BaseModel):
     session_date: datetime = Field(..., description="上課日期時間")
     hours: float = Field(..., gt=0, le=24, description="上課時數")
     content_summary: str = Field(..., max_length=4000, description="上課內容摘要")
@@ -27,6 +26,10 @@ class SessionCreate(BaseModel):
     student_performance: str | None = Field(default=None, max_length=4000, description="學生表現紀錄")
     next_plan: str | None = Field(default=None, max_length=4000, description="下次上課計畫")
     visible_to_parent: bool = Field(default=False, description="是否對家長可見")
+
+
+class SessionCreate(SessionCreateBody):
+    match_id: int = Field(..., description="配對 ID")
 
 
 class SessionUpdate(BaseModel):
@@ -39,13 +42,16 @@ class SessionUpdate(BaseModel):
     visible_to_parent: bool | None = Field(default=None)
 
 
-class ExamCreate(BaseModel):
-    student_id: int = Field(..., description="學生 ID")
+class ExamCreateBody(BaseModel):
     subject_id: int = Field(..., description="科目 ID")
     exam_date: datetime = Field(..., description="考試日期")
     exam_type: ExamType = Field(..., description="考試類型")
     score: float = Field(..., ge=0, le=150, description="考試分數")
     visible_to_parent: bool = Field(default=True, description="是否對家長可見")
+
+
+class ExamCreate(ExamCreateBody):
+    student_id: int = Field(..., description="學生 ID")
 
 
 class ExamUpdate(BaseModel):

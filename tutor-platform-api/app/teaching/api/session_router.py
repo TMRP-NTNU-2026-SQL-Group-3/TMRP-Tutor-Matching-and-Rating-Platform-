@@ -1,14 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.identity.api.dependencies import get_current_user, is_admin, require_role
 from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
 from app.shared.domain.exceptions import PermissionDeniedError, TooManyRequestsError
 from app.teaching.api.dependencies import get_session_service
-from app.teaching.api.schemas import SessionCreate, SessionUpdate
+from app.teaching.api.schemas import SessionCreateBody, SessionUpdate
 from app.teaching.application.session_service import SessionAppService
 from app.teaching.domain.exceptions import SessionNotFoundError
 
+# Spec §7.6: POST/GET /api/matches/{match_id}/sessions
+match_sessions_router = APIRouter(prefix="/api/matches", tags=["sessions"])
+# Remaining session-specific routes stay under /api/sessions
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 # B6: Path-based rate-limiting in the middleware can't distinguish "60 session
@@ -18,21 +21,22 @@ _SESSION_CREATE_LIMIT = 10
 _SESSION_CREATE_WINDOW = 60
 
 
-@router.post("", status_code=201, summary="新增上課日誌", response_model=ApiResponse)
+@match_sessions_router.post("/{match_id}/sessions", status_code=201, summary="新增上課日誌", response_model=ApiResponse)
 def create_session(
-    body: SessionCreate,
+    match_id: int,
+    body: SessionCreateBody,
     user=Depends(require_role("tutor")),
     service: SessionAppService = Depends(get_session_service),
 ):
     tutor_user_id = int(user["sub"])
     # Keyed on match+tutor so the bucket survives IP changes (mobile networks,
     # roaming) but still isolates different matches from each other.
-    bucket = f"session:create|match={body.match_id}|tutor={tutor_user_id}"
+    bucket = f"session:create|match={match_id}|tutor={tutor_user_id}"
     if not check_and_record_bucket(bucket, _SESSION_CREATE_LIMIT, _SESSION_CREATE_WINDOW):
         raise TooManyRequestsError("此配對的上課日誌新增頻率過高，請稍後再試")
     session_id = service.create(
         tutor_user_id=tutor_user_id,
-        match_id=body.match_id,
+        match_id=match_id,
         session_date=body.session_date,
         hours=body.hours,
         content_summary=body.content_summary,
@@ -44,9 +48,9 @@ def create_session(
     return ApiResponse(success=True, data={"session_id": session_id}, message="上課日誌已新增")
 
 
-@router.get("", summary="列出上課日誌", response_model=ApiResponse)
+@match_sessions_router.get("/{match_id}/sessions", summary="列出上課日誌", response_model=ApiResponse)
 def list_sessions(
-    match_id: int = Query(...),
+    match_id: int,
     user=Depends(get_current_user),
     service: SessionAppService = Depends(get_session_service),
 ):

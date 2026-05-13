@@ -25,9 +25,9 @@ from app.catalog.api.tutor_router import router as tutor_router
 from app.catalog.api.student_router import router as student_router
 from app.catalog.api.subject_router import router as subject_router
 from app.matching.api.router import router as match_router
-from app.teaching.api.session_router import router as session_router
-from app.teaching.api.exam_router import router as exam_router
-from app.review.api.router import router as review_router
+from app.teaching.api.session_router import router as session_router, match_sessions_router
+from app.teaching.api.exam_router import router as exam_router, student_exams_router
+from app.review.api.router import router as review_router, match_reviews_router
 from app.messaging.api.router import router as message_router
 from app.analytics.api.router import router as stats_router
 from app.admin.api.router import router as admin_router
@@ -318,8 +318,11 @@ app.include_router(tutor_router)
 app.include_router(student_router)
 app.include_router(subject_router)
 app.include_router(match_router)
+app.include_router(match_sessions_router)
 app.include_router(session_router)
+app.include_router(student_exams_router)
 app.include_router(exam_router)
+app.include_router(match_reviews_router)
 app.include_router(review_router)
 app.include_router(message_router)
 app.include_router(stats_router)

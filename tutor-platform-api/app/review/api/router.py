@@ -1,9 +1,9 @@
 import logging
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 
 from app.identity.api.dependencies import get_current_user, get_db, is_admin
-from app.review.api.schemas import ReviewCreate, ReviewUpdate
+from app.review.api.schemas import ReviewCreate, ReviewCreateBody, ReviewUpdate
 from app.review.application.review_service import ReviewAppService
 from app.review.domain.exceptions import NotMatchParticipantError, ReviewMatchNotFoundError
 from app.review.infrastructure.postgres_review_repo import PostgresReviewRepository
@@ -12,6 +12,9 @@ from app.shared.infrastructure.postgres_unit_of_work import PostgresUnitOfWork
 
 logger = logging.getLogger("app.review")
 
+# Spec §7.8: POST/GET /api/matches/{match_id}/reviews
+match_reviews_router = APIRouter(prefix="/api/matches", tags=["reviews"])
+# Remaining review-specific routes stay under /api/reviews
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
 
@@ -22,19 +25,21 @@ def _get_review_service(conn=Depends(get_db)) -> ReviewAppService:
     )
 
 
-@router.post("", status_code=201, summary="新增評價", response_model=ApiResponse)
+@match_reviews_router.post("/{match_id}/reviews", status_code=201, summary="新增評價", response_model=ApiResponse)
 def create_review(
-    body: ReviewCreate,
+    match_id: int,
+    body: ReviewCreateBody,
     user=Depends(get_current_user),
     service: ReviewAppService = Depends(_get_review_service),
 ):
-    review_id = service.create_review(user_id=int(user["sub"]), body=body)
+    full_body = ReviewCreate(match_id=match_id, **body.model_dump())
+    review_id = service.create_review(user_id=int(user["sub"]), body=full_body)
     return ApiResponse(success=True, data={"review_id": review_id}, message="評價已提交")
 
 
-@router.get("", summary="列出配對評價", response_model=ApiResponse)
+@match_reviews_router.get("/{match_id}/reviews", summary="列出配對評價", response_model=ApiResponse)
 def list_reviews(
-    match_id: int = Query(...),
+    match_id: int,
     user=Depends(get_current_user),
     conn=Depends(get_db),
 ):

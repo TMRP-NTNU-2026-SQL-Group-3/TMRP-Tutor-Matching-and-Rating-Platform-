@@ -57,14 +57,18 @@ def create_match(
     )
 
     if idempotency_key:
-        with conn.cursor() as cur:
-            cur.execute(
-                """INSERT INTO idempotency_keys (idem_key, user_id, match_id, expires_at)
-                   VALUES (%s, %s, %s, NOW() + INTERVAL '24 hours')
-                   ON CONFLICT (user_id, idem_key) DO NOTHING""",
-                (idempotency_key, user_id, match_id),
-            )
-        conn.commit()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO idempotency_keys (idem_key, user_id, match_id, expires_at)
+                       VALUES (%s, %s, %s, NOW() + INTERVAL '24 hours')
+                       ON CONFLICT (user_id, idem_key) DO NOTHING""",
+                    (idempotency_key, user_id, match_id),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     return ApiResponse(success=True, data={"match_id": match_id}, message="媒合邀請已送出")
 

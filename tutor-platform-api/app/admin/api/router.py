@@ -99,10 +99,10 @@ def seed_data(
     return ApiResponse(success=True, data=result, message=f"已產生 {total} 筆假資料")
 
 
-@router.post("/import", summary="匯入 CSV", response_model=ApiResponse)
+@router.post("/import/{table_name}", summary="匯入 CSV", response_model=ApiResponse)
 def import_csv(
+    table_name: str,
     file: UploadFile = File(...),
-    table_name: str = Query(...),
     user=Depends(require_role("admin")),
     service: AdminImportService = Depends(get_admin_import_service),
 ):
@@ -162,7 +162,8 @@ def export_csv(
 # the nuclear "wipe everything" operation, and the auto-backup provides a
 # recovery path even if a legitimate admin makes a mistake.
 
-@router.post("/reset/request", summary="請求清空資料庫 (Step 1 of 2)", response_model=ApiResponse)
+@router.post("/reset", summary="請求清空資料庫 (Step 1 of 2)", response_model=ApiResponse)
+@router.post("/reset/request", summary="請求清空資料庫 (Step 1 of 2)", response_model=ApiResponse, include_in_schema=False)
 def request_reset(request: Request, user=Depends(require_role("admin"))):
     token = create_reset_confirmation_token(user_id=int(user["sub"]))
     logger.warning(
