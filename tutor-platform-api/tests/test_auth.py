@@ -1,8 +1,8 @@
 """Auth API tests: register / login / token verification.
 
 Patches the Identity BC infrastructure repo (`PostgresUserRepository`) at its
-import site inside `app.identity.api.router`, so the mock intercepts the
-service call path that production actually runs.
+source module (`app.identity.infrastructure.postgres_user_repo`) so the mock
+intercepts the lazy import inside `get_auth_service` at call time.
 """
 
 from unittest.mock import patch
