@@ -72,61 +72,76 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
         )
         return self._row_to_entity(row) if row else None
 
-    def find_by_tutor_user_id(self, user_id: int, *, limit: int, offset: int) -> list[dict]:
+    def find_by_tutor_user_id(self, user_id: int, *, limit: int, offset: int, status: str | None = None) -> list[dict]:
+        status_clause = " AND m.status = %s" if status else ""
+        status_params = (status,) if status else ()
         return self.fetch_all(
-            """SELECT m.*, s.subject_name, st.name AS student_name
+            f"""SELECT m.*, s.subject_name, st.name AS student_name
                FROM matches m
                INNER JOIN subjects s ON m.subject_id = s.subject_id
                INNER JOIN students st ON m.student_id = st.student_id
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
-               WHERE t.user_id = %s ORDER BY m.updated_at DESC
+               WHERE t.user_id = %s{status_clause} ORDER BY m.updated_at DESC
                LIMIT %s OFFSET %s""",
-            (user_id, limit, offset),
+            (user_id,) + status_params + (limit, offset),
         )
 
-    def count_by_tutor_user_id(self, user_id: int) -> int:
+    def count_by_tutor_user_id(self, user_id: int, status: str | None = None) -> int:
+        status_clause = " AND m.status = %s" if status else ""
+        status_params = (status,) if status else ()
         row = self.fetch_one(
-            """SELECT COUNT(*) AS cnt FROM matches m
+            f"""SELECT COUNT(*) AS cnt FROM matches m
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
-               WHERE t.user_id = %s""",
-            (user_id,),
+               WHERE t.user_id = %s{status_clause}""",
+            (user_id,) + status_params,
         )
         return int(row["cnt"]) if row else 0
 
-    def find_by_parent_user_id(self, user_id: int, *, limit: int, offset: int) -> list[dict]:
+    def find_by_parent_user_id(self, user_id: int, *, limit: int, offset: int, status: str | None = None) -> list[dict]:
+        status_clause = " AND m.status = %s" if status else ""
+        status_params = (status,) if status else ()
         return self.fetch_all(
-            """SELECT m.*, s.subject_name, st.name AS student_name,
+            f"""SELECT m.*, s.subject_name, st.name AS student_name,
                       u.display_name AS tutor_display_name
                FROM matches m
                INNER JOIN subjects s ON m.subject_id = s.subject_id
                INNER JOIN students st ON m.student_id = st.student_id
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
                INNER JOIN users u ON t.user_id = u.user_id
-               WHERE m.parent_user_id = %s ORDER BY m.updated_at DESC
+               WHERE m.parent_user_id = %s{status_clause} ORDER BY m.updated_at DESC
                LIMIT %s OFFSET %s""",
-            (user_id, limit, offset),
+            (user_id,) + status_params + (limit, offset),
         )
 
-    def count_by_parent_user_id(self, user_id: int) -> int:
+    def count_by_parent_user_id(self, user_id: int, status: str | None = None) -> int:
+        status_clause = " AND m.status = %s" if status else ""
+        status_params = (status,) if status else ()
         row = self.fetch_one(
-            "SELECT COUNT(*) AS cnt FROM matches m WHERE m.parent_user_id = %s",
-            (user_id,),
+            f"SELECT COUNT(*) AS cnt FROM matches m WHERE m.parent_user_id = %s{status_clause}",
+            (user_id,) + status_params,
         )
         return int(row["cnt"]) if row else 0
 
-    def find_all(self, *, limit: int, offset: int) -> list[dict]:
+    def find_all(self, *, limit: int, offset: int, status: str | None = None) -> list[dict]:
+        status_clause = " WHERE m.status = %s" if status else ""
+        status_params = (status,) if status else ()
         return self.fetch_all(
-            """SELECT m.*, s.subject_name, st.name AS student_name
+            f"""SELECT m.*, s.subject_name, st.name AS student_name
                FROM matches m
                INNER JOIN subjects s ON m.subject_id = s.subject_id
-               INNER JOIN students st ON m.student_id = st.student_id
+               INNER JOIN students st ON m.student_id = st.student_id{status_clause}
                ORDER BY m.updated_at DESC
                LIMIT %s OFFSET %s""",
-            (limit, offset),
+            status_params + (limit, offset),
         )
 
-    def count_all(self) -> int:
-        row = self.fetch_one("SELECT COUNT(*) AS cnt FROM matches")
+    def count_all(self, status: str | None = None) -> int:
+        if status:
+            row = self.fetch_one(
+                "SELECT COUNT(*) AS cnt FROM matches WHERE status = %s", (status,)
+            )
+        else:
+            row = self.fetch_one("SELECT COUNT(*) AS cnt FROM matches")
         return int(row["cnt"]) if row else 0
 
     def create(self, tutor_id, student_id, subject_id, hourly_rate,

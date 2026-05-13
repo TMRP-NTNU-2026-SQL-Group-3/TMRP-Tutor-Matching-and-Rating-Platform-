@@ -84,7 +84,7 @@ class PostgresReviewRepository(BaseRepository, IReviewRepository):
 
     def get_for_update(self, review_id: int) -> dict | None:
         return self.fetch_one(
-            """SELECT reviewer_user_id, is_locked, created_at,
+            """SELECT reviewer_user_id, is_locked, created_at, review_type,
                       rating_1, rating_2, rating_3, rating_4, comment
                FROM reviews WHERE review_id = %s FOR UPDATE""",
             (review_id,),

@@ -47,6 +47,13 @@ class ReviewUpdate(BaseModel):
     comment: str | None = Field(default=None, max_length=5000)
 
     @model_validator(mode="after")
+    def _prevent_rating_nullification(self):
+        for field in ("rating_1", "rating_2", "rating_3", "rating_4"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError("評分欄位不可設為 null；如不修改請省略此欄位")
+        return self
+
+    @model_validator(mode="after")
     def _validate_low_rating_requires_comment(self):
         # MEDIUM-9: same rule on edit. Without this, an attacker could create
         # a compliant 3-star review and then patch it down to 1-star with no

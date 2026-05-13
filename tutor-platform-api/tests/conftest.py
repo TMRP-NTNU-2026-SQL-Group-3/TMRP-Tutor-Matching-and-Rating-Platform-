@@ -26,6 +26,11 @@ os.environ.setdefault("DEBUG", "true")
 import pytest
 from fastapi.testclient import TestClient
 
+# Shared CSRF token used by the test client cookie and mutation request headers.
+# The double-submit CSRF check requires both the cookie and the header to match;
+# using a fixed value here avoids per-request token generation in tests.
+_CSRF_TEST_TOKEN = "test-csrf-token"
+
 
 # Patch the infrastructure module's functions BEFORE `app.main` imports them.
 # Otherwise `app.main` has already captured bound references to the real
@@ -78,6 +83,7 @@ def client(mock_conn):
         return mock_conn
     app.dependency_overrides[get_db] = _get_mock_db
     with TestClient(app) as c:
+        c.cookies.set("csrf_token", _CSRF_TEST_TOKEN)
         yield c
 
 
@@ -94,7 +100,7 @@ def parent_token():
 
 @pytest.fixture()
 def parent_headers(parent_token):
-    return {"Authorization": f"Bearer {parent_token}"}
+    return {"Authorization": f"Bearer {parent_token}", "X-CSRF-Token": _CSRF_TEST_TOKEN}
 
 
 @pytest.fixture()
@@ -105,7 +111,7 @@ def tutor_token():
 
 @pytest.fixture()
 def tutor_headers(tutor_token):
-    return {"Authorization": f"Bearer {tutor_token}"}
+    return {"Authorization": f"Bearer {tutor_token}", "X-CSRF-Token": _CSRF_TEST_TOKEN}
 
 
 @pytest.fixture()
@@ -116,4 +122,4 @@ def admin_token():
 
 @pytest.fixture()
 def admin_headers(admin_token):
-    return {"Authorization": f"Bearer {admin_token}"}
+    return {"Authorization": f"Bearer {admin_token}", "X-CSRF-Token": _CSRF_TEST_TOKEN}

@@ -8,6 +8,7 @@ from app.review.domain.exceptions import (
     DuplicateReviewError,
     InvalidReviewTypeError,
     LowRatingCommentRequiredError,
+    MandatoryRatingAxisError,
     MatchHasNoSessionsError,
     MatchNotReviewableError,
     NotReviewOwnerError,
@@ -117,6 +118,9 @@ class ReviewAppService:
                 "rating_3": updates.get("rating_3", review.get("rating_3")),
                 "rating_4": updates.get("rating_4", review.get("rating_4")),
             }
+            if review["review_type"] == "parent_to_tutor":
+                if any(v is None for v in merged_ratings.values()):
+                    raise MandatoryRatingAxisError()
             if any(r is not None and r <= LOW_RATING_THRESHOLD for r in merged_ratings.values()):
                 merged_comment = (updates.get("comment") or review.get("comment") or "").strip()
                 if len(merged_comment) < LOW_RATING_MIN_COMMENT_LEN:

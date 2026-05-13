@@ -65,3 +65,8 @@ class LowRatingCommentRequiredError(DomainException):
             f"評分 {threshold} 星以下時必須填寫至少 {min_len} 字的文字說明",
             status_code=422,
         )
+
+
+class MandatoryRatingAxisError(DomainException):
+    def __init__(self):
+        super().__init__("家長對老師的評價必須保留全部 4 項評分，不可設為 null", status_code=422)

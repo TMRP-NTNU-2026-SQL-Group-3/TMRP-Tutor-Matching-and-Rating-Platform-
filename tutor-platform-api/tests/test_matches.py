@@ -16,8 +16,8 @@ from app.matching.domain.entities import Match
 from app.matching.domain.value_objects import Contract, MatchStatus
 
 
-_MATCH_REPO_PATH = "app.matching.api.router.PostgresMatchRepository"
-_CATALOG_PATH = "app.matching.api.router.CatalogQueryAdapter"
+_MATCH_REPO_PATH = "app.matching.api.dependencies.PostgresMatchRepository"
+_CATALOG_PATH = "app.matching.api.dependencies.CatalogQueryAdapter"
 
 
 def _match_entity(**overrides) -> Match:
@@ -62,6 +62,27 @@ def _match_entity(**overrides) -> Match:
     return Match(contract=contract, **defaults)
 
 
+# ━━━━━━━━━━ List matches with status filter (F-14) ━━━━━━━━━━
+
+class TestListMatches:
+    ENDPOINT = "/api/matches"
+
+    def test_list_without_status_filter(self, client, parent_headers):
+        """GET /api/matches with no status param succeeds."""
+        resp = client.get(self.ENDPOINT, headers=parent_headers)
+        assert resp.status_code == 200
+
+    def test_list_with_valid_status_filter(self, client, parent_headers):
+        """GET /api/matches?status=active accepts a valid MatchStatus value."""
+        resp = client.get(self.ENDPOINT, params={"status": "active"}, headers=parent_headers)
+        assert resp.status_code == 200
+
+    def test_list_with_invalid_status_returns_422(self, client, parent_headers):
+        """GET /api/matches?status=bogus is rejected with 422."""
+        resp = client.get(self.ENDPOINT, params={"status": "bogus"}, headers=parent_headers)
+        assert resp.status_code == 422
+
+
 # ━━━━━━━━━━ Create match ━━━━━━━━━━
 
 class TestCreateMatch:
@@ -89,7 +110,7 @@ class TestCreateMatch:
                 "hourly_rate": 600, "sessions_per_week": 2,
             }, headers=parent_headers)
 
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert resp.json()["data"]["match_id"] == 100
 
     def test_create_not_parent_role(self, client, tutor_headers):
@@ -135,6 +156,10 @@ class TestMatchStatusTransitions:
         ):
             repo = MockRepo.return_value
             repo.find_by_id.return_value = match_entity
+            # update_status reads the authoritative state via find_by_id_for_update
+            # inside the transaction, not find_by_id. Both must return the same
+            # entity so that permission checks and state-machine inputs are consistent.
+            repo.find_by_id_for_update.return_value = match_entity
             # B1: the paused→active resume path now re-checks capacity via
             # the catalog. Default the mock to "has capacity" so tests that
             # don't explicitly care about capacity keep passing.
@@ -247,6 +272,7 @@ class TestMatchStatusTransitions:
         ):
             repo = MockRepo.return_value
             repo.find_by_id.return_value = entity
+            repo.find_by_id_for_update.return_value = entity
             resp = client.patch(
                 self.ENDPOINT.format(match_id=1),
                 json={"action": "disagree_terminate"},

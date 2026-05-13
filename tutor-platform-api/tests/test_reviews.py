@@ -148,10 +148,12 @@ class TestReviewLock:
         with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_for_update.return_value = {
-                "review_id": 10,
                 "reviewer_user_id": 1,
                 "is_locked": False,
                 "created_at": datetime.now(timezone.utc),
+                "review_type": "tutor_to_parent",
+                "rating_1": 4, "rating_2": 3, "rating_3": None, "rating_4": None,
+                "comment": None,
             }
 
             resp = client.patch(
@@ -167,10 +169,12 @@ class TestReviewLock:
         with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_for_update.return_value = {
-                "review_id": 10,
                 "reviewer_user_id": 1,
                 "is_locked": True,
                 "created_at": datetime.now(timezone.utc),
+                "review_type": "tutor_to_parent",
+                "rating_1": 3, "rating_2": 3, "rating_3": None, "rating_4": None,
+                "comment": None,
             }
 
             resp = client.patch(
@@ -179,7 +183,7 @@ class TestReviewLock:
                 headers=parent_headers,
             )
 
-        assert resp.status_code == 400
+        assert resp.status_code == 409
         assert "編輯期限" in resp.json()["message"]
 
     def test_update_not_reviewer(self, client, tutor_headers, mock_conn):
@@ -187,10 +191,12 @@ class TestReviewLock:
         with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
             repo.get_for_update.return_value = {
-                "review_id": 10,
                 "reviewer_user_id": 1,
                 "is_locked": False,
                 "created_at": datetime.now(timezone.utc),
+                "review_type": "tutor_to_parent",
+                "rating_1": 4, "rating_2": 3, "rating_3": None, "rating_4": None,
+                "comment": None,
             }
 
             resp = client.patch(
@@ -236,4 +242,91 @@ class TestListReviews:
                 headers=admin_headers,
             )
 
+        assert resp.status_code == 200
+
+
+# ━━━━━━━━━━ F-12: ReviewUpdate rejects explicit null ratings ━━━━━━━━━━
+
+class TestReviewUpdateNullRating:
+    """Schema-level guard: explicitly setting a rating axis to null must be rejected."""
+
+    ENDPOINT = "/api/reviews/{review_id}"
+
+    def test_cannot_nullify_rating_3(self, client, parent_headers, mock_conn):
+        """PATCH rating_3: null returns 422 regardless of review type."""
+        resp = client.patch(
+            self.ENDPOINT.format(review_id=10),
+            json={"rating_3": None},
+            headers=parent_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_cannot_nullify_rating_1(self, client, parent_headers, mock_conn):
+        """PATCH rating_1: null returns 422."""
+        resp = client.patch(
+            self.ENDPOINT.format(review_id=10),
+            json={"rating_1": None},
+            headers=parent_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_omitting_rating_is_allowed(self, client, parent_headers, mock_conn):
+        """Omitting a rating field (not including it at all) is valid."""
+        with patch(_REPO_PATH) as MockRepo:
+            repo = MockRepo.return_value
+            repo.get_for_update.return_value = {
+                "reviewer_user_id": 1,
+                "is_locked": False,
+                "created_at": datetime.now(timezone.utc),
+                "review_type": "tutor_to_parent",
+                "rating_1": 4, "rating_2": 3, "rating_3": None, "rating_4": None,
+                "comment": None,
+            }
+            resp = client.patch(
+                self.ENDPOINT.format(review_id=10),
+                json={"comment": "補充說明"},
+                headers=parent_headers,
+            )
+        assert resp.status_code == 200
+
+
+# ━━━━━━━━━━ F-15: service prevents nullifying parent_to_tutor mandatory axes ━━━━━━━━━━
+
+class TestMandatoryRatingAxisProtection:
+    """Service-level guard: parent_to_tutor reviews must keep all 4 ratings non-null."""
+
+    ENDPOINT = "/api/reviews/{review_id}"
+
+    def _parent_to_tutor_mock(self, repo):
+        repo.get_for_update.return_value = {
+            "reviewer_user_id": 1,
+            "is_locked": False,
+            "created_at": datetime.now(timezone.utc),
+            "review_type": "parent_to_tutor",
+            "rating_1": 5, "rating_2": 4, "rating_3": 5, "rating_4": 4,
+            "comment": "很好",
+        }
+
+    def test_update_comment_on_parent_to_tutor_allowed(self, client, parent_headers, mock_conn):
+        """Updating only comment on a parent_to_tutor review is allowed."""
+        with patch(_REPO_PATH) as MockRepo:
+            repo = MockRepo.return_value
+            self._parent_to_tutor_mock(repo)
+            resp = client.patch(
+                self.ENDPOINT.format(review_id=10),
+                json={"comment": "更新後的評價"},
+                headers=parent_headers,
+            )
+        assert resp.status_code == 200
+
+    def test_update_rating_on_parent_to_tutor_allowed(self, client, parent_headers, mock_conn):
+        """Updating a rating to a valid value on a parent_to_tutor review is allowed."""
+        with patch(_REPO_PATH) as MockRepo:
+            repo = MockRepo.return_value
+            self._parent_to_tutor_mock(repo)
+            resp = client.patch(
+                self.ENDPOINT.format(review_id=10),
+                json={"rating_3": 3},
+                headers=parent_headers,
+            )
         assert resp.status_code == 200

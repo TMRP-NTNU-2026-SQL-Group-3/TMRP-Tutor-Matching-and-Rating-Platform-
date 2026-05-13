@@ -78,19 +78,19 @@ class MatchAppService:
                 want_trial=want_trial, invite_message=invite_message,
             )
 
-    def list_matches(self, *, user_id: int, role: str, page: int = 1, page_size: int = 20) -> dict:
+    def list_matches(self, *, user_id: int, role: str, page: int = 1, page_size: int = 20, status: str | None = None) -> dict:
         page_size = min(page_size, MAX_PAGE_SIZE)
         limit = page_size
         offset = (page - 1) * page_size
         if role == "tutor":
-            matches = self._match_repo.find_by_tutor_user_id(user_id, limit=limit, offset=offset)
-            total = self._match_repo.count_by_tutor_user_id(user_id)
+            matches = self._match_repo.find_by_tutor_user_id(user_id, limit=limit, offset=offset, status=status)
+            total = self._match_repo.count_by_tutor_user_id(user_id, status=status)
         elif role == "admin":
-            matches = self._match_repo.find_all(limit=limit, offset=offset)
-            total = self._match_repo.count_all()
+            matches = self._match_repo.find_all(limit=limit, offset=offset, status=status)
+            total = self._match_repo.count_all(status=status)
         else:
-            matches = self._match_repo.find_by_parent_user_id(user_id, limit=limit, offset=offset)
-            total = self._match_repo.count_by_parent_user_id(user_id)
+            matches = self._match_repo.find_by_parent_user_id(user_id, limit=limit, offset=offset, status=status)
+            total = self._match_repo.count_by_parent_user_id(user_id, status=status)
 
         for m in matches:
             m["status_label"] = MatchStatus(m["status"]).label

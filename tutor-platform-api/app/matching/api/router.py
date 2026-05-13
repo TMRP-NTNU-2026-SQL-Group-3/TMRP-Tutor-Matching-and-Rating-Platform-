@@ -77,12 +77,14 @@ def create_match(
 def list_matches(
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    status: MatchStatus | None = Query(None, description="依配對狀態篩選（可選）"),
     user=Depends(get_current_user),
     service: MatchAppService = Depends(get_match_service),
 ):
     data = service.list_matches(
         user_id=int(user["sub"]), role=user["role"],
         page=page, page_size=page_size,
+        status=status.value if status else None,
     )
     data["items"] = [
         MatchListItemResponse.model_validate(m).model_dump() for m in data["items"]

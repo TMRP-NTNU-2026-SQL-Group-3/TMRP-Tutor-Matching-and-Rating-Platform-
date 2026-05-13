@@ -8,6 +8,9 @@ from app.shared.infrastructure.base_repository import BaseRepository
 router = APIRouter(prefix="/api/subjects", tags=["subjects"])
 
 
+# Subjects are public reference data (spec §4.2 / tags_metadata: "不需登入").
+# No auth guard is intentional — callers browsing the platform before
+# registering need the subject catalogue to decide which tutor to invite.
 @router.get("", summary="列出所有科目", response_model=ApiResponse)
 def list_subjects(
     page: int = Query(1, ge=1),
