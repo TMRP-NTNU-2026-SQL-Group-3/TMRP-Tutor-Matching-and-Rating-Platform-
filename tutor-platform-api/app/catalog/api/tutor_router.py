@@ -1,6 +1,6 @@
 from enum import Enum
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.catalog.api.dependencies import get_tutor_repo, get_tutor_service
 from app.catalog.api.schemas import AvailabilityUpdate, SubjectUpdate, TutorProfileUpdate, VisibilityUpdate
@@ -48,6 +48,8 @@ def search_tutors(
     repo: PostgresTutorRepository = Depends(get_tutor_repo),
     service: TutorService = Depends(get_tutor_service),
 ):
+    if user.get("role") == "tutor":
+        raise HTTPException(status_code=403, detail="家教不可搜尋其他家教")
     rows, total = repo.search_with_stats(
         subject_id=subject_id, school=school,
         min_rate=min_rate, max_rate=max_rate, min_rating=min_rating,

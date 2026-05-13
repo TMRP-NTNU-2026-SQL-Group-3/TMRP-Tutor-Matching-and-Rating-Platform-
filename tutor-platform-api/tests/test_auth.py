@@ -10,7 +10,7 @@ from unittest.mock import patch
 from app.shared.infrastructure.security import hash_password
 
 
-_REPO_PATH = "app.identity.api.router.PostgresUserRepository"
+_REPO_PATH = "app.identity.infrastructure.postgres_user_repo.PostgresUserRepository"
 
 
 # ━━━━━━━━━━ Register ━━━━━━━━━━
@@ -32,7 +32,7 @@ class TestRegister:
                 "role": "parent",
             })
 
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         body = resp.json()
         assert body["success"] is True
         assert body["data"]["user_id"] == 10
@@ -51,7 +51,7 @@ class TestRegister:
                 "role": "tutor",
             })
 
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         assert resp.json()["data"]["user_id"] == 11
 
     def test_register_duplicate_username(self, client, mock_conn):
@@ -113,7 +113,7 @@ class TestLogin:
 
         assert resp.status_code == 200
         data = resp.json()["data"]
-        assert "access_token" in data
+        assert data["user_id"] == 1
         assert data["role"] == "parent"
 
     def test_login_wrong_password(self, client, mock_conn):

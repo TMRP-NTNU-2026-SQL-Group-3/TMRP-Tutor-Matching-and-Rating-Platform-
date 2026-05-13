@@ -35,6 +35,30 @@ class PostgresStudentRepository(BaseRepository, IStudentRepository):
     def update(self, student_id: int, updates: dict) -> None:
         self.safe_update("students", "student_id", student_id, updates, self.ALLOWED_COLUMNS)
 
+    def find_by_tutor_user_id(self, tutor_user_id: int, limit: int = 100, offset: int = 0) -> list[dict]:
+        return self.fetch_all(
+            """SELECT DISTINCT s.*
+                 FROM students s
+                 JOIN matches m ON m.student_id = s.student_id
+                 JOIN tutors t ON t.tutor_id = m.tutor_id
+                WHERE t.user_id = %s
+                  AND m.status NOT IN ('cancelled', 'rejected', 'ended')
+                ORDER BY s.student_id LIMIT %s OFFSET %s""",
+            (tutor_user_id, limit, offset),
+        )
+
+    def count_by_tutor_user_id(self, tutor_user_id: int) -> int:
+        row = self.fetch_one(
+            """SELECT COUNT(DISTINCT s.student_id) AS cnt
+                 FROM students s
+                 JOIN matches m ON m.student_id = s.student_id
+                 JOIN tutors t ON t.tutor_id = m.tutor_id
+                WHERE t.user_id = %s
+                  AND m.status NOT IN ('cancelled', 'rejected', 'ended')""",
+            (tutor_user_id,),
+        )
+        return int(row["cnt"]) if row else 0
+
     def delete(self, student_id: int) -> bool:
         self.execute(
             "DELETE FROM students WHERE student_id = %s",

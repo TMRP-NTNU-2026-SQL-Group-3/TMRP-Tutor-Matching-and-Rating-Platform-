@@ -10,18 +10,22 @@ from app.shared.domain.exceptions import DomainException, NotFoundError
 router = APIRouter(prefix="/api/students", tags=["students"])
 
 
-@router.get("", summary="列出我的子女", response_model=ApiResponse)
+@router.get("", summary="列出學生", response_model=ApiResponse)
 def list_students(
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
-    user=Depends(require_role("parent")),
+    user=Depends(require_role("parent", "tutor")),
     conn=Depends(get_db),
 ):
     repo = PostgresStudentRepository(conn)
-    parent_id = int(user["sub"])
+    user_id = int(user["sub"])
     offset = (page - 1) * page_size
-    students = repo.find_by_parent(parent_id, limit=page_size, offset=offset)
-    total = repo.count_by_parent(parent_id)
+    if user["role"] == "tutor":
+        students = repo.find_by_tutor_user_id(user_id, limit=page_size, offset=offset)
+        total = repo.count_by_tutor_user_id(user_id)
+    else:
+        students = repo.find_by_parent(user_id, limit=page_size, offset=offset)
+        total = repo.count_by_parent(user_id)
     total_pages = max(1, (total + page_size - 1) // page_size)
     return ApiResponse(
         success=True,

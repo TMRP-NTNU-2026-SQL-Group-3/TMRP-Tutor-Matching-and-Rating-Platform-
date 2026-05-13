@@ -144,18 +144,6 @@ class MatchAppService:
             raise InvalidTransitionError(
                 f"無效的操作「{action_str}」，可用操作為：{', '.join(valid)}"
             )
-        old_status = match.status
-
-        new_status = state_machine.resolve_transition(
-            current=match.status,
-            action=action,
-            actor_is_parent=is_parent,
-            actor_is_tutor=is_tutor,
-            actor_is_admin=is_admin,
-            actor_user_id=user_id,
-            terminated_by=match.terminated_by,
-            want_trial=match.contract.want_trial,
-        )
 
         # ARCH-3: audit calls are intentionally placed *after* each
         # with-block. A failed audit INSERT inside an open transaction puts
@@ -333,7 +321,6 @@ class MatchAppService:
             )
 
         else:
-            locked_old_status: str = old_status.value
             with self._uow.begin():
                 # Lock the match row so concurrent state changes (e.g. a
                 # simultaneous ACCEPT that flips want_trial → TRIAL vs ACTIVE)
