@@ -251,6 +251,11 @@ CREATE TABLE IF NOT EXISTS refresh_token_blacklist (
     created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS user_token_revocations (
+    user_id    INTEGER     PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+    revoked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS rate_limit_hits (
     id         BIGSERIAL    PRIMARY KEY,
     bucket_key VARCHAR(255) NOT NULL,

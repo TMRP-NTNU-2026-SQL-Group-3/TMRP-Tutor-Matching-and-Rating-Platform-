@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -11,6 +12,7 @@ from app.shared.api.schemas import ApiResponse
 from app.shared.domain.exceptions import DomainException
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
+logger = logging.getLogger("app.analytics")
 
 _TZ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*/[A-Za-z][A-Za-z0-9_/]*$")
 
@@ -43,12 +45,12 @@ def get_income_stats(
     month: str = Query(None, pattern=r"^\d{4}-\d{2}$"),
     tz: str = Query("Asia/Taipei"),
     user=Depends(require_role("tutor")),
-    service: StatsAppService = Depends(get_stats_service),
 ):
     tz = _validate_tz(tz)
-    year, mon = _parse_month(month, tz)
-    data = service.income_stats(user_id=int(user["sub"]), year=year, month=mon, tz=tz)
-    return ApiResponse(success=True, data=data)
+    _parse_month(month, tz)  # validate inputs before dispatch
+    from app.tasks.stats_tasks import calculate_income_stats
+    task = calculate_income_stats(int(user["sub"]), month)
+    return ApiResponse(success=True, data={"task_id": str(task.id)}, message="統計任務已排入佇列")
 
 
 @router.get("/expense", summary="家長支出統計", response_model=ApiResponse)
@@ -56,12 +58,35 @@ def get_expense_stats(
     month: str = Query(None, pattern=r"^\d{4}-\d{2}$"),
     tz: str = Query("Asia/Taipei"),
     user=Depends(require_role("parent")),
-    service: StatsAppService = Depends(get_stats_service),
 ):
     tz = _validate_tz(tz)
-    year, mon = _parse_month(month, tz)
-    data = service.expense_stats(parent_user_id=int(user["sub"]), year=year, month=mon, tz=tz)
-    return ApiResponse(success=True, data=data)
+    _parse_month(month, tz)  # validate inputs before dispatch
+    from app.tasks.stats_tasks import calculate_expense_stats
+    task = calculate_expense_stats(int(user["sub"]), month)
+    return ApiResponse(success=True, data={"task_id": str(task.id)}, message="統計任務已排入佇列")
+
+
+@router.get("/tasks/{task_id}", summary="查詢統計背景任務", response_model=ApiResponse)
+def get_stats_task(task_id: str, user=Depends(get_current_user)):
+    import json
+    from app.worker import huey as huey_instance
+    try:
+        raw = huey_instance.storage.peek_data(task_id)
+    except Exception:
+        logger.exception("Huey peek_data failed for task_id=%s", task_id)
+        return ApiResponse(success=True, data={"task_id": task_id, "status": "pending", "error": True})
+    if raw is huey_instance.EmptyData:
+        return ApiResponse(success=True, data={"task_id": task_id, "status": "pending"})
+    try:
+        result = json.loads(raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        logger.error("Non-JSON task payload task_id=%s: %s", task_id, e)
+        return ApiResponse(
+            success=False,
+            data={"task_id": task_id, "status": "corrupted"},
+            message="Task result is not valid JSON",
+        )
+    return ApiResponse(success=True, data={"task_id": task_id, "status": "complete", "result": result})
 
 
 @router.get("/student-progress/{student_id}", summary="學生成績趨勢", response_model=ApiResponse)

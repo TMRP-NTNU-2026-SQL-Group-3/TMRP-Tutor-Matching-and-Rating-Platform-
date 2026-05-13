@@ -319,6 +319,60 @@ def decode_reset_confirmation_token(token: str) -> dict | None:
     return payload
 
 
+def revoke_all_user_tokens(user_id: int, conn=None) -> None:
+    """Record a forced revocation for user_id so all refresh tokens issued before now are rejected.
+
+    If conn is provided the INSERT runs inside the caller's transaction (no commit).
+    Otherwise a dedicated pool connection is acquired and committed.
+    """
+    sql = (
+        "INSERT INTO user_token_revocations (user_id, revoked_at) VALUES (%s, NOW()) "
+        "ON CONFLICT (user_id) DO UPDATE SET revoked_at = NOW()"
+    )
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, (user_id,))
+        return
+    pool_ref = _get_pool()
+    c = pool_ref.getconn()
+    try:
+        with c.cursor() as cur:
+            cur.execute(sql, (user_id,))
+        c.commit()
+    except Exception:
+        try:
+            c.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        pool_ref.putconn(c)
+
+
+def _is_token_revoked_for_user(user_id: int, issued_at: float) -> bool:
+    """True if a forced revocation exists for user_id that post-dates the token's iat."""
+    pool_ref = _get_pool()
+    conn = pool_ref.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM user_token_revocations WHERE user_id = %s "
+                "AND EXTRACT(EPOCH FROM revoked_at) > %s",
+                (user_id, issued_at),
+            )
+            exists = cur.fetchone() is not None
+        conn.rollback()
+        return exists
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        pool_ref.putconn(conn)
+
+
 def decode_refresh_token(token: str) -> dict | None:
     """解碼 JWT refresh token，僅接受 type=refresh，並拒絕已使用過的 token。"""
     payload = _decode_with_rotation(token)
@@ -331,4 +385,10 @@ def decode_refresh_token(token: str) -> dict | None:
     if jti and is_refresh_token_blacklisted(jti):
         logger.warning("Reuse of invalidated refresh token jti=%s", jti)
         return None
+    sub = payload.get("sub")
+    iat = payload.get("iat")
+    if sub is not None and iat is not None:
+        if _is_token_revoked_for_user(int(sub), float(iat)):
+            logger.warning("Refresh token for user_id=%s rejected: issued before forced revocation", sub)
+            return None
     return payload

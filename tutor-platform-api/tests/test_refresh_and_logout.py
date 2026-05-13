@@ -24,6 +24,7 @@ class TestRefreshToken:
         with (
             patch(_USER_REPO) as MockRepo,
             patch(f"{_SECURITY}.is_refresh_token_blacklisted", return_value=False),
+            patch(f"{_SECURITY}._is_token_revoked_for_user", return_value=False),
             patch("app.identity.domain.services.invalidate_refresh_token"),
         ):
             MockRepo.return_value.find_by_id.return_value = {
@@ -75,6 +76,7 @@ class TestRefreshToken:
         with (
             patch(_USER_REPO) as MockRepo,
             patch(f"{_SECURITY}.is_refresh_token_blacklisted", return_value=False),
+            patch(f"{_SECURITY}._is_token_revoked_for_user", return_value=False),
             patch("app.identity.domain.services.invalidate_refresh_token") as mock_inv,
         ):
             MockRepo.return_value.find_by_id.return_value = {

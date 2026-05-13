@@ -94,7 +94,7 @@ class TestLogin:
     ENDPOINT = "/api/auth/login"
 
     def test_login_success(self, client, mock_conn):
-        """Correct credentials return a token."""
+        """Correct credentials return a token and deliver HttpOnly auth cookies."""
         hashed = hash_password("correct_pw")
         with patch(_REPO_PATH) as MockRepo:
             repo = MockRepo.return_value
@@ -115,6 +115,20 @@ class TestLogin:
         data = resp.json()["data"]
         assert data["user_id"] == 1
         assert data["role"] == "parent"
+
+        # SEC-C02: verify cookie delivery with correct security flags
+        set_cookie_headers = resp.headers.get_list("set-cookie")
+        access_cookie = next((h for h in set_cookie_headers if "access_token" in h), None)
+        refresh_cookie = next((h for h in set_cookie_headers if "refresh_token" in h), None)
+        csrf_cookie = next((h for h in set_cookie_headers if "csrf_token" in h), None)
+        assert access_cookie is not None, "access_token cookie not delivered"
+        assert refresh_cookie is not None, "refresh_token cookie not delivered"
+        assert csrf_cookie is not None, "csrf_token cookie not delivered"
+        assert "httponly" in access_cookie.lower(), "access_token must be HttpOnly"
+        assert "httponly" in refresh_cookie.lower(), "refresh_token must be HttpOnly"
+        assert "httponly" not in csrf_cookie.lower(), "csrf_token must not be HttpOnly (SPA reads it)"
+        assert "samesite=lax" in access_cookie.lower(), "access_token must have SameSite=Lax"
+        assert "samesite=lax" in refresh_cookie.lower(), "refresh_token must have SameSite=Lax"
 
     def test_login_wrong_password(self, client, mock_conn):
         """Wrong password returns 400."""

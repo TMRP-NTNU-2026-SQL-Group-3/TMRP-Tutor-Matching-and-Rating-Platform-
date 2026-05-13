@@ -25,6 +25,7 @@ from app.shared.infrastructure.security import (
     create_reset_confirmation_token,
     decode_reset_confirmation_token,
     hash_password,
+    revoke_all_user_tokens,
     verify_password,
 )
 
@@ -358,6 +359,9 @@ def admin_reset_user_password(
         found = repo.reset_user_password(user_id, hash_password(body.new_password))
         if not found:
             raise HTTPException(status_code=404, detail="使用者不存在")
+        # SEC-2: revoke all refresh tokens for the target user so they cannot
+        # silently obtain new access tokens after an admin-forced password reset.
+        revoke_all_user_tokens(user_id, conn=repo.conn)
         repo.record_admin_action(
             actor_user_id=int(user["sub"]),
             action="admin_reset_password",
@@ -420,8 +424,14 @@ def import_all(
     service: AdminImportService = Depends(get_admin_import_service),
 ):
     logger.warning("Admin user_id=%s 執行一鍵匯入 (clear_first=%s)", user.get("sub"), clear_first)
+    data = file.file.read(MAX_UPLOAD_SIZE + 1)
+    if len(data) > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"上傳檔案過大（上限 {MAX_UPLOAD_SIZE // 1024 // 1024} MB）",
+        )
     outcome = service.import_zip(
-        zip_bytes=file.file.read(),
+        zip_bytes=data,
         admin_user_id=int(user["sub"]),
         clear_first=clear_first,
     )

@@ -82,8 +82,8 @@ class Contract:
         # a real contract (negative rate, zero sessions, trial priced without
         # want_trial, end_date before start_date) is a bug upstream and must
         # surface at construction time, not as a mystery NULL downstream.
-        if self.hourly_rate < 0:
-            raise ValueError("hourly_rate must be >= 0")
+        if self.hourly_rate < 1:
+            raise ValueError("hourly_rate must be >= 1")
         if self.sessions_per_week < 0:
             raise ValueError("sessions_per_week must be >= 0")
         if self.trial_price is not None and self.trial_price < 0:
