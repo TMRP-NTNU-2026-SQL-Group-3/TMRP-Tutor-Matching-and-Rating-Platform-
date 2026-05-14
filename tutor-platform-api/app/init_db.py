@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS tutor_subjects (
 CREATE TABLE IF NOT EXISTS tutor_availability (
     availability_id SERIAL PRIMARY KEY,
     tutor_id        INTEGER   NOT NULL REFERENCES tutors(tutor_id) ON DELETE CASCADE,
-    day_of_week     SMALLINT  NOT NULL CHECK (day_of_week >= 0 AND day_of_week <= 6),
+    day_of_week     SMALLINT  NOT NULL CHECK (day_of_week >= 1 AND day_of_week <= 7),
     start_time      TIME NOT NULL,
     end_time        TIME NOT NULL,
     CONSTRAINT chk_tutor_availability_time_order CHECK (start_time < end_time)

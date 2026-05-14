@@ -256,7 +256,7 @@ def run_seed(conn) -> dict:
         (tutor_ids[0], 6, 9, 0, 12, 0),    # Saturday morning
         (tutor_ids[1], 2, 14, 0, 17, 0),   # Tuesday afternoon
         (tutor_ids[1], 4, 14, 0, 17, 0),   # Thursday afternoon
-        (tutor_ids[1], 0, 10, 0, 16, 0),   # Sunday all day
+        (tutor_ids[1], 7, 10, 0, 16, 0),   # Sunday all day
         (tutor_ids[2], 5, 19, 0, 21, 0),   # Friday evening
         (tutor_ids[2], 6, 13, 0, 18, 0),   # Saturday afternoon
     ]

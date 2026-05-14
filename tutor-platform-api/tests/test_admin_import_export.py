@@ -2,9 +2,9 @@
 
 Covers:
   POST /api/admin/import/{table_name}   — single-table CSV upload
-  GET  /api/admin/export/{table_name}   — single-table CSV download
+  POST /api/admin/export/{table_name}   — single-table CSV download
   POST /api/admin/import-all            — ZIP bulk import, including clear_first=True
-  GET  /api/admin/export-all            — ZIP bulk export
+  POST /api/admin/export-all            — ZIP bulk export
 
 Key invariants tested:
   - EXPORT_DENYLIST: the `users` table must be refused on export (400).
@@ -113,9 +113,10 @@ class TestExportCsv:
             with patch(_IMPORT_SERVICE) as MockService:
                 MockService.return_value.export_table_to_csv.return_value = Path(tmp)
 
-                resp = client.get(
+                resp = client.post(
                     "/api/admin/export/subjects",
-                    headers=admin_headers,
+                    headers=_ah(admin_headers),
+                    cookies=_ck(),
                 )
 
             assert resp.status_code == 200
@@ -126,19 +127,20 @@ class TestExportCsv:
     def test_users_table_is_denylist_blocked(self, client, admin_headers, mock_conn):
         """EXPORT_DENYLIST: the users table must never be downloadable (contains password_hash)."""
         with patch(_IMPORT_SERVICE):
-            resp = client.get(
+            resp = client.post(
                 "/api/admin/export/users",
-                headers=admin_headers,
+                headers=_ah(admin_headers),
+                cookies=_ck(),
             )
 
         assert resp.status_code == 400
 
     def test_nonexistent_table_returns_400(self, client, admin_headers, mock_conn):
-        resp = client.get("/api/admin/export/not_a_table", headers=admin_headers)
+        resp = client.post("/api/admin/export/not_a_table", headers=_ah(admin_headers), cookies=_ck())
         assert resp.status_code == 400
 
     def test_non_admin_returns_403(self, client, parent_headers, mock_conn):
-        resp = client.get("/api/admin/export/subjects", headers=parent_headers)
+        resp = client.post("/api/admin/export/subjects", headers={**parent_headers, "X-CSRF-Token": _CSRF}, cookies=_ck())
         assert resp.status_code == 403
 
 
@@ -237,7 +239,7 @@ class TestExportAll:
             with patch(_IMPORT_SERVICE) as MockService:
                 MockService.return_value.export_all_tables_to_zip.return_value = Path(tmp)
 
-                resp = client.get(self.ENDPOINT, headers=admin_headers)
+                resp = client.post(self.ENDPOINT, headers=_ah(admin_headers), cookies=_ck())
 
             assert resp.status_code == 200
             assert "zip" in resp.headers.get("content-type", "")
@@ -245,5 +247,5 @@ class TestExportAll:
             os.unlink(tmp)
 
     def test_non_admin_returns_403(self, client, parent_headers, mock_conn):
-        resp = client.get(self.ENDPOINT, headers=parent_headers)
+        resp = client.post(self.ENDPOINT, headers={**parent_headers, "X-CSRF-Token": _CSRF}, cookies=_ck())
         assert resp.status_code == 403

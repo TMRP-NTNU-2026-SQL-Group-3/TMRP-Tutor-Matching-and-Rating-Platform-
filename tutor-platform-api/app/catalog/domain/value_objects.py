@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class AvailabilitySlot:
-    day_of_week: int      # 0-6
+    day_of_week: int      # 1-7 (1=Monday, 7=Sunday, per spec §6.2.6)
     start_time: str       # "HH:MM"
     end_time: str         # "HH:MM"
 

@@ -2,10 +2,6 @@ import logging
 import re
 from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-_EXPORT_DIR = _PROJECT_ROOT / "data" / "export"
-_BACKUP_DIR = _PROJECT_ROOT / "data" / "backups"
-
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
@@ -34,6 +30,10 @@ from app.shared.infrastructure.security import (
 )
 
 logger = logging.getLogger("app.admin")
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_EXPORT_DIR = _PROJECT_ROOT / "data" / "export"
+_BACKUP_DIR = _PROJECT_ROOT / "data" / "backups"
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
