@@ -21,8 +21,9 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY . .
 
-# 建立資料與日誌目錄；改為非 root 之前先把 ownership 給應用使用者，
-# 否則 huey sqlite 寫入或 logging file handler 都會被 EACCES。
+# Create data/log dirs and hand ownership to the app user before the USER
+# directive; without this, huey SQLite writes and file-handler logging fail
+# with EACCES once the container drops to non-root.
 RUN useradd -m -u 1000 app \
     && mkdir -p data logs \
     && chown -R app:app /app

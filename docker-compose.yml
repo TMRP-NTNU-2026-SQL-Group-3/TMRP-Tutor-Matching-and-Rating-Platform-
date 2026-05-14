@@ -96,9 +96,9 @@ services:
     volumes:
       - api-data:/app/data
       - api-logs:/app/logs
-    # 顯式定義 healthcheck（覆寫 Dockerfile 中的設定，確保 docker-compose
-    # 的 condition: service_healthy 行為可預期）
-    # start_period 拉長至 90s，覆蓋 initialize_database() 首次建表 + seed 的時間。
+    # Explicit healthcheck — overrides the Dockerfile directive so compose's
+    # condition: service_healthy behaves predictably regardless of image defaults.
+    # start_period: 90s covers the initialize_database() DDL + seed on first boot.
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -164,10 +164,11 @@ services:
     build:
       context: ./tutor-platform-web
       args:
-        # 故意傳入空字串：所有前端 API 呼叫已含 /api/ 前綴，搭配空 baseURL
-        # 會送出相對路徑（例：/api/auth/login），由本容器內的 nginx 代理至
-        # api:8000。請勿改為 "/api"（會導致路徑變成 /api/api/...）或
-        # http://api:8000（瀏覽器無法解析容器主機名）。
+        # Intentionally empty string: all frontend API calls already carry the
+        # /api/ prefix, so an empty baseURL emits relative paths (e.g.,
+        # /api/auth/login) which nginx inside this container proxies to api:8000.
+        # Do NOT change to "/api" (path becomes /api/api/...) or
+        # http://api:8000 (browsers cannot resolve container hostnames).
         VITE_API_BASE_URL: ""
     restart: on-failure
     # HIGH-5: container hardening. nginx:alpine binds port 8080 (non-privileged),
@@ -186,7 +187,7 @@ services:
         # the WEB_IP default in the api service's FORWARDED_ALLOW_IPS above.
         ipv4_address: ${WEB_IP:-172.28.0.10}
     ports:
-      # 容器內以 nginx 非 root 身分監聽 8080，host 對外仍以 80 提供。
+      # nginx listens on 8080 as a non-root user inside the container; host exposes port 80.
       - "80:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8080/ || exit 1"]
