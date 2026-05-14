@@ -2,7 +2,7 @@ from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.catalog.api.dependencies import get_tutor_repo, get_tutor_service
+from app.catalog.api.dependencies import get_subject_repo, get_tutor_repo, get_tutor_service
 from app.catalog.api.schemas import AvailabilityUpdate, SubjectUpdate, TutorProfileUpdate, VisibilityUpdate
 from app.catalog.domain.services import TutorService
 from app.catalog.infrastructure.postgres_subject_repo import PostgresSubjectRepository
@@ -99,14 +99,14 @@ def update_profile(
 def update_subjects(
     body: SubjectUpdate,
     user=Depends(require_role("tutor")),
-    conn=Depends(get_db),
     repo: PostgresTutorRepository = Depends(get_tutor_repo),
+    subject_repo: PostgresSubjectRepository = Depends(get_subject_repo),
 ):
     tutor = repo.find_by_user_id(int(user["sub"]))
     if not tutor:
         raise NotFoundError("找不到老師資料")
     if body.subjects:
-        valid_ids = PostgresSubjectRepository(conn).list_subject_ids()
+        valid_ids = subject_repo.list_subject_ids()
         for s in body.subjects:
             if s.subject_id not in valid_ids:
                 raise DomainException(f"科目 ID {s.subject_id} 不存在")

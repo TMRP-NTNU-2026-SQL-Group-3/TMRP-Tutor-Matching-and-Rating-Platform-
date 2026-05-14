@@ -2,7 +2,8 @@ import logging
 
 from fastapi import APIRouter, Depends
 
-from app.identity.api.dependencies import get_current_user, get_db, is_admin
+from app.identity.api.dependencies import get_current_user, is_admin
+from app.shared.infrastructure.database import get_db
 from app.review.api.schemas import ReviewCreate, ReviewCreateBody, ReviewUpdate
 from app.review.application.review_service import ReviewAppService
 from app.review.domain.exceptions import NotMatchParticipantError, ReviewMatchNotFoundError

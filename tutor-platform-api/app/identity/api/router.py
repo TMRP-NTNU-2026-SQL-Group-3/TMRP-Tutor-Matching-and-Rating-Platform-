@@ -179,7 +179,7 @@ def update_me(
     conn=Depends(get_db),
     service: AuthService = Depends(get_auth_service),
 ):
-    fields = {k: getattr(body, k) for k in body.model_fields_set}
+    fields = body.model_dump(exclude_unset=True)
     with transaction(conn):
         data = service.update_me(user_id=int(user["sub"]), fields=fields)
     return ApiResponse(success=True, data=data)

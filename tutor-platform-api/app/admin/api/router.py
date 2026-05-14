@@ -2,6 +2,10 @@ import logging
 import re
 from pathlib import Path
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_EXPORT_DIR = _PROJECT_ROOT / "data" / "export"
+_BACKUP_DIR = _PROJECT_ROOT / "data" / "backups"
+
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
@@ -130,7 +134,7 @@ def import_csv(
     return ApiResponse(success=True, data={"count": count}, message=f"已匯入 {count} 筆資料至 {table_name}")
 
 
-@router.get(
+@router.post(
     "/export/{table_name}",
     summary="匯出 CSV",
     response_class=FileResponse,
@@ -144,7 +148,7 @@ def export_csv(
     validate_exportable_table(table_name)
     logger.warning("Admin user_id=%s 匯出 CSV: %s", user.get("sub"), table_name)
     path = service.export_table_to_csv(
-        table_name=table_name, export_dir=Path("data/export"),
+        table_name=table_name, export_dir=_EXPORT_DIR,
     )
     safe_filename = re.sub(r'[^A-Za-z0-9_\-]', '', table_name) + ".csv"
     return FileResponse(path=str(path), filename=safe_filename, media_type="text/csv")
@@ -258,7 +262,7 @@ def confirm_reset(
             )
             raise HTTPException(status_code=401, detail="密碼驗證失敗")
 
-        backup_dir = Path("data/backups")
+        backup_dir = _BACKUP_DIR
         try:
             backup_path = service.export_all_tables_to_zip(
                 export_dir=backup_dir,
@@ -401,7 +405,7 @@ def system_status(
     )
 
 
-@router.get(
+@router.post(
     "/export-all",
     summary="一鍵匯出全部",
     response_class=FileResponse,
@@ -412,7 +416,7 @@ def export_all(
     service: AdminImportService = Depends(get_admin_import_service),
 ):
     logger.warning("Admin user_id=%s 執行一鍵匯出全部資料表", user.get("sub"))
-    zip_path = service.export_all_tables_to_zip(export_dir=Path("data/export"))
+    zip_path = service.export_all_tables_to_zip(export_dir=_EXPORT_DIR)
     return FileResponse(path=str(zip_path), filename="all_tables.zip", media_type="application/zip")
 
 

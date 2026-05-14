@@ -85,7 +85,7 @@ class UpdateMeRequest(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str = Field(..., max_length=128, description="目前密碼")
+    current_password: str = Field(..., min_length=1, max_length=128, description="目前密碼")
     new_password: str = Field(..., max_length=128, description="新密碼")
 
     @field_validator("new_password")
