@@ -6,8 +6,11 @@ pydantic-settings==2.7.1
 # (error-message spoofing during TLS handshake). Bounded today because the
 # in-compose DB hop is untrusted-free, but any move to managed Postgres
 # with TLS makes this exploitable. Bump to the patched series.
-psycopg2-binary>=2.9.11
+psycopg2-binary==2.9.11
 PyJWT==2.9.0
 bcrypt==4.2.1
 python-multipart==0.0.20
 huey==2.5.2
+# Ships IANA timezone data so ZoneInfo("Asia/Taipei") works on Windows/macOS
+# where no system tzdata package is installed.
+tzdata==2025.1

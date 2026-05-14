@@ -17,6 +17,4 @@ services:
   worker:
     environment:
       DEBUG: "true"
-      COOKIE_SECURE: "false"
-      CORS_ORIGINS: "http://localhost,http://localhost:80"
       ALLOW_DEBUG: "true"

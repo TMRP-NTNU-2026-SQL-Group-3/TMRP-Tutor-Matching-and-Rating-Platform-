@@ -281,6 +281,10 @@ The two most consequential systemic problems are:
 - File: `tutor-platform-api/app/init_db.py:120–153`
 - The app-level `check_duplicate_active()` is a SELECT followed by INSERT. Two concurrent requests without an idempotency key can both pass the check and create two rows.
 
+
+2026-05-14 fixed (above)
+
+
 **D-1 — Seed: `terminated_by` set on directly-seeded `ended` match**
 - File: `tutor-platform-api/seed/generator.py:400`
 - Convention is that `terminated_by` identifies the initiator of a termination request; setting it on a directly-inserted `ended` match is inconsistent.
@@ -325,6 +329,10 @@ The two most consequential systemic problems are:
 - File: `tutor-platform-api/app/matching/api/router.py:35–43`
 - Not an injection risk (parameterized), but an architectural violation that makes this path harder to test.
 
+
+2026-05-14 fixed (above)
+
+
 **DOC-1 — `database-schema.md` header claims 17 tables; DDL creates 18**
 - File: `docs/database-schema.md:4`
 
@@ -348,39 +356,52 @@ The two most consequential systemic problems are:
 - File: `docs/project-spec.md §5.10`
 - The spec describes both upsert and overwrite modes. Only overwrite (`clear_first=True`) is implemented; `ON CONFLICT DO UPDATE` is absent.
 
-**A-3 — `worker` does not depend on `api: service_healthy`; bootstrap race possible**
-- File: `docker-compose.yml:133–135`
-- Both services run `run_bootstrap()` protected by an advisory lock, but adding `api: condition: service_healthy` would eliminate the race entirely.
 
-**A-4 — Conflicting healthcheck definitions in Dockerfile vs. compose**
-- Files: `docker-compose.yml:101–106`, `tutor-platform-api/Dockerfile:31–32`
-- Dockerfile has no `start_period`; compose overrides with 90s. When the image is run outside compose, the container becomes unhealthy during bootstrap.
+2026-05-14 fixed (above)
 
-**A-5 — `FORWARDED_ALLOW_IPS` and Nginx fixed IP are coupled without automated validation**
-- File: `docker-compose.yml:84,183`
-- An edit to the subnet or web IP that does not also update `FORWARDED_ALLOW_IPS` would silently disable X-Forwarded-For trust.
 
-**B-1 — `docker-compose.override.yml` uses `!override` tag requiring Compose v2**
-- File: `docker-compose.override.yml:14`
-- Legacy `docker-compose` v1 will fail with a YAML parse error on this tag.
+~~**A-3 — `worker` does not depend on `api: service_healthy`; bootstrap race possible**~~
+- ~~File: `docker-compose.yml:133–135`~~
+- ~~Both services run `run_bootstrap()` protected by an advisory lock, but adding `api: condition: service_healthy` would eliminate the race entirely.~~
+- **Fixed 2026-05-14**: Added `api: condition: service_healthy` to the `worker` service's `depends_on` block. The worker now waits for the API healthcheck to pass before starting, eliminating the advisory-lock race window.
 
-**C-2 — `COOKIE_SECURE` and `CORS_ORIGINS` set on `worker` service where they have no effect**
-- File: `docker-compose.run.yml:17–20`
-- The Huey consumer never issues cookies or evaluates CORS; these variables are dead config.
+~~**A-4 — Conflicting healthcheck definitions in Dockerfile vs. compose**~~
+- ~~Files: `docker-compose.yml:101–106`, `tutor-platform-api/Dockerfile:31–32`~~
+- ~~Dockerfile has no `start_period`; compose overrides with 90s. When the image is run outside compose, the container becomes unhealthy during bootstrap.~~
+- **Fixed 2026-05-14**: Added `--start-period=90s` to the `HEALTHCHECK` directive in `Dockerfile`. Both the Dockerfile and the compose override now agree on 90s start period, so the container is not marked unhealthy during initial bootstrap regardless of whether compose or bare Docker runs the image.
 
-**D-2 — `pip install` without `--require-hashes`; builds not fully reproducible**
-- File: `tutor-platform-api/Dockerfile:18`
+~~**A-5 — `FORWARDED_ALLOW_IPS` and Nginx fixed IP are coupled without automated validation**~~
+- ~~File: `docker-compose.yml:84,183`~~
+- ~~An edit to the subnet or web IP that does not also update `FORWARDED_ALLOW_IPS` would silently disable X-Forwarded-For trust.~~
+- **Fixed 2026-05-14**: Both `FORWARDED_ALLOW_IPS` (api service environment) and `ipv4_address` (web service network) now use `${WEB_IP:-172.28.0.10}`. A single change to `WEB_IP` in `.env` propagates to both locations. `WEB_IP=172.28.0.10` added to `.env.example` with an explanatory comment.
 
-**D-3 — `psycopg2-binary>=2.9.11` is a range constraint; all other packages use exact pins**
-- File: `tutor-platform-api/requirements.txt:9`
+~~**B-1 — `docker-compose.override.yml` uses `!override` tag requiring Compose v2**~~
+- ~~File: `docker-compose.override.yml:14`~~
+- ~~Legacy `docker-compose` v1 will fail with a YAML parse error on this tag.~~
+- **Fixed 2026-05-14**: Removed the `!override` tag from `ports:` in `docker-compose.override.yml`. Since `api` has no `ports:` block in the base compose file, there is nothing to override — the plain list assignment is semantically identical on Compose v2 and parses cleanly on Compose v1.
 
-**E-1 — `jwt_secret_key_previous` placeholder rejection list is incomplete**
-- File: `tutor-platform-api/docker-entrypoint.sh:53–58`
-- The longer placeholder form used in `jwt_secret_key`'s list is absent from the `previous` key's list.
+~~**C-2 — `COOKIE_SECURE` and `CORS_ORIGINS` set on `worker` service where they have no effect**~~
+- ~~File: `docker-compose.run.yml:17–20`~~
+- ~~The Huey consumer never issues cookies or evaluates CORS; these variables are dead config.~~
+- **Fixed 2026-05-14**: Removed `COOKIE_SECURE` and `CORS_ORIGINS` from the `worker` service's environment block in `docker-compose.run.yml`. The worker retains `DEBUG` and `ALLOW_DEBUG` (required by the entrypoint guard added in C-1).
 
-**F-1 — `tzdata` package missing from requirements; `zoneinfo` lookups fail on Windows/macOS local dev**
-- File: `tutor-platform-api/requirements.txt`
-- `ZoneInfo("Asia/Taipei")` will raise `ZoneInfoNotFoundError` on non-Linux dev machines without `tzdata` installed.
+~~**D-2 — `pip install` without `--require-hashes`; builds not fully reproducible**~~
+- ~~File: `tutor-platform-api/Dockerfile:18`~~
+- **Fixed 2026-05-14**: Generated `requirements.lock` via `pip-compile --generate-hashes --output-file=requirements.lock requirements.txt` (pip-tools 7.x). The lock file pins all transitive dependencies with their SHA-256 hashes covering every published platform wheel. `Dockerfile` now copies both `requirements.txt` and `requirements.lock`, installs from the lock file with `pip install --no-cache-dir --require-hashes -r requirements.lock`, and includes instructions for regenerating the lock file when `requirements.txt` changes.
+
+~~**D-3 — `psycopg2-binary>=2.9.11` is a range constraint; all other packages use exact pins**~~
+- ~~File: `tutor-platform-api/requirements.txt:9`~~
+- **Fixed 2026-05-14**: Changed `psycopg2-binary>=2.9.11` to `psycopg2-binary==2.9.11`. All direct dependencies are now exact pins.
+
+~~**E-1 — `jwt_secret_key_previous` placeholder rejection list is incomplete**~~
+- ~~File: `tutor-platform-api/docker-entrypoint.sh:53–58`~~
+- ~~The longer placeholder form used in `jwt_secret_key`'s list is absent from the `previous` key's list.~~
+- **Fixed 2026-05-14**: Added `"REPLACE_WITH_HEX_FROM_secrets.token_hex_32_AT_LEAST_32_CHARS"` to the `jwt_secret_key_previous` `case` pattern, matching the full rejection list used for `jwt_secret_key`.
+
+~~**F-1 — `tzdata` package missing from requirements; `zoneinfo` lookups fail on Windows/macOS local dev**~~
+- ~~File: `tutor-platform-api/requirements.txt`~~
+- ~~`ZoneInfo("Asia/Taipei")` will raise `ZoneInfoNotFoundError` on non-Linux dev machines without `tzdata` installed.~~
+- **Fixed 2026-05-14**: Added `tzdata==2025.1` to `requirements.txt`. The `tzdata` PyPI package ships the full IANA timezone database as a pure-Python package, so `ZoneInfo("Asia/Taipei")` now works on Windows and macOS local dev without any system package installation.
 
 **G-1 — Table count inconsistent across spec, README, and actual DDL**
 - Files: `docs/project-spec.md §6.1`, `README.md:308`
@@ -535,15 +556,15 @@ The two most consequential systemic problems are:
 | DOC-5 | Low | Docs | `project-spec.md:1276` | Spec says 13 tables; actual is 18 |
 | SP-1 | Low | Spec | `project-spec.md §5.6` | Spec exam_type values differ from implementation constants |
 | SP-2 | Low | Spec | `project-spec.md §5.10` | Spec-required upsert import mode not implemented |
-| A-3 | Low | Infra | `docker-compose.yml:133–135` | `worker` does not depend on `api: service_healthy`; bootstrap race possible |
-| A-4 | Low | Infra | `docker-compose.yml:101–106` | Conflicting healthcheck definitions in Dockerfile vs. compose |
-| A-5 | Low | Infra | `docker-compose.yml:84,183` | `FORWARDED_ALLOW_IPS` and Nginx fixed IP coupled without automated validation |
-| B-1 | Low | Infra | `docker-compose.override.yml:14` | `!override` tag requires Compose v2; v1 users get a parse error |
-| C-2 | Low | Infra | `docker-compose.run.yml:17–20` | `COOKIE_SECURE`/`CORS_ORIGINS` set on `worker` where they have no effect |
-| D-2 | Low | Infra | `Dockerfile:18` | `pip install` without `--require-hashes`; builds not reproducible |
-| D-3 | Low | Infra | `requirements.txt:9` | `psycopg2-binary>=2.9.11` is a range; all others use exact pins |
-| E-1 | Low | Infra | `docker-entrypoint.sh:53–58` | `jwt_secret_key_previous` placeholder rejection list incomplete |
-| F-1 | Low | Infra | `requirements.txt` | `tzdata` missing; `ZoneInfo("Asia/Taipei")` fails on Windows/macOS dev |
+| ~~A-3~~ | ~~Low~~ | ~~Infra~~ | ~~`docker-compose.yml:133–135`~~ | ~~`worker` does not depend on `api: service_healthy`; bootstrap race possible~~ — **Fixed 2026-05-14** |
+| ~~A-4~~ | ~~Low~~ | ~~Infra~~ | ~~`docker-compose.yml:101–106`~~ | ~~Conflicting healthcheck definitions in Dockerfile vs. compose~~ — **Fixed 2026-05-14** |
+| ~~A-5~~ | ~~Low~~ | ~~Infra~~ | ~~`docker-compose.yml:84,183`~~ | ~~`FORWARDED_ALLOW_IPS` and Nginx fixed IP coupled without automated validation~~ — **Fixed 2026-05-14** |
+| ~~B-1~~ | ~~Low~~ | ~~Infra~~ | ~~`docker-compose.override.yml:14`~~ | ~~`!override` tag requires Compose v2; v1 users get a parse error~~ — **Fixed 2026-05-14** |
+| ~~C-2~~ | ~~Low~~ | ~~Infra~~ | ~~`docker-compose.run.yml:17–20`~~ | ~~`COOKIE_SECURE`/`CORS_ORIGINS` set on `worker` where they have no effect~~ — **Fixed 2026-05-14** |
+| ~~D-2~~ | ~~Low~~ | ~~Infra~~ | ~~`Dockerfile:18`~~ | ~~`pip install` without `--require-hashes`; builds not reproducible~~ — **Fixed 2026-05-14** |
+| ~~D-3~~ | ~~Low~~ | ~~Infra~~ | ~~`requirements.txt:9`~~ | ~~`psycopg2-binary>=2.9.11` is a range; all others use exact pins~~ — **Fixed 2026-05-14** |
+| ~~E-1~~ | ~~Low~~ | ~~Infra~~ | ~~`docker-entrypoint.sh:53–58`~~ | ~~`jwt_secret_key_previous` placeholder rejection list incomplete~~ — **Fixed 2026-05-14** |
+| ~~F-1~~ | ~~Low~~ | ~~Infra~~ | ~~`requirements.txt`~~ | ~~`tzdata` missing; `ZoneInfo("Asia/Taipei")` fails on Windows/macOS dev~~ — **Fixed 2026-05-14** |
 | G-1 | Low | Docs | `project-spec.md §6.1`, `README.md:308` | Table count inconsistent: spec 13, README 17, actual 18 |
 | G-2 | Low | Docs | `project-spec.md §6.2` | `password_history` table not documented in spec |
 | G-3 | Low | Docs | `project-spec.md §7.3` | `DELETE /api/students/{id}` implemented but missing from spec |

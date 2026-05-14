@@ -71,7 +71,7 @@ if [ -f /run/secrets/jwt_secret_key_previous ]; then
   case "$JWT_SECRET_KEY_PREVIOUS" in
     "")
       ;;
-    "REPLACE_ME"|"change-me-in-production"|"change-me")
+    "REPLACE_ME"|"REPLACE_WITH_HEX_FROM_secrets.token_hex_32_AT_LEAST_32_CHARS"|"change-me-in-production"|"change-me")
       echo "FATAL: /run/secrets/jwt_secret_key_previous contains a placeholder value." >&2
       exit 1
       ;;

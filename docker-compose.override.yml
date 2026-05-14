@@ -11,5 +11,5 @@ services:
     ports:
       - "127.0.0.1:5433:5432"
   api:
-    ports: !override
+    ports:
       - "127.0.0.1:8001:8000"

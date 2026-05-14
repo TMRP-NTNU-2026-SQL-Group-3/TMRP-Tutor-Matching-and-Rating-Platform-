@@ -46,7 +46,7 @@ services:
     # publishes 5432 to the host. The override file is auto-loaded by local
     # `docker compose up`, preserving dev ergonomics.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -78,10 +78,11 @@ services:
       DB_USER: ${DB_USER:?DB_USER must be set in repo-root .env}
       DB_HOST: db
       DB_NAME: ${DB_NAME:?DB_NAME must be set in repo-root .env}
-      # MEDIUM-2: trust XFF only from the pinned web sidecar (see `web`
-      # service below, ipv4_address: 172.28.0.10). uvicorn cannot match
-      # CIDR, so we name the single trusted hop explicitly.
-      FORWARDED_ALLOW_IPS: "127.0.0.1,172.28.0.10"
+      # MEDIUM-2: trust XFF only from the pinned web sidecar. WEB_IP defaults
+      # to 172.28.0.10 and must match the ipv4_address assigned below; both
+      # references use the same ${WEB_IP} variable so a subnet change stays
+      # consistent without a separate manual edit to this line.
+      FORWARDED_ALLOW_IPS: "127.0.0.1,${WEB_IP:-172.28.0.10}"
     networks:
       appnet:
         ipv4_address: 172.28.0.20
@@ -133,6 +134,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      api:
+        condition: service_healthy
     networks:
       - appnet
     volumes:
@@ -179,11 +182,18 @@ services:
     networks:
       appnet:
         # MEDIUM-2: pinned IP so the api service can list this single hop
-        # in FORWARDED_ALLOW_IPS (uvicorn has no CIDR matching).
-        ipv4_address: 172.28.0.10
+        # in FORWARDED_ALLOW_IPS (uvicorn has no CIDR matching). Must match
+        # the WEB_IP default in the api service's FORWARDED_ALLOW_IPS above.
+        ipv4_address: ${WEB_IP:-172.28.0.10}
     ports:
       # 容器內以 nginx 非 root 身分監聽 8080，host 對外仍以 80 提供。
       - "80:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     deploy:
       resources:
         limits:
