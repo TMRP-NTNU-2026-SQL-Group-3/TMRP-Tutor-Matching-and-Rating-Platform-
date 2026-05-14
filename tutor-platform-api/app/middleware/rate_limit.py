@@ -177,32 +177,36 @@ async def run_periodic_cleanup(interval: int = _CLEANUP_INTERVAL) -> None:
 def _cleanup_expired() -> int:
     """Delete rate-limit records whose per-bucket expiry has passed."""
     from app.shared.infrastructure.database import _require_pool
-    pool_ref = _require_pool()
-    conn = pool_ref.getconn()
+    pool_ref = None
+    conn = None
     try:
+        pool_ref = _require_pool()
+        conn = pool_ref.getconn()
         with conn.cursor() as cur:
             cur.execute("DELETE FROM rate_limit_hits WHERE expires_at < NOW()")
             deleted = cur.rowcount
         conn.commit()
         return deleted or 0
     except Exception:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         logger.exception("Rate limit cleanup failed")
         return 0
     finally:
-        pool_ref.putconn(conn)
+        if pool_ref is not None and conn is not None:
+            pool_ref.putconn(conn)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """
-    基於 IP + 路徑的滑動視窗速率限制（DB 持久化，支援多 worker）。
+    """IP + path sliding-window rate limiter backed by PostgreSQL.
 
-    Bug #12: 由 in-memory 計數改為 PostgreSQL 表 (rate_limit_hits)，
-    確保 uvicorn --workers N 部署下各 worker 共享計數。
-    每次請求一次小型 SELECT + INSERT；高流量站點可考慮改用 Redis。
+    Bug #12: counters are stored in rate_limit_hits so all uvicorn workers
+    share a single counter — per-process in-memory counters let attackers
+    stay under the limit by spreading requests across workers. Each request
+    costs one small SELECT + INSERT; high-traffic deployments can swap in Redis.
     """
 
     def __init__(self, app):
@@ -216,7 +220,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         async with self._cleanup_lock:
             if now - self._last_cleanup < _CLEANUP_INTERVAL:
                 return
-            await asyncio.to_thread(_cleanup_expired)
+            try:
+                await asyncio.to_thread(_cleanup_expired)
+            except Exception:
+                logger.exception("Inline rate-limit cleanup failed; will retry next interval")
             self._last_cleanup = now
 
     async def dispatch(self, request, call_next):
