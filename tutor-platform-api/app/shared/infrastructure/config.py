@@ -194,6 +194,15 @@ class Settings(BaseSettings):
                 "when DEBUG is false. Choose an enumeration-resistant form, "
                 "e.g. owner_<random6>."
             )
+        # SEC-19: warn even in debug mode so the placeholder is visible in logs
+        # if this config is promoted to a shared or staging environment.
+        if self.debug and self.admin_username.lower() in {"admin", "owner_change_me"}:
+            logging.getLogger(__name__).warning(
+                "ADMIN_USERNAME is still the default placeholder '%s'. "
+                "Replace it with a unique value before promoting this config "
+                "to any shared or staging environment.",
+                self.admin_username,
+            )
         # LOW-1: CORS origins must be an explicit allow-list. With
         # allow_credentials=True a misconfigured "*" or scheme-less entry would
         # silently trust arbitrary origins. Reject wildcards outright; require

@@ -10,7 +10,8 @@ CSRF: sends mutating requests to a non-exempt path without the required
 double-submit token and asserts 403.
 """
 
-from unittest.mock import patch
+import pytest
+from unittest.mock import MagicMock, call, patch
 
 
 class TestRateLimitMiddleware:
@@ -75,6 +76,91 @@ class TestCSRFMiddleware:
         )
         # May return 400/422 for bad credentials/schema, but never 403 from CSRF.
         assert resp.status_code != 403
+
+
+class TestCheckAndRecordBucket:
+    """SEC-22: unit tests for check_and_record_bucket logic.
+
+    The conftest permanently patches check_and_record_bucket to True so the
+    test suite can run without a live DB. These tests temporarily restore the
+    real function (via the conftest patcher's saved original) so the counting,
+    inserting, and fail-closed logic can be verified with a mocked pool.
+    """
+
+    @pytest.fixture(autouse=True)
+    def restore_real_fn(self):
+        """Stop the conftest patcher for check_and_record_bucket during this test."""
+        import conftest as _conftest
+        patcher = next(
+            p for p in _conftest._lifespan_patchers
+            if getattr(p, "attribute", "") == "check_and_record_bucket"
+        )
+        patcher.stop()
+        yield
+        patcher.start()
+
+    def _make_pool(self, current_count: int):
+        """Return a fake pool whose cursor returns current_count for the SELECT."""
+        cur = MagicMock()
+        # First execute: advisory lock (no return value used).
+        # Second execute: SELECT COUNT(*) — fetchone returns the count.
+        # Third execute: INSERT.
+        cur.fetchone.return_value = (current_count,)
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__ = lambda s: cur
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        pool = MagicMock()
+        pool.getconn.return_value = conn
+        return pool, conn, cur
+
+    def test_below_limit_allows_and_inserts(self):
+        from app.middleware.rate_limit import check_and_record_bucket
+
+        pool, conn, cur = self._make_pool(current_count=3)
+        with patch("app.shared.infrastructure.database._require_pool", return_value=pool):
+            result = check_and_record_bucket("test|127.0.0.1", max_attempts=5, window_seconds=60)
+
+        assert result is True
+        # INSERT must have been called once.
+        insert_calls = [c for c in cur.execute.call_args_list if "INSERT" in str(c)]
+        assert len(insert_calls) == 1
+        conn.commit.assert_called_once()
+        pool.putconn.assert_called_once_with(conn)
+
+    def test_at_limit_denies_and_does_not_insert(self):
+        from app.middleware.rate_limit import check_and_record_bucket
+
+        pool, conn, cur = self._make_pool(current_count=5)
+        with patch("app.shared.infrastructure.database._require_pool", return_value=pool):
+            result = check_and_record_bucket("test|127.0.0.1", max_attempts=5, window_seconds=60)
+
+        assert result is False
+        insert_calls = [c for c in cur.execute.call_args_list if "INSERT" in str(c)]
+        assert len(insert_calls) == 0
+        conn.rollback.assert_called_once()
+        pool.putconn.assert_called_once_with(conn)
+
+    def test_db_error_fail_open_by_default(self):
+        from app.middleware.rate_limit import check_and_record_bucket
+
+        pool = MagicMock()
+        pool.getconn.side_effect = RuntimeError("db unavailable")
+        with patch("app.shared.infrastructure.database._require_pool", return_value=pool):
+            result = check_and_record_bucket("test|127.0.0.1", max_attempts=5, window_seconds=60)
+
+        assert result is True
+
+    def test_db_error_fail_closed_when_requested(self):
+        from app.middleware.rate_limit import check_and_record_bucket
+
+        pool = MagicMock()
+        pool.getconn.side_effect = RuntimeError("db unavailable")
+        with patch("app.shared.infrastructure.database._require_pool", return_value=pool):
+            result = check_and_record_bucket(
+                "login|127.0.0.1", max_attempts=10, window_seconds=60, fail_closed=True
+            )
+
+        assert result is False
 
 
 class TestCSRFExemptPathsInvariant:

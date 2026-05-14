@@ -53,6 +53,65 @@ class TableAdminRepository(BaseRepository):
         values = tuple(coerce_csv_value(v) for v in raw_values)
         self.cursor.execute(stmt, values)
 
+    def get_primary_key_columns(self, table: str) -> list[str]:
+        """Return PK column names for `table` in declaration order."""
+        rows = self.fetch_all(
+            """
+            SELECT kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+              AND tc.table_schema = kcu.table_schema
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+              AND tc.table_schema = current_schema()
+              AND tc.table_name = %s
+            ORDER BY kcu.ordinal_position
+            """,
+            (table,),
+        )
+        return [r["column_name"] for r in rows]
+
+    def upsert_csv_row(
+        self, table: str, columns: list[str], raw_values: list, pk_cols: list[str]
+    ) -> None:
+        """INSERT ... ON CONFLICT (pk) DO UPDATE SET non_pk_col = EXCLUDED.non_pk_col.
+
+        `pk_cols` should be pre-fetched once per table via get_primary_key_columns
+        so the caller avoids a DB round-trip per row.
+        """
+        validate_columns(columns)
+        non_pk_cols = [c for c in columns if c not in pk_cols]
+        col_list = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
+        placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in columns)
+        conflict_target = sql.SQL(", ").join(sql.Identifier(c) for c in pk_cols)
+        if non_pk_cols:
+            update_set = sql.SQL(", ").join(
+                sql.SQL("{col} = EXCLUDED.{col}").format(col=sql.Identifier(c))
+                for c in non_pk_cols
+            )
+            stmt = sql.SQL(
+                "INSERT INTO {tbl} ({cols}) VALUES ({vals}) "
+                "ON CONFLICT ({conflict}) DO UPDATE SET {updates}"
+            ).format(
+                tbl=sql.Identifier(table),
+                cols=col_list,
+                vals=placeholders,
+                conflict=conflict_target,
+                updates=update_set,
+            )
+        else:
+            stmt = sql.SQL(
+                "INSERT INTO {tbl} ({cols}) VALUES ({vals}) "
+                "ON CONFLICT ({conflict}) DO NOTHING"
+            ).format(
+                tbl=sql.Identifier(table),
+                cols=col_list,
+                vals=placeholders,
+                conflict=conflict_target,
+            )
+        values = tuple(coerce_csv_value(v) for v in raw_values)
+        self.cursor.execute(stmt, values)
+
     def reset_serial_sequences(self, table_names) -> None:
         # Rebases every SERIAL/IDENTITY sequence to MAX(col) of the current
         # table contents so the next auto-generated id cannot collide with an

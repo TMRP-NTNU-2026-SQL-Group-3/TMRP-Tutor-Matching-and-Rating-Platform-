@@ -78,7 +78,11 @@ FAIL_CLOSED_PATHS: frozenset[str] = frozenset({
 _UNSAFE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
-_CLEANUP_INTERVAL = 300  # 每 5 分鐘清理一次過期紀錄
+# SEC-23: IP-based bucketing is weakened under NAT and shared proxies where
+# many users share one public IP. This is an accepted design limitation for
+# this deployment scale; a per-user (authenticated) rate-limit layer would
+# be needed to close the gap for authenticated endpoints.
+_CLEANUP_INTERVAL = 300  # clean up expired records every 5 minutes
 
 
 def check_and_record_bucket(
@@ -105,9 +109,15 @@ def check_and_record_bucket(
     admin actions pass True so an outage can't remove the brake.
     """
     from app.shared.infrastructure.database import _require_pool
-    pool_ref = _require_pool()
-    conn = pool_ref.getconn()
+    # pool_ref/conn initialised to None so the finally block can guard against
+    # failures that occur before the connection is acquired (e.g. pool not yet
+    # initialised, pool exhausted). Without this the fail_closed logic is
+    # unreachable when _require_pool() or getconn() itself raises.
+    pool_ref = None
+    conn = None
     try:
+        pool_ref = _require_pool()
+        conn = pool_ref.getconn()
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
         with conn.cursor() as cur:
             # B3: The previous count-then-insert was racy — two concurrent
@@ -128,16 +138,18 @@ def check_and_record_bucket(
                 conn.rollback()
                 return False
             cur.execute(
-                "INSERT INTO rate_limit_hits (bucket_key) VALUES (%s)",
-                (bucket_key,),
+                "INSERT INTO rate_limit_hits (bucket_key, expires_at)"
+                " VALUES (%s, NOW() + %s * INTERVAL '1 second')",
+                (bucket_key, window_seconds),
             )
         conn.commit()
         return True
     except Exception:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         if fail_closed:
             logger.exception(
                 "Rate limit DB error for bucket=%s; failing CLOSED (sensitive path)",
@@ -147,7 +159,8 @@ def check_and_record_bucket(
         logger.exception("Rate limit DB error for bucket=%s; failing open", bucket_key)
         return True
     finally:
-        pool_ref.putconn(conn)
+        if pool_ref is not None and conn is not None:
+            pool_ref.putconn(conn)
 
 
 async def run_periodic_cleanup(interval: int = _CLEANUP_INTERVAL) -> None:
@@ -162,15 +175,13 @@ async def run_periodic_cleanup(interval: int = _CLEANUP_INTERVAL) -> None:
 
 
 def _cleanup_expired() -> int:
-    """Delete rate-limit records older than the longest configured window."""
+    """Delete rate-limit records whose per-bucket expiry has passed."""
     from app.shared.infrastructure.database import _require_pool
-    max_window = max(w for _, w in RATE_LIMITS.values())
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_window)
     pool_ref = _require_pool()
     conn = pool_ref.getconn()
     try:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM rate_limit_hits WHERE hit_at < %s", (cutoff,))
+            cur.execute("DELETE FROM rate_limit_hits WHERE expires_at < NOW()")
             deleted = cur.rowcount
         conn.commit()
         return deleted or 0

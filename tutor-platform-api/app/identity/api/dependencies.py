@@ -32,6 +32,14 @@ def get_current_user(
 
 
 def is_admin(user: dict) -> bool:
+    # Guard: only accepts verified JWT payloads from get_current_user/decode_access_token.
+    # 'sub' is always present in valid token payloads; its absence indicates an
+    # unverified dict was passed, which would silently grant or deny admin access.
+    if "sub" not in user:
+        raise ValueError(
+            "is_admin() requires a verified token payload from get_current_user; "
+            "use require_role('admin') as a FastAPI dependency for route-level enforcement."
+        )
     return user.get("role") == "admin"
 
 

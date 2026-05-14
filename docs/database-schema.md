@@ -1,7 +1,7 @@
 # TMRP Database Schema Reference
 
 **Platform:** PostgreSQL 16  
-**Tables:** 17  
+**Tables:** 19  
 **Materialized Views:** 2  
 **Triggers / Functions:** 5  
 
@@ -37,7 +37,7 @@
 | Matching & Contracts | `matches` | Full tutoring engagement lifecycle (pending → ended) |
 | Teaching Records | `sessions`, `session_edit_logs`, `exams` | Session logs, edit audit trail, exam scores |
 | Reviews & Ratings | `reviews` | Post-match multi-dimension ratings |
-| Infrastructure | `rate_limit_hits`, `audit_log` | API rate limiting, privileged-action audit trail |
+| Infrastructure | `rate_limit_hits`, `audit_log`, `idempotency_keys`, `user_token_revocations` | API rate limiting, privileged-action audit trail, match-creation idempotency, bulk token revocation |
 
 ---
 
@@ -577,6 +577,7 @@ Sliding-window rate limit bucket store, shared across API workers. Uses `BIGSERI
 | `id` | `BIGSERIAL` | PK | auto | |
 | `bucket_key` | `VARCHAR(255)` | NOT NULL | — | Composite key: e.g. `"user:42:POST:/matches"` |
 | `hit_at` | `TIMESTAMPTZ` | NOT NULL | `NOW()` | `idx_rl_bucket_hit_at (bucket_key, hit_at)` for window scans |
+| `expires_at` | `TIMESTAMPTZ` | NOT NULL | — | Used for TTL-based pruning |
 
 **No foreign keys.** Standalone infrastructure table.
 
@@ -597,6 +598,33 @@ Privileged-action audit trail. Uses `ON DELETE SET NULL` so records survive acto
 | `new_value` | `TEXT` | nullable | — | |
 | `reason` | `TEXT` | nullable | — | |
 | `created_at` | `TIMESTAMPTZ` | NOT NULL | `NOW()` | `idx_audit_log_resource (resource_type, resource_id)` |
+
+---
+
+#### `idempotency_keys`
+
+DB-backed idempotency store for match creation. Ensures a retried request with the same `Idempotency-Key` header returns the original result rather than creating a duplicate match.
+
+| Column | Type | Constraints | Default | Notes |
+|--------|------|-------------|---------|-------|
+| `user_id` | `INTEGER` | PK (composite), FK → `users` | — | CASCADE delete; part of composite PK |
+| `idem_key` | `VARCHAR(128)` | PK (composite), NOT NULL | — | Client-supplied idempotency key |
+| `match_id` | `INTEGER` | NOT NULL, FK → `matches` | — | The match that was created; CASCADE delete |
+| `expires_at` | `TIMESTAMPTZ` | NOT NULL | — | `idx_idempotency_expires (expires_at)` for TTL pruning |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | `NOW()` | |
+
+**Primary key:** `(user_id, idem_key)`.
+
+---
+
+#### `user_token_revocations`
+
+Records a per-user "revoke all tokens issued before this timestamp" watermark. Used when an admin force-resets a user's password so existing access tokens are invalidated immediately.
+
+| Column | Type | Constraints | Default | Notes |
+|--------|------|-------------|---------|-------|
+| `user_id` | `INTEGER` | PK, FK → `users` | — | CASCADE delete; one row per user |
+| `revoked_at` | `TIMESTAMPTZ` | NOT NULL | `NOW()` | Tokens issued before this time are rejected |
 
 ---
 

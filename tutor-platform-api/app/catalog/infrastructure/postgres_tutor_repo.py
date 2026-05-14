@@ -143,10 +143,10 @@ class PostgresTutorRepository(BaseRepository, ITutorRepository):
         subject or availability lists."""
         return self.fetch_one(
             """SELECT t.*, u.display_name, u.email, u.phone,
-                      COALESCE(r.avg_r1, NULL) AS avg_r1,
-                      COALESCE(r.avg_r2, NULL) AS avg_r2,
-                      COALESCE(r.avg_r3, NULL) AS avg_r3,
-                      COALESCE(r.avg_r4, NULL) AS avg_r4,
+                      COALESCE(r.avg_r1, 0) AS avg_r1,
+                      COALESCE(r.avg_r2, 0) AS avg_r2,
+                      r.avg_r3 AS avg_r3,
+                      r.avg_r4 AS avg_r4,
                       COALESCE(r.review_count, 0) AS review_count,
                       COALESCE(a.active_count, 0) AS active_student_count,
                       COALESCE(subj.subjects, '[]'::json) AS subjects,

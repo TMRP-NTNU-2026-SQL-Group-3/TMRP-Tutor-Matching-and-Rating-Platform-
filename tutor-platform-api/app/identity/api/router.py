@@ -74,7 +74,7 @@ def register(
     return ApiResponse(success=True, data={"user_id": user_id}, message="註冊成功")
 
 
-@router.post("/login", summary="使用者登入", description="驗證帳號密碼後核發 JWT Token，回傳使用者基本資訊。", response_model=ApiResponse[AuthUserResponse])
+@router.post("/login", status_code=200, summary="使用者登入", description="驗證帳號密碼後核發 JWT Token，回傳使用者基本資訊。", response_model=ApiResponse[AuthUserResponse])
 def login(
     body: LoginRequest,
     request: Request,

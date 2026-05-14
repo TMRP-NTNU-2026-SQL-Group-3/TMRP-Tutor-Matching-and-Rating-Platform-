@@ -122,6 +122,11 @@ cp secrets/admin_password.txt.example  secrets/admin_password.txt
 #   admin_password.txt  — min 16 chars, must include lowercase, uppercase, digit, and symbol
 #   db_password.txt     — any strong password
 
+# NOTE (SEC-20): secrets/ files are gitignored but exist on disk in plaintext.
+# Non-git sharing methods (zip archives, shared drives, scp, git add -f) will
+# expose them. Do not include this directory in any archive or share outside your
+# local machine. Regenerate all secrets before any handoff of the repository.
+
 # 4. Prepare the backend env file (non-secret settings only)
 cp tutor-platform-api/.env.docker.example tutor-platform-api/.env.docker
 # Edit .env.docker — change ADMIN_USERNAME away from the placeholder default.
@@ -137,7 +142,7 @@ Once the containers are healthy:
 |---------|-----|
 | Frontend | http://localhost (host 80 → container 8080, Nginx runs non-root) |
 | API (dev only) | http://127.0.0.1:8001 (bound to loopback by `docker-compose.override.yml`; the production compose does not publish the API port at all — all traffic must go through Nginx at `/api/*`) |
-| Swagger UI (dev only) | http://127.0.0.1:8001/docs (requires both `DEBUG=true` and `ENABLE_DOCS=true`) |
+| Swagger UI (dev only) | http://127.0.0.1:8001/docs (requires `ENABLE_DOCS=true`; config validator enforces `DEBUG=true` as a prerequisite — `ENABLE_DOCS` is the explicit gate, `DEBUG` is not an independent toggle) |
 | PostgreSQL (dev only) | 127.0.0.1:5433 (bound to loopback by `docker-compose.override.yml`; credentials from repo-root `.env`) |
 
 `docker-compose.override.yml` is auto-loaded by `docker compose up` and exposes the API and database on loopback so you can hit them from the host. To run without those host bindings (the intended production posture), pass the production file explicitly:
@@ -204,7 +209,7 @@ Running without Docker is useful for active development and debugging.
 
 | Service | URL |
 |---------|-----|
-| Frontend | http://localhost:5273 |
+| Frontend | http://localhost:5173 |
 | API | http://localhost:8000 |
 | Swagger UI | http://localhost:8000/docs |
 
@@ -305,7 +310,7 @@ The API container's `lifespan` hook initialises the connection pool, runs the sc
 
 ## Database Design
 
-17 tables on PostgreSQL 16. 14 are business tables; 3 support cross-worker auth, rate limiting, and auditing.
+19 tables on PostgreSQL 16. 14 are business tables; 5 support cross-worker auth, rate limiting, auditing, and idempotency.
 
 ### Business tables
 
@@ -358,6 +363,8 @@ The API container's `lifespan` hook initialises the connection pool, runs the sc
 | Table | Purpose |
 |-------|---------|
 | refresh_token_blacklist | Revoked refresh-token JTIs; shared across API workers |
+| user_token_revocations | Per-user "revoke all tokens" watermark; set on admin-forced password reset |
+| idempotency_keys | DB-backed dedup store for match creation; prevents duplicate matches from retried requests |
 | rate_limit_hits | Hit counters for the rate-limit middleware; shared across workers |
 | audit_log | Privileged-action audit trail: actor, action, resource type/ID, old/new values. `actor_user_id` uses `ON DELETE SET NULL` so records survive account removal; `resource_id` is a soft reference with no FK so records survive row deletion. |
 

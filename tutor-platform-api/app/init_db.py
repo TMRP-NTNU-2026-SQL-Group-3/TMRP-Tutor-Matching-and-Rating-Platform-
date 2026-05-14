@@ -2,7 +2,7 @@
 資料庫初始化模組（PostgreSQL）
 
 提供以下功能：
-1. 建立 13 張資料表（含 DEFAULT 子句）
+1. 建立 19 張資料表（含 DEFAULT 子句）
 2. 建立唯一索引與效能索引
 3. 寫入科目種子資料
 4. 建立管理員帳號
@@ -237,7 +237,7 @@ CREATE TABLE IF NOT EXISTS password_history (
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     idem_key   VARCHAR(128) NOT NULL,
     user_id    INTEGER      NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    match_id   INTEGER      NOT NULL,
+    match_id   INTEGER      NOT NULL REFERENCES matches(match_id) ON DELETE CASCADE,
     expires_at TIMESTAMPTZ  NOT NULL,
     created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, idem_key)
@@ -259,7 +259,8 @@ CREATE TABLE IF NOT EXISTS user_token_revocations (
 CREATE TABLE IF NOT EXISTS rate_limit_hits (
     id         BIGSERIAL    PRIMARY KEY,
     bucket_key VARCHAR(255) NOT NULL,
-    hit_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    hit_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ  NOT NULL
 );
 
 -- B10: Admin actions (currently just match state transitions) write here so
@@ -286,6 +287,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_subjects_name      ON subjects (subject_na
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tutors_user_id     ON tutors (user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_pair ON conversations (user_a_id, user_b_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_reviews_unique     ON reviews (match_id, reviewer_user_id, review_type);
+-- S-5: prevent duplicate availability slots created by concurrent inserts or
+-- direct DB writes; the repo's DELETE + re-INSERT pattern is not enough alone.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tutor_avail_slot
+    ON tutor_availability (tutor_id, day_of_week, start_time);
+-- S-6: DB-level guard against the TOCTOU race in check_duplicate_active().
+-- Covers only non-terminal statuses so ended/cancelled/rejected matches can
+-- coexist for the same (tutor, student, subject) triple.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_matches_one_active
+    ON matches (tutor_id, student_id, subject_id)
+    WHERE status IN ('pending', 'trial', 'active', 'paused', 'terminating');
 
 -- 效能索引
 CREATE INDEX IF NOT EXISTS idx_students_parent        ON students (parent_user_id);
@@ -303,6 +314,7 @@ CREATE INDEX IF NOT EXISTS idx_tutor_subjects_subject ON tutor_subjects (subject
 CREATE INDEX IF NOT EXISTS idx_sessions_created       ON sessions (created_at);
 CREATE INDEX IF NOT EXISTS idx_matches_status_updated ON matches (status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_rl_bucket_hit_at       ON rate_limit_hits (bucket_key, hit_at);
+CREATE INDEX IF NOT EXISTS idx_rl_expires_at          ON rate_limit_hits (expires_at);
 CREATE INDEX IF NOT EXISTS idx_rt_blacklist_exp       ON refresh_token_blacklist (expires_at);
 CREATE INDEX IF NOT EXISTS idx_pw_history_user        ON password_history (user_id, changed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_log_resource     ON audit_log (resource_type, resource_id);
@@ -612,7 +624,7 @@ _BOOTSTRAP_LOCK_KEY = 0x544D5250_424F4F54  # "TMRP" "BOOT"
 
 
 def create_schema(conn) -> None:
-    """Create all 13 tables, indexes and foreign keys (idempotent via IF NOT EXISTS)."""
+    """Create all 19 tables, indexes and foreign keys (idempotent via IF NOT EXISTS)."""
     cursor = conn.cursor()
     cursor.execute(SCHEMA_DDL)
     conn.commit()

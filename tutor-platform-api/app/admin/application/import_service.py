@@ -62,8 +62,15 @@ class AdminImportService:
 
     # ── Import ──────────────────────────────────────────────────────
 
-    def import_single_csv(self, *, table_name: str, content: bytes | str) -> int:
-        """Import one CSV blob into one table. Returns row count inserted."""
+    def import_single_csv(
+        self, *, table_name: str, content: bytes | str, upsert: bool = False
+    ) -> int:
+        """Import one CSV blob into one table. Returns row count written.
+
+        When `upsert=True` rows are merged by primary key (existing rows are
+        updated, new rows are inserted). The default plain-INSERT mode raises on
+        any PK conflict.
+        """
         validate_table(table_name)
         # SEC-10: null bytes are a reliable binary-file indicator; reject before
         # the UTF-8 decode so the CSV parser never sees non-text input.
@@ -78,8 +85,13 @@ class AdminImportService:
         columns = list(rows[0].keys())
         self._assert_columns_in_schema(table_name, columns)
         with self._uow.begin():
-            for row in rows:
-                self._repo.insert_csv_row(table_name, columns, [row[c] for c in columns])
+            if upsert:
+                pk_cols = self._repo.get_primary_key_columns(table_name)
+                for row in rows:
+                    self._repo.upsert_csv_row(table_name, columns, [row[c] for c in columns], pk_cols)
+            else:
+                for row in rows:
+                    self._repo.insert_csv_row(table_name, columns, [row[c] for c in columns])
             self._repo.reset_serial_sequences([table_name])
         return len(rows)
 
@@ -96,12 +108,25 @@ class AdminImportService:
                 f"CSV 標頭包含 {table_name} 不存在的欄位：{', '.join(unknown)}"
             )
 
-    def import_zip(self, *, zip_bytes: bytes, admin_user_id: int, clear_first: bool) -> dict:
+    def import_zip(
+        self,
+        *,
+        zip_bytes: bytes,
+        admin_user_id: int,
+        clear_first: bool,
+        upsert: bool = False,
+    ) -> dict:
         """Import a ZIP containing one CSV per whitelisted table.
+
+        `clear_first=True` (overwrite mode) truncates all tables before writing.
+        `upsert=True` merges rows by primary key without truncating first.
+        The two modes are mutually exclusive.
 
         Uses per-row SAVEPOINTs so one bad row does not abort the whole table.
         Returns a dict with `imported` counts and optional `errors` details.
         """
+        if clear_first and upsert:
+            raise DomainException("clear_first 與 upsert 模式互斥，請擇一使用")
         if len(zip_bytes) > MAX_UPLOAD_SIZE:
             raise DomainException(f"上傳檔案過大（上限 {MAX_UPLOAD_SIZE // 1024 // 1024} MB）")
         try:
@@ -143,6 +168,7 @@ class AdminImportService:
                     continue
                 inserted = 0
                 table_errors: list[str] = []
+                pk_cols = self._repo.get_primary_key_columns(table) if upsert else []
                 for i, row in enumerate(rows, 1):
                     # The counter must only advance after the savepoint is
                     # released — an INSERT that succeeds but whose savepoint
@@ -151,7 +177,10 @@ class AdminImportService:
                     # earlier produced a misleading "inserted" total.
                     self._repo.savepoint()
                     try:
-                        self._repo.insert_csv_row(table, columns, [row[c] for c in columns])
+                        if upsert:
+                            self._repo.upsert_csv_row(table, columns, [row[c] for c in columns], pk_cols)
+                        else:
+                            self._repo.insert_csv_row(table, columns, [row[c] for c in columns])
                     except Exception as e:
                         self._repo.rollback_to_savepoint()
                         table_errors.append(f"第 {i} 列: {_format_row_error(e)}")

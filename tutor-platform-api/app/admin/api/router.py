@@ -108,6 +108,7 @@ def seed_data(
 def import_csv(
     table_name: str,
     file: UploadFile = File(...),
+    upsert: bool = Query(False),
     user=Depends(require_role("admin")),
     service: AdminImportService = Depends(get_admin_import_service),
 ):
@@ -119,7 +120,7 @@ def import_csv(
             status_code=415,
             detail="僅接受 CSV 格式（Content-Type: text/csv）",
         )
-    logger.warning("Admin user_id=%s 匯入 CSV 至 %s", user.get("sub"), table_name)
+    logger.warning("Admin user_id=%s 匯入 CSV 至 %s (upsert=%s)", user.get("sub"), table_name, upsert)
     # LOW-3: enforce the same size cap as import_zip so a compromised or
     # careless admin cannot OOM the worker via a huge single-CSV upload.
     data = file.file.read(MAX_UPLOAD_SIZE + 1)
@@ -128,7 +129,7 @@ def import_csv(
             status_code=413,
             detail=f"上傳檔案過大（上限 {MAX_UPLOAD_SIZE // 1024 // 1024} MB）",
         )
-    count = service.import_single_csv(table_name=table_name, content=data)
+    count = service.import_single_csv(table_name=table_name, content=data, upsert=upsert)
     if count == 0:
         return ApiResponse(success=True, data={"count": 0}, message="CSV 檔案無資料列")
     return ApiResponse(success=True, data={"count": count}, message=f"已匯入 {count} 筆資料至 {table_name}")
@@ -424,6 +425,7 @@ def export_all(
 def import_all(
     file: UploadFile = File(...),
     clear_first: bool = Query(False),
+    upsert: bool = Query(False),
     user=Depends(require_role("admin")),
     service: AdminImportService = Depends(get_admin_import_service),
 ):
@@ -434,7 +436,10 @@ def import_all(
             status_code=415,
             detail="僅接受 ZIP 格式（Content-Type: application/zip）",
         )
-    logger.warning("Admin user_id=%s 執行一鍵匯入 (clear_first=%s)", user.get("sub"), clear_first)
+    logger.warning(
+        "Admin user_id=%s 執行一鍵匯入 (clear_first=%s, upsert=%s)",
+        user.get("sub"), clear_first, upsert,
+    )
     zip_bytes = file.file.read(MAX_UPLOAD_SIZE + 1)
     if len(zip_bytes) > MAX_UPLOAD_SIZE:
         raise HTTPException(
@@ -445,6 +450,7 @@ def import_all(
         zip_bytes=zip_bytes,
         admin_user_id=int(user["sub"]),
         clear_first=clear_first,
+        upsert=upsert,
     )
     imported = outcome["imported"]
     errors = outcome["errors"]

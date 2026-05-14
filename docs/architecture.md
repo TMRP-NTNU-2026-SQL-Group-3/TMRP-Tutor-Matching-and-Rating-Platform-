@@ -586,7 +586,7 @@ Each `(current_status, action)` pair maps to a permitted set of roles. `MatchApp
 
 ## 10. Database Schema (ER View)
 
-17 tables: 14 business + 3 support. All timestamps are `TIMESTAMPTZ` with `NOW()` defaults.
+19 tables: 14 business + 5 support. All timestamps are `TIMESTAMPTZ` with `NOW()` defaults.
 
 ```mermaid
 erDiagram
@@ -608,6 +608,9 @@ erDiagram
     users ||--o{ reviews         : "reviewer / reviewee"
     users ||--o{ refresh_token_blacklist : "owns JTI"
     users ||--o{ audit_log       : "actor (SET NULL on delete)"
+    users ||--o{ idempotency_keys : "dedup key"
+    matches ||--o{ idempotency_keys : "result"
+    users ||--o| user_token_revocations : "bulk revoke"
 
     users {
         SERIAL user_id PK
@@ -732,6 +735,18 @@ erDiagram
         BIGSERIAL id PK
         VARCHAR bucket_key
         TIMESTAMPTZ hit_at
+        TIMESTAMPTZ expires_at
+    }
+    idempotency_keys {
+        INT user_id PK,FK
+        VARCHAR idem_key PK
+        INT match_id FK
+        TIMESTAMPTZ expires_at
+        TIMESTAMPTZ created_at
+    }
+    user_token_revocations {
+        INT user_id PK,FK
+        TIMESTAMPTZ revoked_at
     }
     audit_log {
         BIGSERIAL id PK
