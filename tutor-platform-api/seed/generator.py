@@ -40,7 +40,6 @@ def _insert_and_get_id(cursor, sql: str, params: tuple) -> int:
     return int(cursor.fetchone()[0])
 
 
-
 # ──────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────

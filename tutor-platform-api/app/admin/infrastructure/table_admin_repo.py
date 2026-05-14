@@ -128,15 +128,15 @@ class TableAdminRepository(BaseRepository):
 
         Returns True when a row was updated, False when user_id is unknown.
 
-        Raises ValueError when the user has active matches (status NOT IN
-        ('ended', 'cancelled', 'rejected')). Callers must resolve those
-        matches before anonymizing, otherwise participant names in live match
-        records would silently become stale.
+        Raises ValueError when the user has non-terminal matches. Non-terminal
+        statuses are: pending, active, trial, paused, terminating. Callers
+        must resolve those matches before anonymizing, otherwise participant
+        names in live match records would silently become stale.
         """
         active = self.fetch_one(
             """
             SELECT 1 FROM matches
-            WHERE status NOT IN ('ended', 'cancelled', 'rejected', 'paused', 'terminating')
+            WHERE status IN ('pending', 'active', 'trial', 'paused', 'terminating')
               AND (
                 tutor_id IN (SELECT tutor_id FROM tutors WHERE user_id = %s)
                 OR student_id IN (SELECT student_id FROM students WHERE parent_user_id = %s)
