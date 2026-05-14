@@ -24,6 +24,8 @@ class PostgresStatsRepository(BaseRepository):
         )
 
     def income_breakdown(self, tutor_id: int, year: int, month: int, tz: str = "Asia/Taipei") -> list[dict]:
+        # `visible_to_parent` is not applied here — income is the tutor's own
+        # financial view, so all sessions are included regardless of visibility.
         return self.fetch_all(
             """SELECT st.name AS student_name, sub.subject_name,
                       SUM(se.hours) AS hours, SUM(se.hours * m.hourly_rate) AS income
@@ -56,6 +58,12 @@ class PostgresStatsRepository(BaseRepository):
         )
 
     def expense_breakdown(self, parent_user_id: int, year: int, month: int, tz: str = "Asia/Taipei") -> list[dict]:
+        # `visible_to_parent` is not filtered here — the breakdown reflects the
+        # actual financial totals (matching the summary query), not a redacted
+        # view. Sessions hidden from the parent via `visible_to_parent=FALSE`
+        # still incur charges, so omitting them would make the breakdown
+        # disagree with the summary total. The existence of such sessions is
+        # already implied by the summary figures.
         return self.fetch_all(
             """SELECT u.display_name AS tutor_display_name, sub.subject_name,
                       st.name AS student_name, SUM(se.hours) AS hours,

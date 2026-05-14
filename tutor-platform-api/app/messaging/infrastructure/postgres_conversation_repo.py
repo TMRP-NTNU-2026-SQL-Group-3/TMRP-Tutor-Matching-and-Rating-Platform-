@@ -23,14 +23,19 @@ class PostgresConversationRepository(BaseRepository, IConversationRepository):
         # conversation with no messages, `last_message_content` and
         # `last_message_sender_id` are NULL — callers must render a
         # placeholder rather than treating NULL as an error.
+        #
+        # The CTE binds user_id once so the value doesn't have to be repeated
+        # as four separate positional parameters across the CASE expressions
+        # and the WHERE clause.
         return self.fetch_all(
-            """SELECT c.conversation_id, c.user_a_id, c.user_b_id,
+            """WITH me(uid) AS (VALUES (%s))
+               SELECT c.conversation_id, c.user_a_id, c.user_b_id,
                       c.created_at, c.last_message_at,
-                      CASE WHEN c.user_a_id = %s THEN u_b.display_name ELSE u_a.display_name END AS other_name,
-                      CASE WHEN c.user_a_id = %s THEN c.user_b_id ELSE c.user_a_id END AS other_user_id,
+                      CASE WHEN c.user_a_id = me.uid THEN u_b.display_name ELSE u_a.display_name END AS other_name,
+                      CASE WHEN c.user_a_id = me.uid THEN c.user_b_id ELSE c.user_a_id END AS other_user_id,
                       lm.content AS last_message_content,
                       lm.sender_user_id AS last_message_sender_id
-               FROM conversations c
+               FROM me, conversations c
                INNER JOIN users u_a ON c.user_a_id = u_a.user_id
                INNER JOIN users u_b ON c.user_b_id = u_b.user_id
                LEFT JOIN LATERAL (
@@ -40,9 +45,9 @@ class PostgresConversationRepository(BaseRepository, IConversationRepository):
                    ORDER BY m.sent_at DESC, m.message_id DESC
                    LIMIT 1
                ) lm ON TRUE
-               WHERE c.user_a_id = %s OR c.user_b_id = %s
-               ORDER BY c.last_message_at DESC""",
-            (user_id, user_id, user_id, user_id),
+               WHERE c.user_a_id = me.uid OR c.user_b_id = me.uid
+               ORDER BY c.last_message_at DESC NULLS LAST""",
+            (user_id,),
         )
 
     def _find_conversation_between(self, user_a_id: int, user_b_id: int) -> dict | None:
@@ -55,8 +60,8 @@ class PostgresConversationRepository(BaseRepository, IConversationRepository):
     def _create_conversation(self, user_a_id: int, user_b_id: int) -> int:
         a, b = min(user_a_id, user_b_id), max(user_a_id, user_b_id)
         return self.execute_returning_id(
-            """INSERT INTO conversations (user_a_id, user_b_id, created_at, last_message_at)
-               VALUES (%s, %s, NOW(), NOW()) RETURNING conversation_id""",
+            """INSERT INTO conversations (user_a_id, user_b_id)
+               VALUES (%s, %s) RETURNING conversation_id""",
             (a, b),
         )
 
@@ -85,6 +90,10 @@ class PostgresConversationRepository(BaseRepository, IConversationRepository):
     def has_valid_match_between(self, user_a_id: int, user_b_id: int) -> bool:
         # ARCH-17: match-existence guard moved here from the service layer so
         # the application service no longer constructs BaseRepository directly.
+        #
+        # Only `rejected` matches are excluded. `ended` and `cancelled` matches
+        # intentionally still allow messaging so the two parties can coordinate
+        # after a match closes (e.g., final invoices, references).
         row = self.fetch_one(
             """SELECT 1
                  FROM matches m

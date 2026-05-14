@@ -40,10 +40,6 @@ def _insert_and_get_id(cursor, sql: str, params: tuple) -> int:
     return int(cursor.fetchone()[0])
 
 
-def _dt(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> datetime:
-    """Shorthand for constructing a datetime."""
-    return datetime(year, month, day, hour, minute)
-
 
 # ──────────────────────────────────────────────
 # Entry point
@@ -309,9 +305,9 @@ def run_seed(conn) -> dict:
 
         conv_id = _insert_and_get_id(
             cursor,
-            "INSERT INTO conversations (user_a_id, user_b_id, created_at, last_message_at) "
-            "VALUES (%s, %s, %s, %s) RETURNING conversation_id",
-            (spec["user_a"], spec["user_b"], base_time, base_time),
+            "INSERT INTO conversations (user_a_id, user_b_id, created_at) "
+            "VALUES (%s, %s, %s) RETURNING conversation_id",
+            (spec["user_a"], spec["user_b"], base_time),
         )
         conv_count += 1
 
@@ -397,7 +393,7 @@ def run_seed(conn) -> dict:
             "start_date": now - timedelta(days=90), "end_date": now - timedelta(days=14),
             "penalty_amount": 200, "trial_price": None, "trial_count": None,
             "contract_notes": "每週六下午上課",
-            "terminated_by": parent_user_ids[1], "termination_reason": "active|學生搬家，不方便繼續上課",
+            "terminated_by": None, "termination_reason": None,
         },
     ]
 

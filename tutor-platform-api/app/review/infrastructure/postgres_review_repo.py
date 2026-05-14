@@ -6,8 +6,7 @@ class PostgresReviewRepository(BaseRepository, IReviewRepository):
 
     def get_match_for_create(self, match_id: int) -> dict | None:
         return self.fetch_one(
-            """SELECT m.match_id, m.status, t.user_id AS tutor_user_id, st.parent_user_id,
-                      (SELECT COUNT(*) FROM sessions WHERE match_id = m.match_id) AS session_count
+            """SELECT m.match_id, m.status, t.user_id AS tutor_user_id, st.parent_user_id
                FROM matches m
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
                INNER JOIN students st ON m.student_id = st.student_id

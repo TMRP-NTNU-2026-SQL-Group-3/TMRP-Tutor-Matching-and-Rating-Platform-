@@ -87,6 +87,9 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
         )
 
     def count_by_tutor_user_id(self, user_id: int, status: str | None = None) -> int:
+        # When status=None this counts all matches (including historical ones).
+        # Callers must pass the same status value used in find_by_tutor_user_id
+        # so the pagination total is consistent with the rows returned.
         status_clause = " AND m.status = %s" if status else ""
         status_params = (status,) if status else ()
         row = self.fetch_one(

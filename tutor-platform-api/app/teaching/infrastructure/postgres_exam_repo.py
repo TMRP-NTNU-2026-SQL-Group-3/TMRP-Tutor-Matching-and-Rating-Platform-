@@ -54,8 +54,10 @@ class PostgresExamRepository(BaseRepository, IExamRepository):
         self.execute("DELETE FROM exams WHERE exam_id = %s", (exam_id,))
 
     def list_by_student_for_tutor(self, student_id: int, tutor_user_id: int) -> list[dict]:
+        # DISTINCT prevents duplicates when the tutor has multiple active/trial
+        # matches with this student on the same subject (e.g. after a retry).
         return self.fetch_all(
-            """SELECT e.*, s.subject_name FROM exams e
+            """SELECT DISTINCT e.*, s.subject_name FROM exams e
                INNER JOIN subjects s ON e.subject_id = s.subject_id
                INNER JOIN matches m ON e.student_id = m.student_id AND e.subject_id = m.subject_id
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id

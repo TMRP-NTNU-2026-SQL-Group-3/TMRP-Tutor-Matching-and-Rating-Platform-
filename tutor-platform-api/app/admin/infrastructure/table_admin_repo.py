@@ -136,7 +136,7 @@ class TableAdminRepository(BaseRepository):
         active = self.fetch_one(
             """
             SELECT 1 FROM matches
-            WHERE status NOT IN ('ended', 'cancelled', 'rejected')
+            WHERE status NOT IN ('ended', 'cancelled', 'rejected', 'paused', 'terminating')
               AND (
                 tutor_id IN (SELECT tutor_id FROM tutors WHERE user_id = %s)
                 OR student_id IN (SELECT student_id FROM students WHERE parent_user_id = %s)

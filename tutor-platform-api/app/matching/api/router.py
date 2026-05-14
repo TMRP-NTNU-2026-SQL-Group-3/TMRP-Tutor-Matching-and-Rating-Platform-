@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, Header, Query
 
-from app.identity.api.dependencies import get_current_user, get_db, is_admin, require_role
-from app.matching.api.dependencies import get_match_service
+from app.identity.api.dependencies import get_current_user, is_admin, require_role
+from app.matching.api.dependencies import get_idempotency_repo, get_match_service
 from app.matching.api.schemas import MatchCreate, MatchDetailResponse, MatchListItemResponse, MatchStatusUpdate
 from app.matching.application.match_app_service import MatchAppService
 from app.matching.domain.value_objects import MatchStatus
+from app.matching.infrastructure.postgres_idempotency_repo import PostgresIdempotencyRepository
 from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.shared.api.schemas import ApiResponse
@@ -24,23 +25,17 @@ def create_match(
     body: MatchCreate,
     user=Depends(require_role("parent")),
     service: MatchAppService = Depends(get_match_service),
+    idem_repo: PostgresIdempotencyRepository = Depends(get_idempotency_repo),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key", max_length=128),
-    conn=Depends(get_db),
 ):
     user_id = int(user["sub"])
 
     # SEC-12: DB-backed idempotency so retried requests bearing the same key
     # return the original match_id regardless of which worker handles the retry.
     if idempotency_key:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT match_id FROM idempotency_keys
-                   WHERE user_id = %s AND idem_key = %s AND expires_at > NOW()""",
-                (user_id, idempotency_key),
-            )
-            row = cur.fetchone()
-        if row:
-            return ApiResponse(success=True, data={"match_id": row[0]}, message="媒合邀請已送出")
+        existing = idem_repo.find_match_id(user_id, idempotency_key)
+        if existing is not None:
+            return ApiResponse(success=True, data={"match_id": existing}, message="媒合邀請已送出")
 
     bucket = f"match:create|tutor={body.tutor_id}|user={user_id}"
     if not check_and_record_bucket(bucket, _MATCH_CREATE_LIMIT, _MATCH_CREATE_WINDOW):
@@ -57,18 +52,7 @@ def create_match(
     )
 
     if idempotency_key:
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO idempotency_keys (idem_key, user_id, match_id, expires_at)
-                       VALUES (%s, %s, %s, NOW() + INTERVAL '24 hours')
-                       ON CONFLICT (user_id, idem_key) DO NOTHING""",
-                    (idempotency_key, user_id, match_id),
-                )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        idem_repo.record(idempotency_key, user_id, match_id)
 
     return ApiResponse(success=True, data={"match_id": match_id}, message="媒合邀請已送出")
 
