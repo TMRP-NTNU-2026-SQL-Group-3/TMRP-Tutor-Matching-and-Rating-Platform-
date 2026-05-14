@@ -188,9 +188,6 @@ The two most consequential systemic problems are:
 - **Fixed 2026-05-14**: Added `wget -qO /dev/null http://localhost:8080/ || exit 1` healthcheck to the `web` service (interval 10s, timeout 5s, 3 retries, 10s start period). `wget` is available in nginx:alpine without additional installation.
 
 
-2026-05-14 fixed (above)
-
-
 ~~**C-1 — `docker-compose.run.yml` has `DEBUG=true` + `COOKIE_SECURE=false` with no production guard**~~
 - ~~File: `docker-compose.run.yml:9–20`~~
 - ~~A developer who includes this file in a public-facing stack will expose `/docs`, `/redoc`, `/openapi.json` and strip the `Secure` flag from JWT cookies. There is no entrypoint-level guard against this misconfiguration.~~
@@ -498,14 +495,14 @@ The two most consequential systemic problems are:
 | SEC-17 | Medium | Config | `.env.example:24` | Admin password requirement documented incorrectly (12 chars vs enforced 16) |
 | SEC-18 | Medium | Config | `.env.docker.example:32–35` | HTTP CORS + `COOKIE_SECURE=true` combination is unusable |
 | SEC-21 | Medium | Security | `admin/api/router.py:414` | `import-all` skips Content-Type validation that single-CSV import performs |
-| A-1 | Medium | Infra | `docker-compose.yml:49` | `pg_isready -U ${DB_USER}` env var may not expand in CMD-SHELL |
-| A-2 | Medium | Infra | `docker-compose.yml:160–191` | `web` (Nginx) service has no healthcheck |
-| C-1 | Medium | Infra | `docker-compose.run.yml:9–20` | `DEBUG=true`+`COOKIE_SECURE=false` committed with no production guard |
-| D-1 | Medium | Infra | `Dockerfile:5` | API base image `python:3.12-slim` unpinned by digest |
+| ~~A-1~~ | ~~Medium~~ | ~~Infra~~ | ~~`docker-compose.yml:49`~~ | ~~`pg_isready -U ${DB_USER}` env var may not expand in CMD-SHELL~~ — **Fixed 2026-05-14** |
+| ~~A-2~~ | ~~Medium~~ | ~~Infra~~ | ~~`docker-compose.yml:160–191`~~ | ~~`web` (Nginx) service has no healthcheck~~ — **Fixed 2026-05-14** |
+| ~~C-1~~ | ~~Medium~~ | ~~Infra~~ | ~~`docker-compose.run.yml:9–20`~~ | ~~`DEBUG=true`+`COOKIE_SECURE=false` committed with no production guard~~ — **Fixed 2026-05-14** |
+| ~~D-1~~ | ~~Medium~~ | ~~Infra~~ | ~~`Dockerfile:5`~~ | ~~API base image `python:3.12-slim` unpinned by digest~~ — **Fixed 2026-05-14** |
 | ~~G-6~~ | ~~Medium~~ | ~~Spec~~ | ~~`project-spec.md §7.8`~~ | ~~Review endpoint paths differ between spec and implementation~~ — **Fixed 2026-05-14** |
-| G-8 | Medium | Spec | `project-spec.md §9.2` | Import/export/stats described as async Huey tasks; they run synchronously |
-| H-3 | Medium | Docs | `README.md:480–482` | Stats tasks incorrectly described as "Admin action" triggered |
-| H-4 | Medium | Docs | `README.md:67` | CSV import/export incorrectly described as running async in the worker |
+| ~~G-8~~ | ~~Medium~~ | ~~Spec~~ | ~~`project-spec.md §9.2`~~ | ~~Import/export/stats described as async Huey tasks; they run synchronously~~ — **Fixed 2026-05-14** |
+| ~~H-3~~ | ~~Medium~~ | ~~Docs~~ | ~~`README.md:480–482`~~ | ~~Stats tasks incorrectly described as "Admin action" triggered~~ — **Fixed 2026-05-14** |
+| ~~H-4~~ | ~~Medium~~ | ~~Docs~~ | ~~`README.md:67`~~ | ~~CSV import/export incorrectly described as running async in the worker~~ — **Fixed 2026-05-14** |
 | F-19 | Low | Identity | `schemas.py:88` | `current_password` has no `min_length` validator |
 | F-20 | Low | Admin | `admin/api/router.py:132` | `GET /api/admin/export/{table}` — spec requires POST |
 | F-21 | Low | Admin | `admin/api/router.py:399` | `GET /api/admin/export-all` — spec requires POST |

@@ -1663,7 +1663,7 @@ Students ─1:N─→ Exams                     （考試紀錄）
 
 ### 9.1 架構
 
-本系統採用 huey 作為非同步任務引擎，以 SQLite 作為訊息佇列之 broker。huey worker 作為獨立 process 運行，與 FastAPI server 共用相同之 Python 環境與 Access 資料庫連線。
+本系統採用 huey 作為非同步任務引擎，以 SQLite 作為訊息佇列之 broker。huey worker 作為獨立 process 運行，與 FastAPI server 共用相同之 Python 環境與 PostgreSQL 資料庫連線。
 
 ### 9.2 任務清單
 
@@ -1710,148 +1710,12 @@ from app.tasks import stats_tasks    # noqa: calculate_income_stats, calculate_e
 from app.tasks import seed_tasks     # noqa: generate_seed_data (not currently dispatched by admin routes)
 ```
 
-```python
-# app/tasks/import_export.py
-from app.worker import huey
-from app.database import get_connection
-import csv, io
+以下為 `app/tasks/` 中各模組的用途摘要（詳細實作請參閱原始碼）：
 
-@huey.task()
-def import_csv_task(table_name: str, csv_content: str, mode: str = "upsert"):
-    """
-    匯入 CSV 至 Access 資料表。
-    參數：
-        table_name: 目標資料表名稱
-        csv_content: CSV 格式之字串內容
-        mode: "upsert"（比對式更新）或 "overwrite"（清空後寫入）
-    回傳：
-        dict，包含 table、rows、mode 等資訊
-    """
-    conn = get_connection()
-    reader = csv.DictReader(io.StringIO(csv_content))
-
-    if mode == "overwrite":
-        conn.cursor().execute(f"DELETE FROM [{table_name}]")
-
-    row_count = 0
-    for row in reader:
-        if mode == "upsert":
-            _upsert_row(conn, table_name, row)
-        else:
-            _insert_row(conn, table_name, row)
-        row_count += 1
-
-    conn.commit()
-    conn.close()
-    return {"table": table_name, "rows": row_count, "mode": mode}
-
-@huey.task()
-def export_csv_task(table_name: str) -> str:
-    """匯出指定資料表之全部內容為 CSV 格式字串。"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(f"SELECT * FROM [{table_name}]")
-    columns = [desc[0] for desc in cursor.description]
-    rows = cursor.fetchall()
-    conn.close()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(columns)
-    for row in rows:
-        writer.writerow(row)
-    return output.getvalue()
-```
-
-```python
-# app/tasks/stats_tasks.py
-from app.worker import huey
-from app.database import get_connection
-
-@huey.task()
-def calculate_income_stats(tutor_user_id: int, group_by: str = "month"):
-    """
-    計算指定老師之收入統計。
-    參數：
-        tutor_user_id: 老師之 user_id
-        group_by: 分群維度，可為 "month"、"student"、"subject"
-    回傳：
-        list[dict]，各筆包含 period/label、total_income、total_hours 等欄位
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    sql_map = {
-        "month": """
-            SELECT FORMAT(s.session_date, 'yyyy-mm') AS period,
-                   SUM(s.hours * m.hourly_rate) AS total_income,
-                   SUM(s.hours) AS total_hours,
-                   COUNT(*) AS session_count
-            FROM Sessions s
-            INNER JOIN Matches m ON s.match_id = m.match_id
-            INNER JOIN Tutors t ON m.tutor_id = t.tutor_id
-            WHERE t.user_id = ?
-            GROUP BY FORMAT(s.session_date, 'yyyy-mm')
-            ORDER BY FORMAT(s.session_date, 'yyyy-mm') DESC
-        """,
-        "student": """
-            SELECT st.name AS label,
-                   SUM(s.hours * m.hourly_rate) AS total_income,
-                   SUM(s.hours) AS total_hours
-            FROM Sessions s
-            INNER JOIN Matches m ON s.match_id = m.match_id
-            INNER JOIN Students st ON m.student_id = st.student_id
-            INNER JOIN Tutors t ON m.tutor_id = t.tutor_id
-            WHERE t.user_id = ?
-            GROUP BY st.name
-        """,
-        "subject": """
-            SELECT sub.subject_name AS label,
-                   SUM(s.hours * m.hourly_rate) AS total_income,
-                   SUM(s.hours) AS total_hours
-            FROM Sessions s
-            INNER JOIN Matches m ON s.match_id = m.match_id
-            INNER JOIN Subjects sub ON m.subject_id = sub.subject_id
-            INNER JOIN Tutors t ON m.tutor_id = t.tutor_id
-            WHERE t.user_id = ?
-            GROUP BY sub.subject_name
-        """
-    }
-
-    cursor.execute(sql_map[group_by], (tutor_user_id,))
-    columns = [desc[0] for desc in cursor.description]
-    rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-    conn.close()
-    return rows
-```
-
-```python
-# app/tasks/scheduled.py
-from app.worker import huey
-from datetime import datetime, timedelta
-from app.database import get_connection
-
-@huey.periodic_task(huey.crontab(hour="3", minute="0"))
-def lock_expired_reviews():
-    """
-    定時任務：每日凌晨 03:00 執行。
-    標記超過 7 日之評價為不可修改。
-    實際鎖定邏輯於 API 端以時間差判斷，此任務可用於記錄日誌或執行額外清理。
-    """
-    conn = get_connection()
-    cutoff = datetime.now() - timedelta(days=7)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT COUNT(*) AS cnt FROM Reviews
-        WHERE created_at < ? AND updated_at IS NOT NULL
-    """, (cutoff,))
-    result = cursor.fetchone()
-    conn.close()
-
-    import logging
-    logger = logging.getLogger("app.tasks.scheduled")
-    logger.info(f"評價鎖定檢查完成，共 {result[0]} 筆評價已超過修改期限")
-```
+- **`import_export.py`**：`import_csv_task`、`export_csv_task` — Huey 任務定義，目前管理員 API 路由係同步執行；任務定義已備妥供未來切換為非同步模式。
+- **`stats_tasks.py`**：`calculate_income_stats`、`calculate_expense_stats` — 實際由分析路由（`GET /api/stats/income`、`GET /api/stats/expense`）非同步派送至 Huey worker；回傳 `task_id`，前端透過 `GET /api/stats/tasks/{task_id}` polling 結果。
+- **`seed_tasks.py`**：`generate_seed_data` — Huey 任務定義，目前管理員 `/seed` 路由係同步執行。
+- **`scheduled.py`**：`lock_expired_reviews`（每日 03:00）、`cleanup_refresh_token_blacklist`（每日 03:30）、`cleanup_rate_limit_hits`（每日 03:45）— 純定時排程，不由 API 路由觸發。
 
 ---
 
