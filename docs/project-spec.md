@@ -1667,18 +1667,20 @@ Students ─1:N─→ Exams                     （考試紀錄）
 
 ### 9.2 任務清單
 
+以下任務中，`calculate_income_stats`、`calculate_expense_stats` 與排程任務為真正非同步（由 Huey worker 執行）；`import_csv_task`、`export_csv_task`、`generate_seed_data` 的 Huey 任務定義存在於 codebase，但目前對應的管理員 API 路由係同步執行於 FastAPI 請求處理器中，並非派送至 worker。
+
 | 任務 | 觸發方式 | 說明 |
 |------|---------|------|
-| `import_csv_task` | API 呼叫 | 匯入 CSV 至指定資料表（支援 upsert 與 overwrite 模式） |
-| `export_csv_task` | API 呼叫 | 匯出指定資料表為 CSV 字串 |
-| `generate_seed_data` | API 呼叫 | 生成假資料 CSV 並自動匯入 |
-| `calculate_income_stats` | API 呼叫 | 計算老師收入統計 |
-| `calculate_expense_stats` | API 呼叫 | 計算家長支出統計 |
+| `import_csv_task` | 任務定義已實作；管理員路由目前同步執行 | 匯入 CSV 至指定資料表（Huey 任務存在但未由路由派送） |
+| `export_csv_task` | 任務定義已實作；管理員路由目前同步執行 | 匯出指定資料表為 CSV 檔案（Huey 任務存在但未由路由派送） |
+| `generate_seed_data` | 任務定義已實作；管理員路由目前同步執行 | 生成假資料並匯入（Huey 任務存在但未由路由派送） |
+| `calculate_income_stats` | API 呼叫（老師，`GET /api/stats/income`），非同步 | 計算老師收入統計，回傳 task_id |
+| `calculate_expense_stats` | API 呼叫（家長，`GET /api/stats/expense`），非同步 | 計算家長支出統計，回傳 task_id |
 | `lock_expired_reviews` | 定時排程（每日 03:00） | 標記超過 7 日之評價為不可修改 |
 
 ### 9.3 任務狀態查詢
 
-前端透過 `GET /api/admin/tasks/{task_id}` 以 polling 方式查詢任務執行狀態。回應格式：
+非同步任務派送後回傳 `task_id`，前端透過 `GET /api/stats/tasks/{task_id}`（收入／支出統計）以 polling 方式查詢執行狀態；管理員任務狀態查詢使用 `GET /api/admin/tasks/{task_id}`。回應格式：
 
 ```json
 {
@@ -1697,10 +1699,15 @@ Students ─1:N─→ Exams                     （考試紀錄）
 ```python
 # app/worker.py
 from huey import SqliteHuey
+from app.shared.infrastructure.config import settings
+from app.shared.infrastructure.huey_json_serializer import JSONSerializer
 
-huey = SqliteHuey(filename="data/huey.db")
+huey = SqliteHuey(filename=settings.huey_db_path, serializer=JSONSerializer())
 
-from app.tasks import import_export, stats_tasks, seed_tasks, scheduled
+from app.tasks import scheduled   # noqa: periodic tasks (lock_expired_reviews, etc.)
+from app.tasks import import_export  # noqa: Huey task definitions (not currently dispatched by admin routes)
+from app.tasks import stats_tasks    # noqa: calculate_income_stats, calculate_expense_stats
+from app.tasks import seed_tasks     # noqa: generate_seed_data (not currently dispatched by admin routes)
 ```
 
 ```python

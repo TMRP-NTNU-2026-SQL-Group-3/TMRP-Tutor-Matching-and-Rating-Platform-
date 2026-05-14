@@ -1,8 +1,6 @@
-# MEDIUM-10: production builds must pin this image by @sha256 digest — run
-# `./scripts/pin-base-images.sh` from repo root to rewrite the tag into
-# `python:3.12-slim@sha256:<digest>`. Renovate (.github/renovate.json) keeps
-# the digest current via automated PRs.
-FROM python:3.12-slim
+# MEDIUM-10: pinned by @sha256 digest for reproducible builds. Refresh with
+# `./scripts/pin-base-images.sh` or Renovate (.github/renovate.json).
+FROM python:3.12-slim@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461
 
 WORKDIR /app
 

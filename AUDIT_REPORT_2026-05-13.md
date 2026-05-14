@@ -173,37 +173,56 @@ The two most consequential systemic problems are:
 - File: `tutor-platform-api/app/admin/api/router.py:414`
 - Single-CSV import validates Content-Type; the ZIP upload does not, creating an inconsistent defense-in-depth posture.
 
-**A-1 — `pg_isready -U ${DB_USER}` may not expand in CMD-SHELL**
-- File: `docker-compose.yml:49`
-- `DB_USER` may not be exported as a shell variable inside the healthcheck exec context, causing `pg_isready` to use the default user and potentially return false-positive healthy results.
 
-**A-2 — `web` (Nginx) service has no healthcheck**
-- File: `docker-compose.yml:160–191`
-- `db`, `api`, and `worker` all have healthchecks; the `web` service does not. Silent Nginx failures will not be detected by Docker's health monitoring.
+2026-05-13 fixed (above)
 
-**C-1 — `docker-compose.run.yml` has `DEBUG=true` + `COOKIE_SECURE=false` with no production guard**
-- File: `docker-compose.run.yml:9–20`
-- A developer who includes this file in a public-facing stack will expose `/docs`, `/redoc`, `/openapi.json` and strip the `Secure` flag from JWT cookies. There is no entrypoint-level guard against this misconfiguration.
 
-**D-1 — API Dockerfile base image unpinned by digest**
-- File: `tutor-platform-api/Dockerfile:5`
-- `FROM python:3.12-slim` lacks a `@sha256:` pin. The web image is already pinned; the API image is not, making builds non-reproducible.
+~~**A-1 — `pg_isready -U ${DB_USER}` may not expand in CMD-SHELL**~~
+- ~~File: `docker-compose.yml:49`~~
+- ~~`DB_USER` may not be exported as a shell variable inside the healthcheck exec context, causing `pg_isready` to use the default user and potentially return false-positive healthy results.~~
+- **Fixed 2026-05-14**: Changed to `pg_isready -U $$POSTGRES_USER`. `$$` escapes Docker Compose interpolation; the shell inside the container resolves `$POSTGRES_USER` from the container's own environment (where the `db` service explicitly sets it). This guarantees the correct user is probed regardless of the host environment.
 
-**G-6 — Review endpoint paths in spec do not match implementation**
-- File: `docs/project-spec.md §7.8` vs. `tutor-platform-api/app/review/api/router.py`
-- Spec defines `GET /api/tutors/{tutor_id}/reviews` (implemented in tutor_router.py, not review router) and `POST /api/matches/{match_id}/reviews`. Frontend following the spec will hit 404s on review creation.
+~~**A-2 — `web` (Nginx) service has no healthcheck**~~
+- ~~File: `docker-compose.yml:160–191`~~
+- ~~`db`, `api`, and `worker` all have healthchecks; the `web` service does not. Silent Nginx failures will not be detected by Docker's health monitoring.~~
+- **Fixed 2026-05-14**: Added `wget -qO /dev/null http://localhost:8080/ || exit 1` healthcheck to the `web` service (interval 10s, timeout 5s, 3 retries, 10s start period). `wget` is available in nginx:alpine without additional installation.
 
-**G-8 — Import/export/stats described as async Huey tasks; they run synchronously**
-- Files: `docs/project-spec.md §9.2`, `README.md:67,481`
-- The spec and README both assert these operations are dispatched to the Huey worker. They are not. The Huey task implementations exist but are never called from any route handler.
 
-**H-3 — README background-tasks table incorrectly attributes stats tasks to "Admin action" trigger**
-- File: `README.md:480–482`
-- Stats tasks are listed as triggered by "Admin action" in the README. They are actually called synchronously from analytics route handlers, and the Huey task implementations are dead code.
+2026-05-14 fixed (above)
 
-**H-4 — README claims CSV import/export runs asynchronously in the worker**
-- File: `README.md:67`
-- These operations run synchronously in FastAPI request handlers.
+
+~~**C-1 — `docker-compose.run.yml` has `DEBUG=true` + `COOKIE_SECURE=false` with no production guard**~~
+- ~~File: `docker-compose.run.yml:9–20`~~
+- ~~A developer who includes this file in a public-facing stack will expose `/docs`, `/redoc`, `/openapi.json` and strip the `Secure` flag from JWT cookies. There is no entrypoint-level guard against this misconfiguration.~~
+- **Fixed 2026-05-14**: `docker-entrypoint.sh` now refuses to start when `DEBUG=true` unless `ALLOW_DEBUG=true` is also set, printing a descriptive fatal message listing the security implications. `docker-compose.run.yml` sets `ALLOW_DEBUG: "true"` on both the `api` and `worker` services so the dev override continues to work, while any production stack that omits the file will fail fast rather than boot in insecure mode.
+
+~~**D-1 — API Dockerfile base image unpinned by digest**~~
+- ~~File: `tutor-platform-api/Dockerfile:5`~~
+- ~~`FROM python:3.12-slim` lacks a `@sha256:` pin. The web image is already pinned; the API image is not, making builds non-reproducible.~~
+- **Fixed 2026-05-14**: Pinned to `python:3.12-slim@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461` (multi-arch index digest, python 3.12.13-slim-trixie, 2026-05-08). Refresh with `./scripts/pin-base-images.sh` when the image is bumped.
+
+~~**G-6 — Review endpoint paths in spec do not match implementation**~~
+- ~~File: `docs/project-spec.md §7.8` vs. `tutor-platform-api/app/review/api/router.py`~~
+- ~~Spec defines `GET /api/tutors/{tutor_id}/reviews` (implemented in tutor_router.py, not review router) and `POST /api/matches/{match_id}/reviews`. Frontend following the spec will hit 404s on review creation.~~
+- **Fixed 2026-05-14**: `match_reviews_router` (prefix `/api/matches`, routes `POST /{match_id}/reviews` and `GET /{match_id}/reviews`) was added to `review/api/router.py` and registered in `main.py`. `GET /api/tutors/{tutor_id}/reviews` is served by `tutor_router.py` and also registered. All four spec §7.8 paths (`GET /api/tutors/{tutor_id}/reviews`, `GET /api/matches/{match_id}/reviews`, `POST /api/matches/{match_id}/reviews`, `PATCH /api/reviews/{id}`) are live and match the spec.
+
+~~**G-8 — Import/export/stats described as async Huey tasks; they run synchronously**~~
+- ~~Files: `docs/project-spec.md §9.2`, `README.md:67,481`~~
+- ~~The spec and README both assert these operations are dispatched to the Huey worker. They are not. The Huey task implementations exist but are never called from any route handler.~~
+- **Fixed 2026-05-14**: `docs/project-spec.md §9.2` task table updated to distinguish between truly-async tasks (`calculate_income_stats`, `calculate_expense_stats` — dispatched to Huey by the analytics router and returning a `task_id`) and synchronous operations (`import_csv_task`, `export_csv_task`, `generate_seed_data` — Huey task definitions exist in `app/tasks/` but current admin routes call the service layer synchronously). `§9.3` polling endpoint corrected to `GET /api/stats/tasks/{task_id}`. `§9.4` worker.py code example updated to reflect actual imports and configuration. Note: stats tasks are correctly async; the audit's claim that "Huey task implementations are dead code" was accurate only for import/export/seed, not for stats.
+
+~~**H-3 — README background-tasks table incorrectly attributes stats tasks to "Admin action" trigger**~~
+- ~~File: `README.md:480–482`~~
+- ~~Stats tasks are listed as triggered by "Admin action" in the README. They are actually called synchronously from analytics route handlers, and the Huey task implementations are dead code.~~
+- **Fixed 2026-05-14**: README background-tasks table updated: `calculate_income_stats` trigger changed to "Tutor action (`GET /api/stats/income`)", `calculate_expense_stats` trigger changed to "Parent action (`GET /api/stats/expense`)". `import_csv_task`, `export_csv_task`, and `generate_seed_data` rows updated to note Huey task definitions exist but admin routes run synchronously. Trailing note updated from "Admin-triggered tasks" to "Stats tasks".
+
+~~**H-4 — README claims CSV import/export runs asynchronously in the worker**~~
+- ~~File: `README.md:67`~~
+- ~~These operations run synchronously in FastAPI request handlers.~~
+- **Fixed 2026-05-14**: `README.md` line 67 updated from "(runs asynchronously in the worker)" to "(runs synchronously in the request handler)".
+
+
+2026-05-14 fixed (above)
 
 ---
 
@@ -483,7 +502,7 @@ The two most consequential systemic problems are:
 | A-2 | Medium | Infra | `docker-compose.yml:160–191` | `web` (Nginx) service has no healthcheck |
 | C-1 | Medium | Infra | `docker-compose.run.yml:9–20` | `DEBUG=true`+`COOKIE_SECURE=false` committed with no production guard |
 | D-1 | Medium | Infra | `Dockerfile:5` | API base image `python:3.12-slim` unpinned by digest |
-| G-6 | Medium | Spec | `project-spec.md §7.8` | Review endpoint paths differ between spec and implementation |
+| ~~G-6~~ | ~~Medium~~ | ~~Spec~~ | ~~`project-spec.md §7.8`~~ | ~~Review endpoint paths differ between spec and implementation~~ — **Fixed 2026-05-14** |
 | G-8 | Medium | Spec | `project-spec.md §9.2` | Import/export/stats described as async Huey tasks; they run synchronously |
 | H-3 | Medium | Docs | `README.md:480–482` | Stats tasks incorrectly described as "Admin action" triggered |
 | H-4 | Medium | Docs | `README.md:67` | CSV import/export incorrectly described as running async in the worker |

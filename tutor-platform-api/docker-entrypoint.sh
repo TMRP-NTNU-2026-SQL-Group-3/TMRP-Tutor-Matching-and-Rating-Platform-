@@ -1,5 +1,23 @@
 #!/bin/sh
 set -e
+
+# C-1: refuse to start in DEBUG mode unless ALLOW_DEBUG=true is set explicitly.
+# DEBUG=true exposes /docs, /redoc, /openapi.json and disables the Secure flag
+# on auth cookies. Requiring ALLOW_DEBUG=true as a paired consent flag ensures
+# a developer cannot accidentally include docker-compose.run.yml in a
+# public-facing stack without acknowledging the risks. The run file sets both
+# DEBUG=true and ALLOW_DEBUG=true together.
+if [ "${DEBUG:-false}" = "true" ]; then
+  if [ "${ALLOW_DEBUG:-false}" != "true" ]; then
+    echo "FATAL: DEBUG=true requires ALLOW_DEBUG=true to be set explicitly." >&2
+    echo "  This mode exposes /docs, /redoc, /openapi.json and disables the" >&2
+    echo "  Secure flag on auth cookies. Development environments only." >&2
+    echo "  Set ALLOW_DEBUG=true to confirm you accept these risks." >&2
+    exit 1
+  fi
+  echo "WARNING: DEBUG mode active — schema endpoints exposed; COOKIE_SECURE may be false. Development use only." >&2
+fi
+
 # SEC-H04 / CRITICAL-1: load secrets from Docker secret files rather than env
 # vars committed in .env.docker. Each block is independent: if a secret file is
 # absent (e.g. local dev without compose), fall back to whatever is already in

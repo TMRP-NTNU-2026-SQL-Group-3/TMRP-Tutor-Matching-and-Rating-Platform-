@@ -63,7 +63,7 @@ The backend enforces all business rules — the status machine, rating visibilit
 
 ### For Admins
 - View all registered users
-- Export and import table data as CSV (runs asynchronously in the worker)
+- Export and import table data as CSV (runs synchronously in the request handler)
 - Generate realistic fake seed data for testing
 - Inspect background task status
 
@@ -475,14 +475,14 @@ The huey worker runs in a separate container backed by a SQLite queue at `data/h
 
 | Task | Trigger | Description |
 |------|---------|-------------|
-| `import_csv_task` | Admin action | Bulk import CSV data (upsert or overwrite) |
-| `export_csv_task` | Admin action | Export a table to CSV |
-| `generate_seed_data` | Admin action | Populate the database with realistic fake data |
-| `calculate_income_stats` | Admin / scheduled | Aggregate tutor earnings by month, student, and subject |
-| `calculate_expense_stats` | Admin / scheduled | Aggregate parent spending by month and subject |
+| `import_csv_task` | (worker infrastructure; admin routes run synchronously) | Bulk import CSV data — Huey task definition exists but not dispatched by current admin routes |
+| `export_csv_task` | (worker infrastructure; admin routes run synchronously) | Export a table to CSV — Huey task definition exists but not dispatched by current admin routes |
+| `generate_seed_data` | (worker infrastructure; admin `/seed` runs synchronously) | Populate the database with realistic fake data — Huey task definition exists but not dispatched by current admin route |
+| `calculate_income_stats` | Tutor action (`GET /api/stats/income`) | Aggregate tutor earnings by month, student, and subject |
+| `calculate_expense_stats` | Parent action (`GET /api/stats/expense`) | Aggregate parent spending by month and subject |
 | `lock_expired_reviews` | Scheduled (03:00 daily) | Mark reviews older than 7 days as immutable |
 
-Admin-triggered tasks return a `task_id` immediately. The frontend polls `GET /api/admin/tasks/{task_id}` for status and completion.
+Stats tasks return a `task_id` immediately. The frontend polls `GET /api/stats/tasks/{task_id}` for status and completion.
 
 ---
 
