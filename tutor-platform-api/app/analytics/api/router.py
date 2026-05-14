@@ -96,13 +96,12 @@ def get_student_progress(
     user=Depends(get_current_user),
     service: StatsAppService = Depends(get_stats_service),
 ):
-    # SEC-7: explicit route-level ownership gate — only parents (who must own
-    # the student) and admins may query this endpoint. The service enforces the
-    # parent-owns-student check; this guard makes the constraint visible at the
-    # route boundary and blocks other roles before any service call is made.
+    # Ownership is enforced in the service: the parent must own the student,
+    # a tutor must have an active match with the student, or the caller must be
+    # admin. No additional route-level role gate is needed — blocking tutors
+    # here contradicts the spec (§7.9: 配對參與者) and prevents tutors from
+    # viewing progress for their own students.
     caller_is_admin = is_admin(user)
-    if not caller_is_admin and user.get("role") != "parent":
-        raise DomainException("僅家長或管理員可查詢學生成績趨勢", status_code=403)
     data = service.student_progress(
         student_id=student_id,
         user_id=int(user["sub"]),
