@@ -146,7 +146,9 @@ Loaded by pydantic-settings from `.env` (local) or `.env.docker` (container).
 ```
 tutor-platform-api/
 ├── Dockerfile
-├── requirements.txt
+├── docker-entrypoint.sh        # Container entry: chmods data/logs volumes, execs uvicorn
+├── requirements.txt            # Direct dependencies (loose pins)
+├── requirements.lock           # Pip-compile freeze used by the Docker image for reproducible builds
 ├── start.bat                   # Local one-click launcher (Windows)
 ├── .env.example                # Local template
 ├── .env.docker.example         # Container template
@@ -191,7 +193,7 @@ tutor-platform-api/
 │   │   └── csrf.py             # Double-submit cookie: validates X-CSRF-Token header == csrf_token cookie
 │   │
 │   ├── tasks/                  # huey tasks: import_export, scheduled, seed_tasks, stats_tasks
-│   └── utils/                  # csv_handler, logger, security helpers
+│   └── utils/                  # csv_handler (shared CSV streaming + validation helpers)
 │
 ├── seed/
 │   ├── generator.py            # Fake data builder (users, tutors, matches, sessions, ...)
@@ -202,10 +204,12 @@ tutor-platform-api/
 │   └── ...                     # Persistent volume in Docker
 │
 ├── logs/                       # Rotating log files
-└── tests/                      # pytest integration tests: test_auth, test_matches,
-                                # test_match_state_machine, test_sessions, test_reviews,
-                                # test_admin_operations, test_middleware, test_password_policy,
-                                # test_refresh_and_logout, test_sql_injection (+ conftest.py)
+└── tests/                      # pytest integration tests: test_auth, test_refresh_and_logout,
+                                # test_password_policy, test_tutors, test_students, test_subjects,
+                                # test_matches, test_match_state_machine, test_sessions, test_exams,
+                                # test_reviews, test_messaging, test_analytics, test_admin_operations,
+                                # test_admin_import_export, test_admin_reset, test_middleware,
+                                # test_sql_injection (+ conftest.py)
 ```
 
 > **DDD layout.** All HTTP routing, data access, and domain rules now live under `app/<context>/` Bounded Contexts plus the `app/shared/` kernel. Legacy flat layouts (`app/routers/`, `app/repositories/`, `app/models/`, top-level `config.py` / `database.py` / `exceptions.py`) have been removed. External API paths are unchanged.
@@ -326,9 +330,11 @@ If any step fails, the lifespan hook re-raises and the server refuses to serve r
 
 Business (14): `users`, `tutors`, `students`, `subjects`, `tutor_subjects`, `tutor_availability`, `conversations`, `messages`, `matches`, `sessions`, `session_edit_logs`, `exams`, `reviews`, `password_history`.
 
-Support (3): `refresh_token_blacklist`, `rate_limit_hits`, `audit_log`. The first two back auth and rate-limit state so it is consistent across multiple API workers. `audit_log` records privileged-action history (actor, action, resource type/ID, old/new values); `actor_user_id` uses `ON DELETE SET NULL` and `resource_id` carries no FK so the trail survives both account removal and row deletion.
+Support (5): `refresh_token_blacklist`, `user_token_revocations`, `rate_limit_hits`, `idempotency_keys`, `audit_log`. `refresh_token_blacklist` and `user_token_revocations` back JWT invalidation (per-token JTI and per-user "log out everywhere" cutoffs); `rate_limit_hits` is the cross-worker sliding window; `idempotency_keys` deduplicates retried mutating requests by `Idempotency-Key` header. `audit_log` records privileged-action history (actor, action, resource type/ID, old/new values); `actor_user_id` uses `ON DELETE SET NULL` and `resource_id` carries no FK so the trail survives both account removal and row deletion.
 
-Unique indexes enforce: one username per user, one subject per name, one tutor row per user, one conversation per user pair, and one review per `(match_id, reviewer_user_id, review_type)`.
+Materialized views (2): `v_tutor_ratings` (average ratings + review counts per tutor) and `v_tutor_active_students` (distinct active student count per tutor). Both are kept fresh by `AFTER INSERT/UPDATE/DELETE` triggers on `reviews` and `matches` respectively, plus supporting trigger functions for parent-user denormalisation (`fn_match_set_parent_user`, `fn_students_propagate_parent`) and conversation pair ordering (`fn_conversations_order_pair`).
+
+Unique indexes enforce: one username per user, one email per user (partial, where non-null), one subject per name, one tutor row per user, one conversation per user pair, one availability slot per `(tutor_id, day_of_week, start_time)`, one active match per `(tutor_id, student_id)`, and one review per `(match_id, reviewer_user_id, review_type)`.
 
 ---
 
@@ -364,7 +370,7 @@ pytest
 
 The `tests/` folder contains integration tests that hit a real PostgreSQL database. Configure the test database via the same `DATABASE_URL` variable (use a separate database — tests are destructive).
 
-Existing coverage spans authentication (`test_auth.py`, `test_refresh_and_logout.py`, `test_password_policy.py`), matching (`test_matches.py`, `test_match_state_machine.py`), teaching (`test_sessions.py`), reviews (`test_reviews.py`), admin operations (`test_admin_operations.py`), middleware behaviour (`test_middleware.py`), and SQL-injection regression suites (`test_sql_injection.py`). New domain logic added under `app/<context>/domain/` should get pure unit tests that don't need FastAPI or the database; keep integration tests for API-level behaviour and DB constraints.
+Existing coverage spans authentication (`test_auth.py`, `test_refresh_and_logout.py`, `test_password_policy.py`), the catalog (`test_tutors.py`, `test_students.py`, `test_subjects.py`), matching (`test_matches.py`, `test_match_state_machine.py`), teaching (`test_sessions.py`, `test_exams.py`), reviews (`test_reviews.py`), messaging (`test_messaging.py`), analytics (`test_analytics.py`), admin operations (`test_admin_operations.py`, `test_admin_import_export.py`, `test_admin_reset.py`), middleware behaviour (`test_middleware.py`), and SQL-injection regression suites (`test_sql_injection.py`). New domain logic added under `app/<context>/domain/` should get pure unit tests that don't need FastAPI or the database; keep integration tests for API-level behaviour and DB constraints.
 
 ---
 

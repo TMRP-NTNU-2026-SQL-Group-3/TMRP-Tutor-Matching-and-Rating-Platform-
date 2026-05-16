@@ -267,6 +267,9 @@ graph TB
 | `/api/messages` | `messaging/api/router.py` | messaging |
 | `/api/stats` | `analytics/api/router.py` | analytics |
 | `/api/admin` | `admin/api/router.py` | admin |
+| `/api/matches/{match_id}/sessions` | `teaching/api/session_router.py` (nested) | teaching |
+| `/api/students/{student_id}/exams` | `teaching/api/exam_router.py` (nested) | teaching |
+| `/api/matches/{match_id}/reviews` | `review/api/router.py` (nested) | review |
 
 **Per-context layering** is enforced by directory convention:
 - `api/` — FastAPI routers, Pydantic schemas, dependency providers. The only layer that knows about HTTP.
@@ -802,6 +805,10 @@ erDiagram
 - `refresh_token_blacklist` stores only `(jti, expires_at, created_at)` — there is **no** `user_id` column; per-user mass revocation is handled by `user_token_revocations` instead.
 - Schema bootstrap (`init_db.run_bootstrap`) is idempotent and serialised across uvicorn workers via a Postgres advisory lock.
 
+**Materialised views** (created alongside the base tables in `init_db.py`; refreshed `CONCURRENTLY` by statement-level triggers, so they are read-only derivations of the 19 tables above):
+- `v_tutor_ratings` — per-tutor aggregation of `parent_to_tutor` reviews (averages of `rating_1..rating_4`, `review_count`, blended `avg_rating`). Refreshed after any write to `reviews`. Unique index on `tutor_id` so `REFRESH … CONCURRENTLY` is allowed.
+- `v_tutor_active_students` — `COUNT(*)` of `matches` per tutor where `status IN ('active','trial')`. Refreshed after `INSERT`/`UPDATE OF status`/`DELETE` on `matches`. Used by the tutor search/detail hot paths to avoid re-scanning `matches` per request.
+
 ---
 
 ## 11. Background Tasks and Scheduling
@@ -844,7 +851,9 @@ graph TB
 | `generate_seed_data` | `tasks/seed_tasks.py` | Admin action | Populate the database with realistic Faker-style data for demos. |
 | `calculate_income_stats` | `tasks/stats_tasks.py` | Admin / on-demand | Aggregate tutor earnings by month × student × subject. |
 | `calculate_expense_stats` | `tasks/stats_tasks.py` | Admin / on-demand | Aggregate parent spending by month × subject. |
-| `lock_expired_reviews` | `tasks/scheduled.py` | Daily 03:00 | Mark reviews older than 7 days as immutable (`locked=true`). |
+| `lock_expired_reviews` | `tasks/scheduled.py` | Daily 03:00 | Mark reviews older than `review_lock_days` (default 7) as immutable (`is_locked=true`). |
+| `cleanup_refresh_token_blacklist` | `tasks/scheduled.py` | Daily 03:30 | GC `refresh_token_blacklist` rows past their `expires_at` so the table does not grow unbounded. |
+| `cleanup_rate_limit_hits` | `tasks/scheduled.py` | Daily 03:45 | Guaranteed sweep of expired `rate_limit_hits` rows (the request path also cleans opportunistically, but quiet periods can leave the table stale). |
 
 The Huey instance lives in `app/worker.py`; the API enqueues by importing the same `huey` object. JSON serialisation uses `huey_json_serializer.py` so payloads survive worker restarts and process boundaries safely.
 
@@ -964,6 +973,8 @@ tasks/
   seed_tasks.py                generate_seed_data
   stats_tasks.py               calculate_income_stats, calculate_expense_stats
   scheduled.py                 lock_expired_reviews (cron 03:00)
+                               cleanup_refresh_token_blacklist (cron 03:30)
+                               cleanup_rate_limit_hits (cron 03:45)
 ```
 
 ### Frontend (`tutor-platform-web/src/`)
