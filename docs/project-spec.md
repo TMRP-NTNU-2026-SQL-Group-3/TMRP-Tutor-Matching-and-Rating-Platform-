@@ -1,331 +1,266 @@
-# 家教媒合與評價平台 系統規格書
+# Tutor Matching and Rating Platform — System Specification
 
-**文件編號**：TMP-SPEC-2026-001
-**版本**：v5.2
-**建立日期**：2026 年 3 月 28 日
-**最後更新**：2026 年 5 月 14 日
-
----
-
-## 閱讀指引
-
-本文件依讀者背景分為兩個段落：
-
-| 段落 | 適用對象 | 內容風格 |
-|------|---------|---------|
-| **第 1~5 節** | 全體組員 | 系統的功能與運作方式 |
-| **第 6~13 節** | 技術開發者 | 資料庫欄位、API 規格、程式碼範例等技術細節，供開發時查閱 |
-
-> 對於不想讀技術細節的同學，**閱讀第 1~5 節即可掌握系統全貌**。第 6 節以後可視需要再行查閱。
+**Document ID:** TMP-SPEC-2026-001
+**Version:** v6.0
+**Created:** 2026-03-28
+**Last Updated:** 2026-05-16
 
 ---
 
-## 目次
+## Table of Contents
 
-1. [專案總覽](#1-專案總覽)
-2. [系統架構](#2-系統架構)
-3. [技術架構詳細設計](#3-技術架構詳細設計)
-4. [角色與權限模型](#4-角色與權限模型)
-5. [功能模組規格](#5-功能模組規格)
-6. [資料庫設計](#6-資料庫設計)
-7. [API 端點規格](#7-api-端點規格)
-8. [前端頁面與路由規格](#8-前端頁面與路由規格)
-9. [非同步任務引擎規格](#9-非同步任務引擎規格)
-10. [分工規劃](#10-分工規劃)
-11. [開發排程](#11-開發排程)
-12. [展示流程](#12-展示流程)
-13. [附錄](#13-附錄)
-
----
-
-## 1. 專案總覽
-
-### 1.1 專案簡介
-
-本專案是一個**家教媒合網站**，定位類似「家教版的 104 人力銀行」。
-
-以一個典型的使用情境為例：某位家長希望為孩子尋找數學家教，於系統中輸入「數學、時薪 500~800 元」等條件後，系統列出符合條件的老師。家長參考老師的自我介紹與歷史評價後，透過站內訊息進一步溝通，隨後發出媒合邀請。老師收到邀請後可選擇接受或拒絕，接受後即進入正式教學階段。教學結束後，雙方可互相評價。
-
-系統的三大核心功能如下：
-
-| 核心功能 | 說明 |
-|---------|------|
-| **媒合** | 家長搜尋老師 → 訊息溝通 → 發送邀請 → 老師接受 → 開始上課 |
-| **教學管理** | 老師記錄上課日誌與考試成績，家長可依權限查閱孩子的學習狀況 |
-| **三向評價** | 合作結束後，家長可評老師，老師可評學生及家長 |
-
-### 1.2 課程背景
-
-本專案為 **SQL（MS Access）通識課**之期末分組專題。課程要求如下：
-
-- 須使用 **MS Access** 作為資料庫（即所有資料的儲存位置）
-- 學期末須**上台報告**並**現場操作展示**系統功能
-
-### 1.3 設計目標
-
-| 目標 | 說明 |
-|------|------|
-| 滿足課程要求 | 使用 MS Access 作為資料庫，資料表與關聯圖可於 Access 中直接展示 |
-| 嘗試業界實踐 | 採用三層式架構、RESTful API、JWT 認證等常見做法，希望藉此提升專題的技術深度 |
-| 本機運行即可 | 全部服務運行於本機環境，展示時於本機操作，不做線上部署 |
-
-### 1.4 專案時程
-
-預計開發期間為 **5 週以上**。最終交付形式為上台報告，搭配系統現場操作展示。
+1. [Project Overview](#1-project-overview)
+2. [System Architecture](#2-system-architecture)
+3. [Technical Design](#3-technical-design)
+4. [Roles and Permission Model](#4-roles-and-permission-model)
+5. [Functional Modules](#5-functional-modules)
+6. [Database Design](#6-database-design)
+7. [API Specification](#7-api-specification)
+8. [Frontend Routes and Components](#8-frontend-routes-and-components)
+9. [Asynchronous Task Engine](#9-asynchronous-task-engine)
+10. [Team Responsibilities](#10-team-responsibilities)
+11. [Development Schedule](#11-development-schedule)
+12. [Demonstration Flow](#12-demonstration-flow)
+13. [Appendix](#13-appendix)
 
 ---
 
-## 2. 系統架構
+## 1. Project Overview
 
-### 2.1 架構概覽
+### 1.1 Summary
 
-本系統由三個程式組成，同時運行於同一台 Windows 電腦上。以餐廳作為類比：前端相當於「點餐櫃台」（使用者看到的畫面），後端相當於「廚房」（處理所有業務邏輯），Access 資料庫相當於「倉庫」（儲存所有資料），另有一個背景任務處理器（相當於負責雜務的人員）負責執行較耗時的工作。
+TMRP is a tutor-matching web platform — conceptually a domain-scoped version of "104 人力銀行" focused on private tutoring. A typical flow: a parent searches for tutors by subject and hourly rate, reviews a tutor's profile and historical ratings, exchanges messages, then sends a match invitation. The tutor accepts, rejects, or counters with a trial period. Once teaching begins, the tutor records lesson logs and exam scores; the parent watches progress under the visibility rules the tutor controls. When the engagement ends, both sides exchange structured ratings.
+
+The three core capabilities are:
+
+| Capability | Description |
+|---|---|
+| **Matching** | Parent searches tutors → in-app messaging → invitation → tutor accepts → engagement begins |
+| **Teaching management** | Tutor logs sessions and exam scores; parents see what tutors have marked visible |
+| **Three-way reviews** | After the match ends, parent rates tutor; tutor rates student and parent |
+
+### 1.2 Course Context
+
+The project is the final group assignment for a university-level SQL course originally requiring MS Access. The database was first prototyped in Access to meet the coursework constraint, then migrated to PostgreSQL 16 so the system runs anywhere Docker is available. The Access prototype remains the source of the schema design discussed in the slides; the running implementation is PostgreSQL.
+
+Course requirements:
+
+- Demonstrate a normalised relational schema with foreign-key relationships
+- In-class oral presentation with a live system demo
+
+### 1.3 Design Goals
+
+| Goal | Approach |
+|---|---|
+| Meet course requirements | Ship a documented relational schema with FK constraints, indexes, and triggers; show the schema and live data during the demo |
+| Apply industry practices | Three-tier architecture, DDD-style bounded contexts, RESTful API, JWT auth, container-based deployment |
+| Reproducible deployment | `docker compose up` provisions the full stack (DB + API + worker + reverse proxy); a Windows `start.bat` covers local non-Docker development |
+
+### 1.4 Timeline
+
+Five-week development cycle culminating in an oral presentation and a live demonstration.
+
+---
+
+## 2. System Architecture
+
+### 2.1 Component Overview
+
+Four processes cooperate over HTTP and a shared PostgreSQL database:
 
 ```
-+----------+          +----------+          +----------+
-|          |  HTTP /  |          |  ODBC /  |          |
-| Vue 前端  | -------> | FastAPI  | -------> | MS       |
-| (瀏覽器)  | <------- | 後端     | <------- | Access   |
-|          |  JSON    |          |  pyodbc  | 資料庫    |
-+----------+          +-----+----+          +----------+
- 點餐櫃台               廚房 |                  倉庫 ^
-                             |                       |
-                             | 派工作         讀寫資料 |
-                             v                       |
-                       +----------+                  |
-                       | huey     | -----------------+
-                       | worker   |
-                       | 背景雜務  |
-                       +----------+
-                        匯入匯出、報表計算、
-                        假資料生成等耗時工作
-
-  三個程式皆運行於本機，透過 start.bat 一鍵啟動
+   Browser (Vue 3 SPA)
+        │  HTTP / JSON
+        ▼
+   Nginx (web container)            serves SPA assets, proxies /api/* to api:8000
+        │
+        ▼
+   FastAPI (api container)          REST API, JWT auth, domain services, repositories
+        │  psycopg2 connection pool
+        ▼
+   PostgreSQL 16 (db container)     persistent volume: pgdata
+        ▲
+        │
+   Huey worker (worker container)   CSV import/export, seed data, stats, scheduled
+                                    cleanup; SqliteHuey queue at data/huey.db
+                                    (shared volume with api)
 ```
 
-### 2.2 三個程式的職責
+### 2.2 Process Responsibilities
 
-| 程式 | 使用技術 | 職責 |
-|------|---------|------|
-| **前端（Vue）** | Vue 3 + Vite | 使用者在瀏覽器中看到的所有畫面，包含登入頁、搜尋頁、聊天室等 |
-| **後端（FastAPI）** | Python FastAPI | 系統的核心邏輯層，負責登入驗證、老師搜尋、配對邀請、資料寫入等所有處理 |
-| **背景任務（huey）** | Python huey | 負責執行匯入匯出 CSV、產生假資料、計算統計報表等較耗時的工作，避免阻塞使用者畫面 |
+| Process | Technology | Responsibility |
+|---|---|---|
+| **Web (Nginx)** | nginx-unprivileged 1.x | Serve compiled SPA, terminate the inbound HTTP request, reverse-proxy `/api/*` to the API container, apply an edge-layer rate limit |
+| **Frontend (Vue)** | Vue 3 + Vite + Pinia + Vue Router + Axios | All in-browser UI: login, dashboards, search, messaging, match management, reviews, stats |
+| **Backend (FastAPI)** | FastAPI + Pydantic + psycopg2 | Authentication, business logic, state-machine enforcement, repository-backed persistence |
+| **Worker (Huey)** | huey 2.5 + SqliteHuey | Statistics aggregation, scheduled maintenance (review lock, blacklist cleanup, rate-limit pruning) |
+| **Database (PostgreSQL)** | PostgreSQL 16-alpine | Authoritative store for all business data, rate-limit hits, idempotency keys, audit log, refresh-token blacklist |
 
-### 2.3 為什麼分成三個程式？
+### 2.3 Technology Stack
 
-以便利商店結帳為例：若店員一邊結帳、一邊又要去後方加熱餐點，顧客就必須等待。因此合理的做法是讓店員專心結帳（後端），另一位人員負責加熱（背景任務），顧客則只需關注螢幕上的金額（前端）。三者各司其職，互不阻塞。
-
-### 2.4 技術清單
-
-以下列出本專案使用的技術。此處僅提供概覽，不需要全部記住：
-
-| 類別 | 技術名稱 | 簡要說明 |
-|------|---------|---------|
-| 前端畫面 | Vue 3 | 用於建構網頁畫面的框架，成果運行於瀏覽器中 |
-| 前端打包 | Vite | 負責打包前端程式碼並啟動開發伺服器 |
-| 頁面切換 | Vue Router | 控制頁面之間的跳轉邏輯 |
-| 前端資料管理 | Pinia | 在不同頁面之間共享資料，例如「目前登入的使用者是誰」 |
-| 前端呼叫後端 | Axios | 前端用來向後端發送請求的工具 |
-| 後端框架 | FastAPI | 以 Python 撰寫的後端框架，負責接收前端的請求並回傳結果 |
-| 資料驗證 | Pydantic | 確保前端傳來的資料格式正確，例如「分數必須是數字」 |
-| 登入驗證 | JWT + bcrypt | JWT 是登入後取得的「通行證」，後續每次操作皆須攜帶以證明身份；bcrypt 負責將密碼加密後儲存 |
-| 資料庫連線 | pyodbc | Python 透過此工具與 MS Access 資料庫溝通 |
-| 資料庫 | MS Access | 儲存所有資料的關聯式資料庫（課程要求使用） |
-| 背景任務 | huey + SQLite | huey 是輕量的任務排隊系統，SQLite 作為其記錄待辦任務的小型資料庫 |
-| 環境設定 | .env 檔案 | 系統的設定檔，用於存放密碼、資料庫路徑等不適合寫死在程式碼中的資訊 |
-| 日誌記錄 | Python logging | 自動記錄系統運行中的事件，便於事後追查問題 |
+| Layer | Technology | Version |
+|---|---|---|
+| Frontend framework | Vue 3 | 3.5.13 |
+| Build tool | Vite | 6.0.5 |
+| State management | Pinia | 2.3.0 |
+| Routing | Vue Router | 4.5.0 |
+| HTTP client | Axios | 1.7.9 |
+| Charts | Chart.js + vue-chartjs | 4.5.1 / 5.3.3 |
+| CSS framework | Tailwind CSS | 4.2.2 |
+| Backend framework | FastAPI | 0.115.6 |
+| ASGI server | Uvicorn | 0.34.0 |
+| Data validation | Pydantic | 2.10.4 |
+| Database driver | psycopg2 | ≥2.9.11 |
+| Password hashing | bcrypt | 4.2.1 |
+| JWT | PyJWT | 2.9.0 |
+| Task queue | Huey | 2.5.2 |
+| Database | PostgreSQL | 16 (alpine) |
+| Reverse proxy | Nginx | 1.x (nginx-unprivileged) |
+| Container runtime | Docker / Docker Compose | n/a |
 
 ---
 
-## 3. 技術架構詳細設計
+## 3. Technical Design
 
-> **提示：** 本節包含較多程式碼，主要供開發者撰寫程式時參考。非技術組員可僅閱讀各段開頭的說明文字，程式碼區塊可跳過。
+### 3.1 Source Tree
 
-### 3.1 原始碼目錄結構
+The codebase is split into two top-level applications: a Python backend and a Vue frontend, plus repository-root files for Docker orchestration and secrets management.
 
-程式碼分為兩個獨立的資料夾（儲存庫）：一個存放後端（Python），一個存放前端（Vue）。概念上類似將廚房用品與外場用品分開管理。
+#### 3.1.1 Repository Layout
 
-#### 3.1.1 後端資料夾：`tutor-platform-api`
+```
+project-root/
+├── docker-compose.yml              # Production stack (db, api, worker, web)
+├── docker-compose.override.yml     # Auto-loaded in dev; binds db→127.0.0.1:5433, api→127.0.0.1:8001
+├── docker-compose.run.yml          # Optional local-Postgres convenience configuration
+├── .env / .env.example             # Repo-root env (DB_USER, DB_NAME consumed by compose)
+├── .pre-commit-config.yaml         # Lint/format hooks
+├── .gitleaks.toml                  # Secrets detection
+├── README.md                       # Project overview and quick-start
+├── SECURITY.md                     # Security controls and production-deployment checklist
+├── secrets/                        # Docker secret files (gitignored): db_password, jwt_secret_key, admin_password, jwt_secret_key_previous
+├── scripts/                        # Helper shell scripts (check-prod-compose, pin-base-images)
+├── docs/                           # Specifications and design notes (this file, architecture, schema)
+├── tutor-platform-api/             # Python backend
+└── tutor-platform-web/             # Vue frontend
+```
 
-以下樹狀圖列出後端所有檔案與資料夾，各檔案旁附有用途說明。
+#### 3.1.2 Backend (`tutor-platform-api/`)
+
+The backend is organised into DDD-style bounded contexts. Each context owns its API, application, domain, and infrastructure layers. Cross-cutting concerns live under `shared/` and `middleware/`.
 
 ```
 tutor-platform-api/
-├── .env                              # 設定檔（密碼、路徑等，不納入版控）
-├── .env.example                      # 設定檔範本（告知需填寫哪些設定）
-├── requirements.txt                  # Python 套件依賴清單
-├── start.bat                         # 一鍵啟動腳本
-├── README.md                         # 專案說明文件
+├── Dockerfile
+├── requirements.txt / requirements.lock
+├── docker-entrypoint.sh             # Reads /run/secrets, constructs DATABASE_URL, launches uvicorn
+├── start.bat                        # Local one-click launcher (worker + uvicorn + Vite)
+├── .env.example                     # Local development template
+├── .env.docker.example              # Container template (non-secret settings only)
 │
-├── app/                              # [主要程式碼]
-│   ├── main.py                       # 程式入口——啟動後端伺服器
-│   ├── config.py                     # 讀取 .env 設定檔
-│   ├── database.py                   # 負責建立與 MS Access 資料庫的連線
-│   ├── dependencies.py               # 共用的依賴注入定義
-│   ├── exceptions.py                 # 定義錯誤類型（找不到資源、無權限等）
-│   ├── worker.py                     # 背景任務處理器的啟動入口
+├── app/
+│   ├── main.py                      # FastAPI app, lifespan, middleware wiring, exception handlers
+│   ├── init_db.py                   # Idempotent schema DDL, subject seed, admin bootstrap
+│   ├── worker.py                    # SqliteHuey instance + JSON serialiser
 │   │
-│   ├── models/                       # [資料格式定義]
-│   │   │                             #  定義各類請求與回應的資料結構
-│   │   ├── common.py                 # 統一回應格式
-│   │   ├── auth.py                   # 登入/註冊相關
-│   │   ├── tutor.py                  # 老師相關
-│   │   ├── student.py                # 學生相關
-│   │   ├── match.py                  # 媒合配對相關
-│   │   ├── session.py                # 上課日誌相關
-│   │   ├── exam.py                   # 考試紀錄相關
-│   │   ├── review.py                 # 評價相關
-│   │   ├── message.py                # 訊息相關
-│   │   └── stats.py                  # 統計數據相關
+│   ├── shared/                      # Cross-cutting kernel
+│   │   ├── api/                     # ApiResponse envelope, validators, constants
+│   │   ├── domain/                  # DomainException, NotFoundError, PermissionDeniedError, ...
+│   │   └── infrastructure/          # config (Settings), database (pool), security (bcrypt/JWT), logger, base_repository
 │   │
-│   ├── repositories/                 # [資料存取層]
-│   │   │                             #  所有與資料庫溝通的程式碼皆集中於此
-│   │   ├── base.py                   # 共用的基本功能（查詢、新增、修改）
-│   │   ├── auth_repo.py              # 帳號相關的資料庫操作
-│   │   ├── tutor_repo.py             # 老師相關
-│   │   ├── student_repo.py           # 學生相關
-│   │   ├── match_repo.py             # 媒合配對相關
-│   │   ├── session_repo.py           # 上課日誌相關
-│   │   ├── exam_repo.py              # 考試紀錄相關
-│   │   ├── review_repo.py            # 評價相關
-│   │   ├── message_repo.py           # 訊息相關
-│   │   └── stats_repo.py             # 統計相關
+│   ├── identity/                    # Bounded context: auth, accounts, password history
+│   ├── catalog/                     # Bounded context: tutors, students, subjects, availability
+│   ├── matching/                    # Bounded context: matches, state machine, idempotency
+│   ├── teaching/                    # Bounded context: session logs, exams, edit logs
+│   ├── review/                      # Bounded context: three-way ratings, 7-day lock
+│   ├── messaging/                   # Bounded context: conversations, messages
+│   ├── analytics/                   # Bounded context: income/expense stats, student-progress
+│   ├── admin/                       # Bounded context: CSV import/export, seed, system reset, user admin
 │   │
-│   ├── routers/                      # [API 路由層]
-│   │   │                             #  定義網址與功能的對應關係
-│   │   ├── auth.py                   # /api/auth/... 登入註冊
-│   │   ├── tutors.py                 # /api/tutors/... 老師相關
-│   │   ├── students.py               # /api/students/... 學生相關
-│   │   ├── matches.py                # /api/matches/... 媒合配對
-│   │   ├── sessions.py               # /api/sessions/... 上課日誌
-│   │   ├── exams.py                  # /api/exams/... 考試紀錄
-│   │   ├── reviews.py                # /api/reviews/... 評價
-│   │   ├── messages.py               # /api/messages/... 訊息
-│   │   ├── stats.py                  # /api/stats/... 統計
-│   │   └── admin.py                  # /api/admin/... 管理員專用
-│   │
-│   ├── tasks/                        # [背景任務] 較耗時的工作放置於此
-│   │   ├── import_export.py          # CSV 檔案的匯入和匯出
-│   │   ├── stats_tasks.py            # 統計報表的計算
-│   │   ├── seed_tasks.py             # 假資料生成
-│   │   └── scheduled.py              # 定時執行的任務（如每日凌晨 3 點檢查過期評價）
-│   │
-│   └── utils/                        # [工具函式] 輔助用的小型程式
-│       ├── security.py               # 密碼加密、JWT 的產生與驗證
-│       ├── csv_handler.py            # CSV 檔案讀寫
-│       ├── access_bits.py            # MS Access BIT 型態轉換（True ↔ -1）
-│       └── logger.py                 # 日誌組態
+│   ├── middleware/                  # request_id, body_size_limit, security_headers, access_log, user_quota, csrf, rate_limit
+│   ├── tasks/                       # Huey task modules (stats_tasks, scheduled, import_export, seed_tasks)
+│   └── utils/                       # Helpers
 │
-├── logs/                             # 日誌檔案存放處
-│   └── app.log
-│
-├── data/
-│   ├── tutoring.accdb                # [重要] MS Access 資料庫檔案
-│   └── huey.db                       # 背景任務的排隊紀錄
-│
-└── seed/
-    ├── generator.py                  # 假資料產生邏輯
-    └── output/                       # 產生之 CSV 暫存目錄
+├── seed/                            # Fake-data generator used by the seed task
+├── data/                            # Runtime: huey.db, mounted as a Docker volume
+└── tests/                           # Pytest suite (state machine, services, integration)
 ```
 
-#### 3.1.2 前端資料夾：`tutor-platform-web`
+Each bounded context follows the same internal layering:
+
+```
+<context>/
+├── api/             # FastAPI routers, request/response schemas, dependencies
+├── application/     # Use-case services (compose domain + infrastructure)
+├── domain/          # Entities, value objects, domain services, exceptions (no framework dependencies)
+└── infrastructure/  # Postgres repositories, external adapters
+```
+
+#### 3.1.3 Frontend (`tutor-platform-web/`)
 
 ```
 tutor-platform-web/
-├── .env                              # 設定（如後端的網址）
-├── package.json                      # 前端套件依賴清單
-├── vite.config.js                    # 前端打包設定
+├── Dockerfile                       # Vite build → nginx-unprivileged
+├── nginx.conf                       # /api/* → api:8000, SPA fallback, edge rate limit, security headers
+├── vite.config.js
+├── package.json
+├── scripts/check-no-v-html.mjs      # Pre-build lint guard (rejects v-html)
 │
-└── src/                              # [主要程式碼]
-    ├── main.js                       # 前端程式入口
-    ├── App.vue                       # 最外層的畫面框架
+└── src/
+    ├── main.js
+    ├── App.vue
+    ├── constants.js                 # Shared enums (roles, match status, action names)
     │
-    ├── router/                       # [頁面路由] 定義網址與頁面的對應
-    │   └── index.js
+    ├── router/index.js              # Route table + role-based navigation guards
+    ├── stores/                      # Pinia: auth, tutor, toast, notifications
+    ├── api/                         # Axios services, one file per resource (+ baseURL, authHandler)
     │
-    ├── stores/                       # [全域狀態管理] 跨頁面共享的資料
-    │   ├── auth.js                   # 登入狀態（目前登入者的資訊）
-    │   ├── tutor.js                  # 老師搜尋結果的暫存
-    │   ├── match.js                  # 配對狀態
-    │   └── message.js                # 訊息狀態
+    ├── views/                       # Page-level components
+    │   ├── LoginView.vue / RegisterView.vue / NotFoundView.vue
+    │   ├── parent/                  # Dashboard, Search, TutorDetail, MatchDetail, Students, Profile, Expense
+    │   ├── tutor/                   # Dashboard, Profile, MatchDetail, Income
+    │   ├── messages/                # ConversationList, Chat
+    │   └── admin/                   # AdminDashboard
     │
-    ├── api/                          # [後端溝通層] 封裝所有 API 呼叫
-    │   ├── index.js                  # 統一設定（自動攜帶通行證等）
-    │   ├── auth.js                   # 登入/註冊 API
-    │   ├── tutors.js                 # 老師相關 API
-    │   ├── students.js               # 學生相關 API
-    │   ├── subjects.js               # 科目相關 API
-    │   ├── matches.js                # 媒合相關 API
-    │   ├── sessions.js               # 上課日誌 API
-    │   ├── exams.js                  # 考試紀錄 API
-    │   ├── reviews.js                # 評價 API
-    │   ├── messages.js               # 訊息 API
-    │   ├── stats.js                  # 統計 API
-    │   └── admin.js                  # 管理員 API
-    │
-    ├── views/                        # [頁面級元件] 各個獨立頁面
-    │   ├── LoginView.vue             # 登入頁
-    │   ├── RegisterView.vue          # 註冊頁
-    │   ├── parent/                   # 家長端頁面
-    │   │   ├── DashboardView.vue     #   家長首頁
-    │   │   ├── SearchView.vue        #   搜尋老師
-    │   │   ├── TutorDetailView.vue   #   老師詳情
-    │   │   ├── StudentsView.vue      #   管理子女
-    │   │   ├── MatchDetailView.vue   #   配對詳情
-    │   │   └── ExpenseView.vue       #   支出統計
-    │   ├── tutor/                    # 老師端頁面
-    │   │   ├── DashboardView.vue     #   老師首頁
-    │   │   ├── ProfileView.vue       #   編輯個人檔案
-    │   │   ├── MatchDetailView.vue   #   配對詳情
-    │   │   └── IncomeView.vue        #   收入統計
-    │   ├── messages/                 # 訊息相關頁面
-    │   │   ├── ConversationListView.vue  # 對話列表
-    │   │   └── ChatView.vue              # 聊天頁面
-    │   └── admin/                    # 管理員頁面
-    │       └── AdminDashboardView.vue    # 管理後台
-    │
-    └── components/                   # [可重用元件] 各頁面共用的畫面零件
-        ├── common/                   #   共用元件（頂部選單、側邊欄、載入動畫）
-        ├── tutor/                    #   老師相關元件（搜尋卡片、篩選器、行事曆）
-        ├── match/                    #   配對相關元件（狀態標籤、合約表單）
-        ├── review/                   #   評價相關元件（評分表單、雷達圖）
-        ├── session/                  #   上課日誌元件（表單、時間軸）
-        └── stats/                    #   統計圖表元件（收入圖、支出圖、成績趨勢圖）
+    ├── components/                  # common, match, review, session, stats, tutor
+    ├── composables/                 # useMatchDetail, useConfirm
+    └── utils/                       # highlight, format
 ```
 
-### 3.2 統一 API 回應格式
+### 3.2 Unified API Response Envelope
 
-前端每次向後端發出請求時，後端皆以**統一格式**回應。無論請求內容為何，回應結構都包含三個欄位：是否成功、回傳資料、補充訊息。此設計使前端能以一致的方式處理所有回應。
+Every API response carries a uniform envelope so the frontend can handle success and failure identically:
 
-回應結構如下：
-
-```json
-{
-  "success": true 或 false,
-  "data": 回傳資料（成功時）或 null（失敗時）,
-  "message": 補充訊息（通常失敗時才有，例如「該老師目前不接受新學生」）
-}
-```
-
-**成功範例**——登入後取得使用者資訊：
 ```json
 {
   "success": true,
-  "data": { "user_id": 1, "role": "tutor", "display_name": "王小明" },
+  "data": { "...": "..." },
+  "message": "optional human-readable note"
+}
+```
+
+Success example — fetching the authenticated user:
+
+```json
+{
+  "success": true,
+  "data": { "user_id": 1, "role": "tutor", "display_name": "Wang" },
   "message": null
 }
 ```
 
-**失敗範例**——操作不被允許：
+Failure example — operation rejected by domain rule:
+
 ```json
 {
   "success": false,
   "data": null,
-  "message": "該老師目前不接受新學生"
+  "message": "This tutor is not currently accepting new students"
 }
 ```
 
-**分頁查詢範例**——共 87 筆結果，目前為第 1 頁：
+Paginated response — 87 total results, current page 1:
+
 ```json
 {
   "success": true,
@@ -339,13 +274,10 @@ tutor-platform-web/
 }
 ```
 
-<details>
-<summary>技術細節（開發者展開）</summary>
-
-#### 回應結構定義
+Implementation:
 
 ```python
-# app/models/common.py
+# app/shared/api/schemas.py
 from pydantic import BaseModel
 from typing import TypeVar, Generic, Optional, List
 
@@ -363,1352 +295,1059 @@ class PaginatedData(BaseModel, Generic[T]):
     page_size: int
 ```
 
-#### 統一錯誤處理
+Domain exceptions map to HTTP status codes through centralised handlers registered on the FastAPI app:
 
 ```python
-# app/exceptions.py
-from fastapi import Request
-from fastapi.responses import JSONResponse
+# app/shared/domain/exceptions.py
+class DomainException(Exception):
+    status_code: int = 400
 
-class AppException(Exception):
-    def __init__(self, message: str, status_code: int = 400):
-        self.message = message
-        self.status_code = status_code
+class NotFoundError(DomainException):
+    status_code = 404
 
-class NotFoundException(AppException):
-    def __init__(self, message: str = "資源不存在"):
-        super().__init__(message, 404)
+class PermissionDeniedError(DomainException):
+    status_code = 403
 
-class ForbiddenException(AppException):
-    def __init__(self, message: str = "無權限執行此操作"):
-        super().__init__(message, 403)
-
-class ConflictException(AppException):
-    def __init__(self, message: str = "資源狀態衝突"):
-        super().__init__(message, 409)
-
-async def app_exception_handler(request: Request, exc: AppException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"success": False, "data": None, "message": exc.message}
-    )
+class TooManyRequestsError(DomainException):
+    status_code = 429
 ```
 
-</details>
+Unhandled exceptions yield a 500 response that always carries the `X-Request-ID` so an incident can be traced back through the structured access log.
 
-### 3.3 Repository Pattern——資料存取方式
+### 3.3 Layered Architecture per Bounded Context
 
-本系統採用 Repository Pattern 管理資料存取。以圖書館為類比：讀者不需要自行進入書庫翻找，只需告訴館員所需的書籍，由館員代為處理。
+The backend follows DDD layering inside each context. The API layer is a thin adapter; persistence is isolated behind repository interfaces; business rules live in the domain layer.
 
-在系統中，各 Repository 類別即扮演「館員」的角色。後端的路由層（Router）需要資料時，不直接撰寫 SQL 查詢資料庫，而是呼叫對應的 Repository 方法。此設計有以下好處：
+| Layer | Responsibility | Dependency Direction |
+|---|---|---|
+| **API** | HTTP routing, request/response schemas, role guards | Depends on application |
+| **Application** | Use-case orchestration, transaction boundaries | Depends on domain + infrastructure |
+| **Domain** | Entities, value objects, domain services, invariants | No outward dependencies |
+| **Infrastructure** | PostgreSQL repositories, external adapters | Implements domain interfaces |
 
-- SQL 語句集中於同一層，便於維護
-- 若日後需更換資料庫引擎，僅需修改 Repository 層
-- 各層職責明確，程式碼不易混雜
-
-<details>
-<summary>技術細節（開發者展開）</summary>
-
-#### BaseRepository
+The match state machine is a representative example — pure logic with no framework or database coupling, unit-testable in isolation:
 
 ```python
-# app/repositories/base.py
-class BaseRepository:
-    """所有 Repository 之基礎類別，提供通用之資料存取方法。"""
-
-    def __init__(self, conn):
-        self.conn = conn
-        self.cursor = conn.cursor()
-
-    def fetch_one(self, sql: str, params: tuple = ()) -> dict | None:
-        """執行查詢並回傳單筆結果（dict 格式），查無資料時回傳 None。"""
-        self.cursor.execute(sql, params)
-        row = self.cursor.fetchone()
-        if row is None:
-            return None
-        columns = [desc[0] for desc in self.cursor.description]
-        return dict(zip(columns, row))
-
-    def fetch_all(self, sql: str, params: tuple = ()) -> list[dict]:
-        """執行查詢並回傳全部結果（list of dict 格式）。"""
-        self.cursor.execute(sql, params)
-        rows = self.cursor.fetchall()
-        columns = [desc[0] for desc in self.cursor.description]
-        return [dict(zip(columns, row)) for row in rows]
-
-    def execute(self, sql: str, params: tuple = ()) -> None:
-        """執行寫入操作（INSERT / UPDATE / DELETE）並提交交易。"""
-        self.cursor.execute(sql, params)
-        self.conn.commit()
-
-    def execute_returning_id(self, sql: str, params: tuple = ()) -> int:
-        """執行 INSERT 並回傳自動產生之主鍵值（AutoNumber）。"""
-        self.cursor.execute(sql, params)
-        self.cursor.execute("SELECT @@IDENTITY")
-        new_id = self.cursor.fetchone()[0]
-        self.conn.commit()
-        return new_id
-
-    def fetch_paginated(self, sql: str, params: tuple, page: int, page_size: int) -> tuple[list[dict], int]:
-        """
-        執行分頁查詢。
-        由於 MS Access 不支援 LIMIT/OFFSET 語法，故先取回全部結果，
-        再於 Python 端進行分頁切割。
-        回傳值：(items, total_count)
-        """
-        all_rows = self.fetch_all(sql, params)
-        total = len(all_rows)
-        start = (page - 1) * page_size
-        items = all_rows[start:start + page_size]
-        return items, total
+# app/matching/domain/state_machine.py (excerpt)
+TRANSITIONS: dict[tuple[MatchStatus, Action], Transition] = {
+    (MatchStatus.PENDING, Action.CANCEL):
+        Transition(MatchStatus.CANCELLED, AllowedActor.PARENT),
+    (MatchStatus.PENDING, Action.REJECT):
+        Transition(MatchStatus.REJECTED, AllowedActor.TUTOR),
+    (MatchStatus.PENDING, Action.ACCEPT):
+        Transition(None, AllowedActor.TUTOR),  # final status depends on want_trial
+    (MatchStatus.TRIAL, Action.CONFIRM_TRIAL):
+        Transition(MatchStatus.ACTIVE, AllowedActor.EITHER),
+    # ... full table in §5.4
+}
 ```
 
-#### Repository 使用範例
+### 3.4 Database Connection Management
+
+The API process manages a single psycopg2 connection pool (default min 5, max 20) created in the FastAPI lifespan hook. Each request borrows a connection from the pool and returns it on completion. A per-user concurrency middleware caps how many simultaneous connections any one authenticated caller can hold (default 5), preventing one client from monopolising the pool.
 
 ```python
-# app/repositories/tutor_repo.py
-from .base import BaseRepository
+# app/shared/infrastructure/database.py (concept)
+from psycopg2.pool import ThreadedConnectionPool
+from contextlib import contextmanager
 
-class TutorRepository(BaseRepository):
-    """老師相關之資料存取操作。"""
+pool: ThreadedConnectionPool  # initialised in lifespan
 
-    def search(
-        self,
-        subject_id: int | None = None,
-        min_rate: float | None = None,
-        max_rate: float | None = None,
-        min_rating: float | None = None,
-        school: str | None = None
-    ) -> list[dict]:
-        sql = """
-            SELECT t.tutor_id, u.display_name, t.university, t.department,
-                   t.grade_year, t.max_students, t.show_university,
-                   t.show_department, t.show_grade_year,
-                   t.show_hourly_rate, t.show_subjects
-            FROM Tutors t
-            INNER JOIN Users u ON t.user_id = u.user_id
-            WHERE 1=1
-        """
-        params = []
-
-        if subject_id is not None:
-            sql += " AND t.tutor_id IN (SELECT tutor_id FROM Tutor_Subjects WHERE subject_id = ?)"
-            params.append(subject_id)
-        if min_rate is not None:
-            sql += " AND t.tutor_id IN (SELECT tutor_id FROM Tutor_Subjects WHERE hourly_rate >= ?)"
-            params.append(min_rate)
-        if max_rate is not None:
-            sql += " AND t.tutor_id IN (SELECT tutor_id FROM Tutor_Subjects WHERE hourly_rate <= ?)"
-            params.append(max_rate)
-        if school is not None:
-            sql += " AND t.university LIKE ?"
-            params.append(f"%{school}%")
-
-        return self.fetch_all(sql, tuple(params))
-
-    def get_avg_rating(self, tutor_id: int) -> dict | None:
-        sql = """
-            SELECT AVG(rating_1) AS avg_teaching,
-                   AVG(rating_2) AS avg_punctuality,
-                   AVG(rating_3) AS avg_progress,
-                   AVG(rating_4) AS avg_communication,
-                   COUNT(*)      AS review_count
-            FROM Reviews
-            WHERE match_id IN (SELECT match_id FROM Matches WHERE tutor_id = ?)
-              AND review_type = 'parent_to_tutor'
-        """
-        return self.fetch_one(sql, (tutor_id,))
-
-    def get_active_student_count(self, tutor_id: int) -> int:
-        sql = """
-            SELECT COUNT(*) AS cnt
-            FROM Matches
-            WHERE tutor_id = ? AND status IN ('active', 'trial')
-        """
-        result = self.fetch_one(sql, (tutor_id,))
-        return result["cnt"] if result else 0
-```
-
-#### Router 層呼叫規範
-
-Router 層的職責：接收請求 → 驗證參數 → 呼叫 Repository → 封裝回應。不得包含 SQL 語句或複雜業務邏輯。
-
-```python
-# app/routers/tutors.py
-from fastapi import APIRouter, Depends, Query
-from app.dependencies import get_db, get_current_user
-from app.repositories.tutor_repo import TutorRepository
-from app.models.common import ApiResponse
-
-router = APIRouter(prefix="/api/tutors", tags=["tutors"])
-
-@router.get("", response_model=ApiResponse)
-async def search_tutors(
-    subject_id: int = Query(None),
-    min_rate: float = Query(None),
-    max_rate: float = Query(None),
-    min_rating: float = Query(None),
-    school: str = Query(None),
-    sort_by: str = Query("rating"),
-    conn=Depends(get_db)
-):
-    repo = TutorRepository(conn)
-    tutors = repo.search(subject_id, min_rate, max_rate, min_rating, school)
-
-    for t in tutors:
-        rating_info = repo.get_avg_rating(t["tutor_id"])
-        t["avg_rating"] = rating_info
-        if not t.pop("show_university"):
-            t.pop("university", None)
-        if not t.pop("show_department"):
-            t.pop("department", None)
-
-    return ApiResponse(success=True, data=tutors)
-```
-
-</details>
-
-### 3.4 資料庫連線管理
-
-每次前端發出請求時，後端會建立一條通往 Access 資料庫的連線，處理完畢後立即關閉，以避免資源浪費。類似於前往圖書館借書——進門、借書、出門，不長時間佔用座位。
-
-由於本系統有多個程式（FastAPI 與 huey worker）同時運行，可能同一時間存取 Access 資料庫。Access 的檔案鎖機制在高併發下較為保守，偶爾會出現「資料庫正被其他程式使用中」的暫時性錯誤。為此，連線建立時加入**自動重試機制**——若首次連線失敗，系統會短暫等待後再嘗試，最多重試三次。此設計可有效避免因瞬間併發而導致的連線失敗。
-
-<details>
-<summary>技術細節（開發者展開）</summary>
-
-```python
-# app/database.py
-import time
-import pyodbc
-from app.config import Settings
-
-settings = Settings()
-
-def get_connection(retries: int = 3, delay: float = 0.5) -> pyodbc.Connection:
-    """
-    建立並回傳一個新的 MS Access ODBC 連線。
-    內建重試機制以應對多 process 併發存取時的暫時性鎖定錯誤。
-
-    參數：
-        retries: 最大重試次數（預設 3 次）
-        delay: 每次重試前的等待秒數（預設 0.5 秒）
-    """
-    conn_str = (
-        r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
-        rf"DBQ={settings.access_db_path};"
-    )
-    for attempt in range(retries):
-        try:
-            return pyodbc.connect(conn_str)
-        except pyodbc.Error:
-            if attempt < retries - 1:
-                time.sleep(delay)
-            else:
-                raise
-
-def get_db():
-    """FastAPI 依賴注入用之 generator。每次請求建立連線，請求結束時關閉。"""
-    conn = get_connection()
+@contextmanager
+def get_connection():
+    conn = pool.getconn()
     try:
         yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
-        conn.close()
+        pool.putconn(conn)
 ```
 
-</details>
+The pool is built from `DATABASE_URL`, which the Docker entrypoint constructs at runtime from `/run/secrets/db_password` plus the non-secret host/db/user environment variables — passwords never appear in env vars or in the build context.
 
-### 3.5 環境變數管理
+### 3.5 Configuration and Secrets
 
-部分資訊不適合直接寫死在程式碼中（例如密碼、資料庫路徑），因此統一存放於 `.env` 設定檔，程式啟動時自動讀取。
+Configuration is split by sensitivity:
 
-專案中附有 `.env.example` 範本檔，列出所有需要填寫的欄位。取得專案後，將其複製並改名為 `.env`，再依環境填入對應的值即可。
+- **Non-secret environment** lives in `.env` / `.env.docker` files (host, database name, user, log level, cookie flags, etc.).
+- **Secrets** (database password, JWT signing key, bootstrap admin password) live in Docker secret files mounted at `/run/secrets/*`. They are never written to environment variables and never enter the build context.
 
-| 設定項目 | 範例值 | 說明 |
-|---------|--------|------|
-| ACCESS_DB_PATH | data/tutoring.accdb | Access 資料庫檔案的路徑 |
-| JWT_SECRET_KEY | your-secret-key-here | 用來加密通行證的密鑰 |
-| JWT_EXPIRE_MINUTES | 60 | 登入後通行證的有效時間（分鐘） |
-| ADMIN_USERNAME | admin | 管理員帳號 |
-| ADMIN_PASSWORD | change-me | 管理員密碼 |
-| LOG_LEVEL | INFO | 日誌記錄的詳細程度 |
+| Setting | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | (built from secret) | psycopg2 connection string; constructed by `docker-entrypoint.sh` |
+| `JWT_SECRET_KEY` | (required) | JWT HMAC key; min 32 hex characters |
+| `JWT_SECRET_KEY_PREVIOUS` | (optional) | Previous key during a rotation window |
+| `JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT` | (required if PREVIOUS set) | ISO-8601 UTC deadline ≤ 7 days out |
+| `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
+| `JWT_EXPIRE_MINUTES` | `5` | Access-token lifetime; hard-capped at 10 by startup validator |
+| `ADMIN_USERNAME` | (required) | Bootstrap admin login; cannot be the literal `admin` in production |
+| `ADMIN_PASSWORD` | (required) | Min 16 chars, all four character classes |
+| `REVIEW_LOCK_DAYS` | `7` | Days after which a review locks |
+| `HUEY_DB_PATH` | `data/huey.db` | SqliteHuey queue file |
+| `LOG_FILE` / `LOG_LEVEL` / `LOG_FORMAT` | `logs/app.log` / `INFO` / `json` | Logging |
+| `COOKIE_SECURE` | `true` | Auth cookies carry the `Secure` attribute; must be `true` when `DEBUG=false` |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allow-list |
+| `DB_POOL_MIN` / `DB_POOL_MAX` | `5` / `20` | psycopg2 pool sizing |
+| `DB_PER_USER_QUOTA` | `5` | Max concurrent in-flight requests per authenticated user |
+| `DEBUG` | `false` | Enables developer affordances; gated by startup validator |
+| `ENABLE_DOCS` | `false` | Exposes `/docs`, `/redoc`, `/openapi.json`; rejected at startup unless `DEBUG=true` |
 
-<details>
-<summary>技術細節（開發者展開）</summary>
+The frontend reads `VITE_API_BASE_URL` at build time; in production this is an empty string so requests are emitted as relative paths (`/api/...`) and proxied by the web container's Nginx.
 
-```python
-# app/config.py
-from pydantic_settings import BaseSettings
+### 3.6 Structured Logging
 
-class Settings(BaseSettings):
-    # 資料庫
-    access_db_path: str = "data/tutoring.accdb"
-
-    # JWT 認證
-    jwt_secret_key: str = "change-me-in-production"
-    jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60
-
-    # Super Admin 帳號（系統啟動時自動建立）
-    admin_username: str = "admin"
-    admin_password: str = "admin123"
-
-    # huey 任務佇列
-    huey_db_path: str = "data/huey.db"
-
-    # 日誌
-    log_file: str = "logs/app.log"
-    log_level: str = "INFO"
-
-    # CORS
-    cors_origins: str = "http://localhost:5173"
-
-    class Config:
-        env_file = ".env"
-```
-
-```ini
-# .env.example
-ACCESS_DB_PATH=data/tutoring.accdb
-JWT_SECRET_KEY=your-secret-key-here
-JWT_ALGORITHM=HS256
-JWT_EXPIRE_MINUTES=60
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=change-me
-HUEY_DB_PATH=data/huey.db
-LOG_FILE=logs/app.log
-LOG_LEVEL=INFO
-CORS_ORIGINS=http://localhost:5173
-```
-
-</details>
-
-### 3.6 系統日誌
-
-系統會自動將運行過程中的事件記錄至 log 檔案，包含「誰在什麼時間做了什麼事」。當系統出現問題時，可開啟 log 檔案回溯事發經過，功能類似便利商店的監視器錄影。
-
-日誌格式範例：
+All log lines are emitted as JSON to both stdout and a rotating file. Every record carries `request_id`, `user_id` (when authenticated), and the relevant resource identifiers. Sensitive fields — passwords, tokens, secrets — are redacted by the logger before serialisation.
 
 ```
-2026-04-15 14:23:01 | INFO     | 使用者 john_parent 登入成功
-2026-04-15 14:23:05 | WARNING  | 配對 #42 狀態轉換被拒絕：trial → paused 不合法
-2026-04-15 14:24:00 | INFO     | CSV 匯入完成：Users 表，共 25 筆
-2026-04-15 14:25:30 | ERROR    | SQL 執行失敗：INSERT INTO Sessions ... [詳細錯誤]
+{"ts":"2026-04-15T14:23:01Z","level":"INFO","request_id":"a1b2c3","user_id":17,"event":"login.success","username":"john_parent"}
+{"ts":"2026-04-15T14:23:05Z","level":"WARNING","request_id":"d4e5f6","user_id":42,"event":"match.transition.rejected","match_id":42,"current":"trial","action":"pause"}
+{"ts":"2026-04-15T14:25:30Z","level":"ERROR","request_id":"g7h8i9","event":"db.execute_failed","sql_op":"insert_session"}
 ```
 
-每一行包含時間、嚴重程度（INFO = 正常資訊、WARNING = 警告、ERROR = 錯誤），以及事件描述。
+### 3.7 Local One-Click Launch
 
-<details>
-<summary>技術細節（開發者展開）</summary>
-
-```python
-# app/utils/logger.py
-import logging
-from logging.handlers import RotatingFileHandler
-from app.config import Settings
-
-def setup_logger() -> logging.Logger:
-    settings = Settings()
-
-    formatter = logging.Formatter(
-        fmt="%(asctime)s | %(levelname)-8s | %(name)-25s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-
-    file_handler = RotatingFileHandler(
-        settings.log_file,
-        maxBytes=10 * 1024 * 1024,   # 每檔上限 10 MB
-        backupCount=5,                # 保留最近 5 個輪轉檔案
-        encoding="utf-8"
-    )
-    file_handler.setFormatter(formatter)
-
-    root_logger = logging.getLogger("app")
-    root_logger.setLevel(getattr(logging, settings.log_level))
-    root_logger.addHandler(console_handler)
-    root_logger.addHandler(file_handler)
-
-    return root_logger
-```
-
-</details>
-
-### 3.7 一鍵啟動
-
-無需逐一手動啟動三個程式。雙擊 `start.bat` 即可自動啟動後端、背景任務處理器與前端開發伺服器。
-
-啟動完成後會顯示以下資訊：
+For local development without Docker, `start.bat` opens three terminals: the Huey worker, the FastAPI server (`uvicorn --reload`), and the Vite dev server. Once the API is healthy:
 
 ```
 ================================================
-  全部服務啟動完成
-
+  All services running
   API Server:   http://localhost:8000
-  Swagger UI:   http://localhost:8000/docs     <- 所有 API 的互動式文件
-  前端介面:     http://localhost:5173           <- 於瀏覽器開啟即可使用系統
+  Swagger UI:   http://localhost:8000/docs   (when DEBUG=true and ENABLE_DOCS=true)
+  Frontend:     http://localhost:5173
 ================================================
 ```
 
-<details>
-<summary>技術細節（開發者展開）</summary>
+For production-style local runs, `docker compose up -d --build` brings up the entire stack and the frontend is reachable at `http://localhost/`.
 
-```bat
-@REM start.bat — 一鍵啟動系統全部服務
-@echo off
-chcp 65001 >nul
-echo ================================================
-echo   家教媒合與評價平台 — 系統啟動程序
-echo ================================================
-echo.
+### 3.8 Frontend Axios Wrapper
 
-REM 環境檢查
-if not exist ".env" (
-    echo [錯誤] 未偵測到 .env 檔案。
-    echo         請複製 .env.example 為 .env 並修改相關設定。
-    pause
-    exit /b 1
-)
+The frontend funnels all API traffic through a configured Axios instance that:
 
-if not exist "data\tutoring.accdb" (
-    echo [警告] 未偵測到 Access 資料庫檔案，將執行初始化程序...
-    python -m app.database --init
-    if errorlevel 1 (
-        echo [錯誤] 資料庫初始化失敗。
-        pause
-        exit /b 1
-    )
-)
-
-REM 啟動 huey worker
-echo [1/3] 啟動 huey worker（背景任務處理器）...
-start "huey-worker" cmd /k "python -m app.worker"
-
-REM 啟動 FastAPI
-echo [2/3] 啟動 FastAPI Server...
-start "fastapi-server" cmd /k "uvicorn app.main:app --reload --port 8000"
-
-REM 等待 API Server 就緒
-timeout /t 3 /nobreak >nul
-
-REM 啟動前端開發伺服器
-echo [3/3] 啟動 Vue Dev Server...
-cd /d "../tutor-platform-web"
-start "vue-dev-server" cmd /k "npm run dev"
-
-echo.
-echo ================================================
-echo   全部服務啟動完成
-echo.
-echo   API Server:   http://localhost:8000
-echo   Swagger UI:   http://localhost:8000/docs
-echo   前端介面:     http://localhost:5173
-echo ================================================
-pause
-```
-
-</details>
-
-### 3.8 前端 API 呼叫的統一封裝
-
-前端每次向後端請求資料時，皆需執行幾項重複動作：攜帶登入通行證、檢查回應是否成功、處理登入過期的情況。這些共通邏輯統一封裝於 Axios interceptor 中，各頁面呼叫 API 時無需重複撰寫。
-
-概念上類似公文流程的統一規範——蓋章、編號、歸檔等步驟由行政部門統一處理，各部門無需自行記住。
-
-<details>
-<summary>技術細節（開發者展開）</summary>
-
-```javascript
-// src/api/index.js
-import axios from 'axios'
-import { useAuthStore } from '@/stores/auth'
-
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
-  timeout: 30000,
-})
-
-// Request Interceptor：自動附加 JWT Token
-api.interceptors.request.use(config => {
-  const auth = useAuthStore()
-  if (auth.token) {
-    config.headers.Authorization = `Bearer ${auth.token}`
-  }
-  return config
-})
-
-// Response Interceptor：統一解包回應
-api.interceptors.response.use(
-  response => {
-    const { success, data, message } = response.data
-    if (!success) {
-      return Promise.reject(new Error(message))
-    }
-    return data  // 成功時直接回傳 data 層，呼叫端無需逐層解包
-  },
-  error => {
-    if (error.response?.status === 401) {
-      const auth = useAuthStore()
-      auth.logout()
-      window.location.href = '/login'
-    }
-    const message = error.response?.data?.message || '網路連線異常'
-    return Promise.reject(new Error(message))
-  }
-)
-
-export default api
-```
-
-</details>
+1. Carries cookies on every request (auth, refresh, CSRF are all HttpOnly cookies).
+2. Attaches the `X-CSRF-Token` header on mutating methods, sourced from the `csrf_token` cookie.
+3. Intercepts 401 responses and attempts a refresh, retrying the original request on success or redirecting to `/login` on failure.
+4. Unwraps the `ApiResponse` envelope so callers receive `data` directly; failures become rejected promises carrying the `message`.
 
 ---
 
-## 4. 角色與權限模型
+## 4. Roles and Permission Model
 
-### 4.1 三種使用者角色
+### 4.1 User Roles
 
-本系統定義三種角色，各有不同的權限範圍。類似於學校中「校長」、「老師」、「家長」各有不同的可進入區域與可執行事項。
+| Role | Account Creation | Responsibility |
+|---|---|---|
+| **Admin** | Bootstrapped from `ADMIN_USERNAME` + secret on first start-up | System administration: CSV import/export, fake-data seed, system reset, user administration |
+| **Parent** | Self-registration | Demand side: search tutors, manage children, send invitations, write reviews |
+| **Tutor** | Self-registration | Supply side: maintain profile and availability, accept/reject invitations, record sessions and exams |
 
-| 角色 | 帳號建立方式 | 職責說明 |
-|------|------------|---------|
-| **管理員（Super Admin）** | 系統啟動時自動建立（帳密設定於 `.env` 中） | 管理整個系統——匯入匯出資料、產生假資料、監控系統狀態，相當於網站的站長 |
-| **家長（Parent）** | 自行於註冊頁面建立 | 需求端——搜尋老師、管理子女資料、發送媒合邀請、撰寫評價 |
-| **家教老師（Tutor）** | 自行於註冊頁面建立 | 供給端——管理個人檔案、接受或拒絕邀請、記錄上課日誌與考試成績 |
+### 4.2 Permission Matrix
 
-### 4.2 權限對照表
+| Capability | Admin | Parent | Tutor |
+|---|:--:|:--:|:--:|
+| Admin console | ✓ | ✗ | ✗ |
+| CSV import/export | ✓ | ✗ | ✗ |
+| Generate fake data | ✓ | ✗ | ✗ |
+| Reset database | ✓ | ✗ | ✗ |
+| List all accounts | ✓ | ✗ | ✗ |
+| Search tutors | ✓ | ✓ | ✗ |
+| Manage children | ✗ | ✓ | ✗ |
+| Send invitation | ✗ | ✓ | ✗ |
+| Accept / reject invitation | ✗ | ✗ | ✓ |
+| Write session log | ✗ | ✗ | ✓ |
+| View session log | ✗ | Per `visible_to_parent` | ✓ (own) |
+| Add exam record | ✗ | ✓ | ✓ |
+| View exam record | ✗ | Per `visible_to_parent` | ✓ (own) |
+| Write review | ✗ | ✓ (parent→tutor) | ✓ (tutor→student, tutor→parent) |
+| Send messages | ✓ | ✓ | ✓ |
+| Income statistics | ✗ | ✗ | ✓ (own) |
+| Expense statistics | ✗ | ✓ (own) | ✗ |
+| Edit tutor profile | ✗ | ✗ | ✓ (own) |
 
-下表列出各功能對應的角色權限。
+### 4.3 Page Access Rules
 
-| 功能 | 管理員 | 家長 | 老師 |
-|------|:------:|:----:|:----:|
-| 系統管理後台 | ✓ | ✗ | ✗ |
-| 匯入匯出資料 | ✓ | ✗ | ✗ |
-| 產生假資料 | ✓ | ✗ | ✗ |
-| 清空資料庫 | ✓ | ✗ | ✗ |
-| 查看所有帳號 | ✓ | ✗ | ✗ |
-| 搜尋老師 | ✓ | ✓ | ✗ |
-| 管理子女資料 | ✗ | ✓ | ✗ |
-| 發送媒合邀請 | ✗ | ✓ | ✗ |
-| 接受/拒絕邀請 | ✗ | ✗ | ✓ |
-| 撰寫上課日誌 | ✗ | ✗ | ✓ |
-| 查看上課日誌 | ✗ | 依老師是否設為公開 | ✓（自己的） |
-| 新增考試成績 | ✗ | ✓ | ✓ |
-| 查看考試成績 | ✗ | 依老師是否設為公開 | ✓（自己的） |
-| 撰寫評價 | ✗ | ✓（評老師） | ✓（評學生 + 評家長） |
-| 傳送訊息 | ✓ | ✓ | ✓ |
-| 查看收入統計 | ✗ | ✗ | ✓（自己的） |
-| 查看支出統計 | ✗ | ✓（自己的） | ✗ |
-| 編輯老師個人檔案 | ✗ | ✗ | ✓（自己的） |
+The frontend router enforces a navigation guard that calls `auth.ensureVerified()` — which hits `GET /api/auth/me` — before granting access to any role-gated route. `localStorage.user` is a cache only; the server is authoritative.
 
-### 4.3 頁面存取規則
+| User state | Target route | Behaviour |
+|---|---|---|
+| Unauthenticated | Any guarded route | Redirected to `/login` |
+| Parent | `/tutor/*` or `/admin/*` | Redirected to `/parent` |
+| Tutor | `/parent/*` or `/admin/*` | Redirected to `/tutor` |
+| Admin | Any route | Permitted |
 
-系統會依據使用者的角色，自動決定可進入的頁面：
-
-| 使用者狀態 | 嘗試存取的頁面 | 系統行為 |
-|-----------|-------------|---------|
-| 未登入 | 任何需登入的頁面 | 自動導向登入頁 |
-| 家長帳號 | 老師端頁面或管理員頁面 | 自動導回家長首頁 |
-| 老師帳號 | 家長端頁面或管理員頁面 | 自動導回老師首頁 |
-| 管理員帳號 | 任何頁面 | 皆可存取 |
-
-類似學校的門禁系統——各角色僅能進入其權限範圍內的區域，管理員則擁有全域存取權限。
+The backend independently enforces the same rules via the `require_role()` dependency on every protected endpoint, so client-side bypass attempts cannot escalate privileges.
 
 ---
 
-## 5. 功能模組規格
+## 5. Functional Modules
 
-> 以下依英文字母 A~K 為各功能模組編號。每個模組代表系統中一個獨立的功能區塊。
+The functional surface is organised into eleven modules (A–K). Each module corresponds to a coherent slice of user-facing behaviour.
 
-### 5.1 模組 A：登入與註冊
+### 5.1 Module A — Authentication
 
-本模組為使用者進入系統的第一步。
+#### Registration
 
-#### 註冊流程
+1. The user picks a role (parent or tutor).
+2. The user supplies username, password, display name, phone, and email.
+3. The password is bcrypt-hashed before persistence; the plaintext is never stored.
+4. If the role is tutor, an empty tutor profile is created so the user can edit it after first login.
 
-1. 使用者於註冊頁面選擇身份（家長或老師）
-2. 填寫帳號、密碼、姓名、電話、電子信箱
-3. 密碼經加密後方存入資料庫（不儲存明碼）
-4. 若註冊身份為老師，系統將自動建立一筆空白的老師個人檔案，供後續填寫
+Password policy: minimum 10 characters, must include both letters and digits (enforced server-side). The last five hashes per user are retained in `password_history` and re-use is rejected on password change.
 
-#### 登入流程
+#### Login and Session Lifecycle
 
-1. 輸入帳號與密碼
-2. 驗證通過後，系統簽發一張「通行證」（JWT Token）
-3. 通行證預設有效期限為 60 分鐘，逾期須重新登入
-4. 後續每次操作，前端皆自動攜帶此通行證，無需重複登入
+1. The user submits username and password.
+2. On success, the backend issues an access token (5-minute default, hard-capped at 10) and a refresh token (7 days). Both are delivered as `HttpOnly` cookies, plus a non-`HttpOnly` `csrf_token` cookie for double-submit CSRF.
+3. The frontend's Axios wrapper carries the cookies automatically. When the access token expires, the wrapper transparently calls `/api/auth/refresh` and retries the original request.
+4. `POST /api/auth/logout` invalidates the refresh token by recording its JTI in `refresh_token_blacklist` — checked on every subsequent refresh attempt across all API workers.
 
-#### 管理員帳號
+#### Admin Bootstrap
 
-管理員帳號無需註冊。系統首次啟動時，會自動讀取 `.env` 設定檔中的管理員帳密並寫入資料庫。
+The admin account is not registered via the API. On first start-up the API container reads `ADMIN_USERNAME` (env) and `ADMIN_PASSWORD` (Docker secret) and inserts the row. The startup validator refuses to boot if either is at a placeholder value, if the password fails the strength rule, or if the username is the literal `admin` while `DEBUG=false`.
 
-### 5.2 模組 B：訊息系統
+### 5.2 Module B — Messaging
 
-本模組提供一對一的純文字即時訊息功能，概念上類似 LINE 的文字聊天，但不含貼圖、檔案傳送或已讀標記。
+One-to-one plain-text messaging between any two registered users.
 
-#### 設計原則
+| Rule | Detail |
+|---|---|
+| Uniqueness | Exactly one conversation per ordered pair of users; a database trigger swaps `(user_a_id, user_b_id)` so the smaller ID is always first, and a unique index enforces it |
+| Content | Plain text only — no attachments, stickers, or read receipts |
+| Initiation | Any user may open a conversation with any other user; opening from a tutor detail page reuses any existing conversation |
 
-- 任意兩位使用者之間最多存在一個對話（不會重複建立）
-- 僅支援純文字訊息
-- 任何使用者皆可主動向其他使用者開啟對話
+| UI | Description |
+|---|---|
+| Conversation list | Sorted by `last_message_at`; shows the counterparty name and the most recent message snippet |
+| Chat view | Chronological message stream with a text input and send button; messages are fetched in pages via a `before_id` cursor (limit 1–500) |
+| Rate limits | 30 messages per conversation per minute and 100 messages per user per hour (global) |
 
-#### 功能清單
+### 5.3 Module C — Tutor Search and Profile
 
-| 功能 | 說明 |
-|------|------|
-| 對話列表 | 依最新訊息時間排列，顯示對方姓名與最新訊息摘要 |
-| 聊天頁面 | 依時間順序顯示雙方訊息，底部設有文字輸入區與送出按鈕 |
-| 開啟新對話 | 於老師詳情頁點擊「傳送訊息」即可開啟對話；若雙方已有既存對話，則自動導向該對話 |
+#### Search
 
-### 5.3 模組 C：搜尋老師與個人檔案
+Filters can be combined:
 
-#### 搜尋頁面
+| Filter | Mechanism | Notes |
+|---|---|---|
+| Subject | Drop-down | Restricts to tutors teaching the chosen subject |
+| Hourly rate range | Min / max numeric inputs | Filters on `tutor_subjects.hourly_rate` |
+| Minimum rating | Numeric input | Filters on the materialised review-stats average |
+| School / university | Text input | Substring match on `tutors.university` |
 
-**篩選條件**（可組合使用）
+Sort options: highest rating, lowest hourly rate, most recently registered.
 
-| 條件 | 操作方式 | 說明 |
-|------|---------|------|
-| 科目 | 下拉選單 | 例如選「數學」，僅顯示可教數學的老師 |
-| 時薪範圍 | 填寫最低與最高金額 | 例如 500~800，僅顯示時薪落於此區間的老師 |
-| 最低評分 | 填寫數字 | 例如填 4，僅顯示平均評分 4 分以上的老師 |
-| 學校 | 文字輸入 | 例如輸入「台大」，以模糊比對找出學校名稱含「台大」的老師 |
+Result cards always show name, average rating, and review count. Tutors control visibility of: university, department, grade year, hourly rate, and subjects. Hidden fields are stripped server-side before the response is sent — `localStorage` tampering on the client cannot expose them.
 
-**排序方式**（三選一）
+#### Tutor Detail
 
-- 評分最高優先
-- 時薪最低優先
-- 最新註冊優先
+| Section | Content |
+|---|---|
+| Self-introduction | Free-text bio and teaching experience |
+| Reviews | Radar chart of the four numeric rating dimensions and a paginated review list |
+| Availability | Weekly time-slot calendar |
+| Capacity | Active students / `max_students` |
+| Actions | "Send message", "Send invitation" |
 
-**老師卡片的顯示內容**
+#### Profile Editing
 
-- **系統強制顯示**：老師姓名、平均評分、評價數量
-- **由老師自行控制是否公開**：學校、科系、年級、時薪、可教科目
+| Category | Editable fields |
+|---|---|
+| Basic | Name, university, department, grade year, self-intro, teaching experience |
+| Teaching | Teachable subjects (per-subject hourly rate), `max_students` |
+| Availability | Weekly recurring time slots (day of week + start/end times) |
+| Visibility | Per-field flags: `show_university`, `show_department`, `show_grade_year`, `show_hourly_rate`, `show_subjects` |
 
-此頁面的運作方式類似 Airbnb 的搜尋功能——設定篩選條件後，結果以卡片列表呈現，每張卡片包含關鍵資訊。
+### 5.4 Module D — Matching and Contracts
 
-#### 老師詳情頁
+#### Lifecycle
 
-| 區塊 | 內容 |
-|------|------|
-| 自我介紹 | 完整的自介文字與教學經歷 |
-| 評價 | 各維度平均分數的雷達圖（蜘蛛網圖），以及歷史評價列表 |
-| 接案狀態 | 已接學生數 / 接案上限（例如「已接 3 位 / 上限 5 位」） |
-| 可用時段 | 以行事曆形式呈現每週可用時段 |
-| 操作按鈕 | 「傳送訊息」與「送出邀請」 |
-
-#### 老師個人檔案編輯
-
-| 類別 | 可編輯欄位 |
-|------|----------|
-| 基本資料 | 姓名、學校、科系、年級、自我介紹、教學經歷 |
-| 教學設定 | 可教科目（各科可設定不同時薪）、最大接案學生數 |
-| 時段設定 | 每週哪幾天的哪些時段有空 |
-| 隱私設定 | 控制學校、科系、年級、時薪、科目等欄位是否對外公開 |
-
-### 5.4 模組 D：媒合流程與合約
-
-本模組是系統中最核心的部分。一段配對從「送出邀請」到「合作結束」，會經歷多個階段。
-
-#### 配對生命週期
+A match progresses through a defined set of states. The state machine lives in `app/matching/domain/state_machine.py` and is unit-tested independently of HTTP and persistence.
 
 ```
-  [pending] -----> [cancelled]
-  等待中    家長撤回   已撤回
-    |
-    +-- 老師拒絕 --> [rejected] 已拒絕
-    |
-    +-- 老師接受
-          |
-          +-- 有勾試教 --> [trial] --> 雙方滿意 --> [active]
-          |                試教中      不滿意 ----> [rejected]
-          |
-          +-- 沒勾試教 --> [active]
-                          正式上課
-                            |
-              [paused] <--> + <-- 暫停 / 恢復
-              暫停中        |
-                            +-- 任一方提出終止
-                            |
-                            v
-                      [terminating]
-                      等對方同意
-                            |
-                  +---------+---------+
-                  |                   |
-             對方同意            對方不同意
-                  |                   |
-                  v                   v
-              [ended]           回到之前狀態
-              已結束            繼續上課
-                  |
-             開放撰寫評價
-             (7 天內可修改)
+                  [Parent sends invitation]
+                              │
+                           pending
+                          /        \
+              [Parent cancels]    [Tutor rejects]
+                  │                    │
+              cancelled              rejected
+                                       
+                  [Tutor accepts, no trial]
+                              │
+                           active
+                              
+                  [Tutor accepts, with trial]
+                              │
+                            trial
+                           /       \
+              [Either confirms]   [Either rejects]
+                  │                    │
+                active                rejected
+                  │
+                  ├──── pause ──── paused
+                  │                  │
+                  └─── resume ◄──────┘
+                  │
+                  │   [Either party initiates termination]
+                  ▼
+              terminating
+              /          \
+   [Other party agrees]  [Other party disagrees]
+       │                       │
+     ended            revert to active or paused
+       │
+   [Reviews open; lock after 7 days]
 ```
 
-#### 狀態轉換規則（完整版）
+#### Transition Table
 
-| 目前狀態 | 操作者 | 執行動作 | 轉換至 |
-|---------|--------|---------|-------|
-| 等待中 pending | 家長 | 撤回邀請 | 已撤回 cancelled |
-| 等待中 pending | 老師 | 拒絕邀請 | 已拒絕 rejected |
-| 等待中 pending | 老師 | 接受邀請 | 試教 trial 或 正式 active（依是否勾選試教而定） |
-| 試教 trial | 雙方皆確認 | 試教通過 | 正式 active |
-| 試教 trial | 任一方 | 試教不滿意 | 已拒絕 rejected |
-| 正式 active | 任一方 | 暫停 | 暫停 paused |
-| 正式 active | 任一方 | 提出終止 | 等待終止確認 terminating |
-| 暫停 paused | 任一方 | 恢復 | 正式 active |
-| 暫停 paused | 任一方 | 提出終止 | 等待終止確認 terminating |
-| 等待終止 terminating | 對方 | 同意終止 | 已結束 ended |
-| 等待終止 terminating | 對方 | 不同意 | 回到提出終止前的狀態 |
+| Current Status | Action | Allowed Actor | New Status |
+|---|---|---|---|
+| `pending` | `cancel` | Parent | `cancelled` |
+| `pending` | `reject` | Tutor | `rejected` |
+| `pending` | `accept` | Tutor | `trial` if `want_trial=true`, else `active` |
+| `trial` | `confirm_trial` | Either party | `active` |
+| `trial` | `reject_trial` | Either party | `rejected` |
+| `active` | `pause` | Either party | `paused` |
+| `active` | `terminate` | Either party | `terminating` |
+| `paused` | `resume` | Either party | `active` |
+| `paused` | `terminate` | Either party | `terminating` |
+| `terminating` | `agree_terminate` | Other party only | `ended` |
+| `terminating` | `disagree_terminate` | Other party only | Reverts to pre-termination status (`active` or `paused`) |
 
-#### 合約條款
+Admins bypass actor checks except for `OTHER_PARTY` transitions, which always require the non-initiating party to act — an admin cannot unilaterally finalise a termination.
 
-配對進入正式階段時，須記錄以下合約內容：
+#### Contract Terms
 
-| 欄位 | 說明 |
-|------|------|
-| 正式時薪 | 每小時費用 |
-| 每週堂數 | 約定之每週上課次數 |
-| 合約起始日 | 開始日期 |
-| 合約結束日 | 結束日期（可留空，終止時再填入） |
-| 違約金 | 提前終止之違約金金額 |
-| 試教費 | 試教期間的單堂費用（通常低於正式時薪） |
-| 試教次數 | 約定之試教次數 |
-| 附加條款 | 其他雙方自訂之備註事項 |
+Recorded on the match record:
 
-#### 邀請附帶資訊
+| Field | Notes |
+|---|---|
+| `hourly_rate` | Per-hour fee |
+| `sessions_per_week` | Agreed weekly session count |
+| `start_date` | Engagement start date |
+| `end_date` | Engagement end date (filled in at termination) |
+| `penalty_amount` | Early-termination penalty |
+| `trial_price` | Trial-session rate (typically lower than `hourly_rate`) |
+| `trial_count` | Agreed number of trial sessions |
+| `contract_notes` | Free-text addenda |
 
-| 欄位 | 必填 | 說明 |
-|------|:----:|------|
-| 指定子女 | ✓ | 從已建立之子女清單中選取 |
-| 科目 | ✓ | 從老師可教授之科目中選取 |
-| 建議時薪 | ✓ | 家長提議之金額 |
-| 建議每週堂數 | ✓ | 希望的每週上課次數 |
-| 是否試教 | ✓ | 勾選後配對將先進入試教階段 |
-| 留言 | 選填 | 向老師說明教學需求或期望 |
+#### Invitation Payload
 
-### 5.5 模組 E：上課日誌
+| Field | Required | Notes |
+|---|:--:|---|
+| `student_id` | ✓ | One of the parent's registered children |
+| `subject_id` | ✓ | Must be a subject the tutor teaches |
+| `hourly_rate` | ✓ | Parent's proposed rate |
+| `sessions_per_week` | ✓ | Parent's proposed cadence |
+| `want_trial` | ✓ | If true, accept sends the match into `trial` |
+| `invite_message` | optional | Free-text message to the tutor |
 
-每次上課結束後，老師可於系統中記錄一篇上課紀錄，包含教學內容、指派作業、學生表現等。家長可依老師設定的公開狀態查閱相關紀錄。
+Invitations carry an `Idempotency-Key` header; duplicates are deduplicated via the `idempotency_keys` table so a retried request never creates a second match. Per-(tutor, parent) bucket rate limit: 10 invites per hour.
 
-#### 日誌欄位
+### 5.5 Module E — Session Logs
 
-| 欄位 | 必填 | 說明 |
-|------|:----:|------|
-| 上課日期 | ✓ | 日期選擇 |
-| 上課時數 | ✓ | 支援小數，例如 1.5 小時 |
-| 內容摘要 | ✓ | 本次教學內容 |
-| 指派作業 | 選填 | 課後作業內容 |
-| 學生表現 | 選填 | 老師對學生當堂表現的觀察 |
-| 下次預計進度 | 選填 | 下次上課的預計教學範圍 |
-| 是否公開給家長 | ✓ | 預設為不公開，老師可自行決定是否讓家長看到 |
+After every lesson the tutor records one session entry.
 
-#### 權限規則
+| Field | Required | Notes |
+|---|:--:|---|
+| `session_date` | ✓ | Date picker |
+| `hours` | ✓ | Decimal (e.g. 1.5) |
+| `content_summary` | ✓ | What was taught |
+| `homework` | optional | Assigned homework |
+| `student_performance` | optional | In-class observation |
+| `next_plan` | optional | Plan for the next session |
+| `visible_to_parent` | ✓ | Defaults to `false`; the tutor decides per session |
 
-- 僅配對中的老師可新增與編輯上課日誌
-- 家長僅能查看老師設為「公開」的日誌
-- 家長首頁（Dashboard）會自動顯示所有子女最近的已公開日誌
+Permissions:
 
-#### 修改歷史
+- Only the match's tutor may create or edit sessions.
+- Parents see only sessions where `visible_to_parent=true`.
+- The parent dashboard surfaces the most recent visible sessions per child.
 
-日誌送出後仍允許修改，但每次修改皆會自動留下紀錄，包含：被修改的欄位、修改前內容、修改後內容、修改時間。概念類似 Google Docs 的版本紀錄。
+Edit history: every edit appends one row per changed field to `session_edit_logs` (field name, old value, new value, edited-at), giving a Google-Docs-style audit trail. Edit-log access is gated to match participants.
 
-### 5.6 模組 F：考試紀錄
+Rate limit: 10 session creations per match per minute.
 
-#### 紀錄欄位
+### 5.6 Module F — Exam Records
 
-| 欄位 | 必填 | 說明 |
-|------|:----:|------|
-| 考試日期 | ✓ | 日期選擇 |
-| 科目 | ✓ | 從科目清單中選取 |
-| 考試類型 | ✓ | 段考、小考、模擬考、或其他 |
-| 分數 | ✓ | 數字 |
-| 是否公開給家長 | ✓ | 同上課日誌 |
+| Field | Required | Notes |
+|---|:--:|---|
+| `exam_date` | ✓ | Date picker |
+| `subject_id` | ✓ | From the subject catalogue |
+| `exam_type` | ✓ | One of: 段考 / 小考 / 模擬考 / 其他 (mid-term, quiz, mock, other) |
+| `score` | ✓ | Numeric |
+| `visible_to_parent` | ✓ | Same semantics as session logs |
 
-#### 權限規則
+Permissions:
 
-- 老師與家長皆可新增考試紀錄
-- 老師新增之紀錄，依「是否公開」決定家長是否可見
-- 家長自行新增之紀錄，一律設為公開
+- Both tutors and parents may add exam records.
+- Tutor-added records honour `visible_to_parent`.
+- Parent-added records are always visible to that parent.
 
-#### 進步幅度計算
+Progress delta is not stored; the frontend computes consecutive differences from a same-subject query (e.g. 72 → 85 → 90 yields deltas of +13 and +5).
 
-進步幅度不另存於資料庫。前端取得同一學生同一科目的歷次考試分數後，計算相鄰兩次的分數差值。
+Rate limit: 20 exam writes per student per user per minute.
 
-> 範例：某學生數學段考 72 → 85 → 90，進步幅度依序為 +13、+5。
+### 5.7 Module G — Three-Way Review System
 
-### 5.7 模組 G：三向評價系統
+A finished match opens three independent review directions:
 
-一般平台僅有「消費者評供應者」的單向評價。本系統則設計了三個方向的評價機制，於合作結束後分別進行：
+1. Parent → tutor (teaching quality?)
+2. Tutor → student (learning attitude?)
+3. Tutor → parent (cooperation?)
 
-1. 家長 → 評老師（教學品質如何？）
-2. 老師 → 評學生（學習態度如何？）
-3. 老師 → 評家長（配合度如何？）
+#### Dimensions
 
-#### 各方向的評分維度
+**Parent → tutor**
 
-**家長評老師**
+| Dimension | Scale |
+|---|---|
+| Teaching quality | 1–5 |
+| Punctuality | 1–5 |
+| Student progress | 1–5 |
+| Communication | 1–5 |
+| Personality comment | Free text |
+| Overall comment | Free text |
 
-| 評分項目 | 分數範圍 |
-|---------|---------|
-| 教學品質 | 1~5 分 |
-| 準時度 | 1~5 分 |
-| 學生進步程度 | 1~5 分 |
-| 溝通態度 | 1~5 分 |
-| 性格評價 | 文字描述 |
-| 整體評論 | 文字描述 |
+**Tutor → student**
 
-**老師評學生**
+| Dimension | Scale |
+|---|---|
+| Learning attitude | 1–5 |
+| Homework completion | 1–5 |
+| Personality comment | Free text |
+| Overall comment | Free text |
 
-| 評分項目 | 分數範圍 |
-|---------|---------|
-| 學習態度 | 1~5 分 |
-| 作業完成度 | 1~5 分 |
-| 性格評價 | 文字描述 |
-| 整體評論 | 文字描述 |
+**Tutor → parent**
 
-**老師評家長**
+| Dimension | Scale |
+|---|---|
+| Cooperation (punctuality, no last-minute cancellations) | 1–5 |
+| Communication (responsiveness, respect) | 1–5 |
+| Payment timeliness | 1–5 |
+| Personality comment | Free text |
+| Overall comment | Free text |
 
-| 評分項目 | 分數範圍 |
-|---------|---------|
-| 配合度（準時、不臨時取消） | 1~5 分 |
-| 溝通態度（聯絡便利、尊重程度） | 1~5 分 |
-| 繳費準時度 | 1~5 分 |
-| 性格評價 | 文字描述 |
-| 整體評論 | 文字描述 |
+#### Rules
 
-#### 評價規則
+| Rule | Detail |
+|---|---|
+| Trigger | Reviews open only after the match reaches `ended` |
+| Cardinality | One review per `(match_id, reviewer_user_id, review_type)` |
+| Edit window | The author may edit within `REVIEW_LOCK_DAYS` (default 7) |
+| Lock mechanism | A scheduled task (`lock_expired_reviews`, daily 03:00 UTC) sets `is_locked=true` on expired rows; the `PATCH` endpoint also re-checks the timestamp on every call |
 
-| 規則 | 說明 |
-|------|------|
-| 觸發時機 | 配對狀態變為「已結束 ended」後方可撰寫 |
-| 次數限制 | 每段配對之每個方向僅限撰寫一次 |
-| 修改期限 | 送出後 **7 天內**可修改，逾期鎖定 |
-| 鎖定機制 | 後端比對評價建立時間與目前時間，超過 7 天即拒絕修改 |
+#### Presentation
 
-#### 評價呈現方式
+- **Tutor detail page** — radar chart of the four numeric dimensions, sourced from the `v_review_stats` materialised view, plus a paginated review list.
+- **Match detail page** — all three directions' reviews shown to match participants only.
 
-- **老師詳情頁**：以雷達圖呈現四個維度的平均分數，下方列出歷史評價
-- **配對詳情頁**：顯示該配對之所有方向評價
+### 5.8 Module H — Dashboards
 
-### 5.8 模組 H：首頁 Dashboard
+The dashboard is the first page each user sees after login.
 
-Dashboard 為登入後的首頁，彙整顯示使用者最需關注的資訊，功能類似手機的通知中心。
+#### Tutor Dashboard
 
-#### 老師首頁
+| Block | Content |
+|---|---|
+| Summary cards | Active students / `max_students`, current month income, pending invitation count |
+| Pending | Invitations awaiting response |
+| In progress | All non-terminal matches (active, trial, paused) with click-through to detail |
 
-| 區塊 | 顯示內容 |
-|------|---------|
-| 摘要卡片 | 目前學生數 / 接案上限、本月收入金額、待處理邀請數量 |
-| 待處理 | 尚待回覆的邀請清單 |
-| 進行中 | 目前所有進行中的配對（正式上課、試教中、暫停中），可點擊進入詳情 |
+#### Parent Dashboard
 
-#### 家長首頁
+| Block | Content |
+|---|---|
+| Children list | Each child's name and current match status |
+| Outgoing invitations | Sent but not yet answered |
+| Recent activity | Latest visible session logs across all children |
+| Latest exam scores | Latest visible exam records per child |
 
-| 區塊 | 顯示內容 |
-|------|---------|
-| 子女列表 | 各子女姓名及目前配對狀態一覽 |
-| 待回覆邀請 | 已送出但尚未獲得老師回覆的邀請 |
-| 最近動態 | 所有子女最新的已公開上課日誌 |
-| 最新成績 | 各子女最近的已公開考試成績 |
+**Implementation note:** "Recent activity" and "Latest exam scores" have no cross-match aggregation endpoint. The frontend fans out to `GET /api/matches/{match_id}/sessions` and the exam endpoints once per active match per child (N matches → N requests).
 
-> **實作說明**：「最近動態」與「最新成績」無跨配對聚合端點；前端依各子女的進行中配對逐一呼叫 `GET /api/matches/{match_id}/sessions` 及考試紀錄端點，共 N 個配對即發出 N 次請求。
+### 5.9 Module I — Statistics and Reports
 
-### 5.9 模組 I：統計報表
+#### Tutor Income
 
-#### 老師收入統計
+- Group by month / student / subject.
+- Formula: Σ(`hours` × `hourly_rate`) over sessions in the chosen window.
+- Rendered as bar chart plus tabular breakdown.
+- Computation runs asynchronously via Huey so the UI stays responsive.
 
-- 支援三種分群維度：**按月份** / **按學生** / **按科目**
-- 計算公式：`上課時數 x 時薪` 之加總
-- 畫面呈現：柱狀圖搭配數據表格
-- 計算透過背景任務執行，不阻塞使用者畫面
+#### Parent Expense
 
-#### 家長支出統計
+- Symmetric to tutor income; group by month / child / subject.
+- Same formula and dispatch model.
 
-- 與老師收入統計對稱，支援按月份 / 按子女 / 按科目分群
-- 計算公式相同
+#### Student Progress
 
-#### 學生成績趨勢
+- **Line chart** — X axis exam date, Y axis score, with subject filter.
+- **Table** — exam-by-exam listing with the delta from the previous same-subject score.
+- Synchronous endpoint; access is gated to the student's parent, any tutor with an active match for that student, or an admin.
 
-- **折線圖**：X 軸為考試日期，Y 軸為分數，支援按科目篩選
-- **表格**：列出歷次考試，各筆顯示與同科目上次考試之分數差值
+### 5.10 Module J — Import / Export and Fake Data
 
-### 5.10 模組 J：資料匯入匯出與假資料
+#### Export
 
-#### 匯出
+- All exportable tables can be downloaded as CSV.
+- `users` and `password_history` are excluded from the exportable list (they contain password hashes).
+- A "one-click export-all" endpoint streams a ZIP of every exportable table.
 
-- 可匯出的資料表皆支援匯出為 **CSV 檔案**（可用 Excel 開啟；`users` 表因含密碼雜湊而排除於匯出清單之外）
-- 匯出操作透過背景任務執行，不阻塞畫面，完成後提供下載
+#### Import
 
-#### 匯入
+- Two mutually exclusive modes selected by query string:
+  - **Upsert** (`?upsert=true`) — primary-key match, update if present, insert if absent.
+  - **Overwrite** (`?clear_first=true`, admin only) — truncate the target table and bulk insert.
+- Body cap is 50 MB; the `Content-Type` is validated as `text/csv` (or `application/zip` for import-all). Per-file row cap: 50 000 rows.
+- These admin routes currently execute synchronously inside the request handler; the corresponding Huey task definitions exist in `app/tasks/import_export.py` but are not dispatched by the current routes.
 
-- 提供兩種模式（互斥，透過 query string 指定）：
-  - **比對更新（upsert）**：`?upsert=true`；依主鍵比對，存在則更新，不存在則新增
-  - **完全覆蓋（overwrite）**：`?clear_first=true`；清空目標表後全量寫入（僅管理員可用）
-- 同樣透過背景任務執行
+#### Fake Data Generator
 
-#### 假資料生成器
+A built-in generator produces realistic seed data (Taiwanese names, university names, sensible rating distributions, plausible review comments) so the demo dataset can be reproduced with a single click. The Huey task definition exists in `app/tasks/seed_tasks.py`; the current admin `/seed` route runs the generator synchronously.
 
-展示時需要一定數量的資料，但逐筆手動輸入並不實際。因此系統內建假資料產生器，可一鍵自動生成具有合理樣貌的假資料——包含中文姓名、台灣大專院校名稱、合理的評分分布與評語等。
+### 5.11 Module K — Admin Console
 
-### 5.11 模組 K：管理員後台
-
-管理員專用的控制台，一般使用者無法存取。
-
-| 功能 | 說明 |
-|------|------|
-| 匯入/匯出 | 可選擇單張或全部資料表進行匯入或匯出 |
-| 清空資料庫 | 刪除所有資料（保留管理員帳號與表結構），操作前有確認提示 |
-| 使用者管理 | 查看所有帳號列表，支援搜尋 |
-| 系統狀態 | 顯示統計數據：總帳號數、老師數、家長數、配對數等 |
-| 假資料生成 | 觸發背景任務產生並匯入假資料，介面顯示執行進度 |
+| Function | Description |
+|---|---|
+| Import / Export | Per-table CSV operations and a one-click all-tables ZIP variant |
+| Database reset | Two-step flow with a 5-minute reset token and password re-confirmation; automatic backup (including `users`) before truncation; limited to once per admin per 7 days |
+| User administration | List all accounts; force password reset (revokes all of the user's refresh tokens via `user_token_revocations`); GDPR-style anonymisation (`POST /api/admin/users/{user_id}/anonymize`) that retains `user_id` so foreign-key audit trails survive |
+| System status | Aggregate counters: per-table row counts, role distribution, match-status distribution, connection-pool stats |
+| Fake-data seed | Triggers the seed generator and displays progress |
+| Task status | Polls Huey for the status of any dispatched background task |
 
 ---
 
-<!-- ============================================================ -->
-<!-- 以下為技術規格區（第 6~13 節 -->
-<!-- ============================================================ -->
+## 6. Database Design
 
-## 6. 資料庫設計
+The authoritative database schema reference — including the full ER diagram, type rationale, index list, constraints, triggers, and materialised views — lives in [`docs/database-schema.md`](database-schema.md). This section summarises the layout for orientation.
 
-### 6.1 資料表總覽
+### 6.1 Table Inventory
 
-本系統共設計 19 張資料表，以下依功能分群列示。
+19 tables and 2 materialised views on PostgreSQL 16.
 
-**身份與角色**（4）：Users、Tutors、Students、Password_History
-**科目與時段**（3）：Subjects、Tutor_Subjects、Tutor_Availability
-**溝通**（2）：Conversations、Messages
-**媒合與合約**（1）：Matches
-**教學紀錄**（3）：Sessions、Session_Edit_Logs、Exams
-**評價**（1）：Reviews
-**基礎設施**（5）：Idempotency_Keys、Refresh_Token_Blacklist、User_Token_Revocations、Rate_Limit_Hits、Audit_Log
+| Domain | Tables | Count |
+|---|---|---|
+| Identity & Authorization | `users`, `tutors`, `students`, `refresh_token_blacklist`, `password_history` | 5 |
+| Teaching Catalog | `subjects`, `tutor_subjects`, `tutor_availability` | 3 |
+| Messaging | `conversations`, `messages` | 2 |
+| Matching & Contracts | `matches` | 1 |
+| Teaching Records | `sessions`, `session_edit_logs`, `exams` | 3 |
+| Reviews & Ratings | `reviews` | 1 |
+| Infrastructure | `rate_limit_hits`, `audit_log`, `idempotency_keys`, `user_token_revocations` | 4 |
 
-計 **14 張業務資料表** + **5 張基礎設施資料表** = **19 張**。
+Materialised views: `v_tutor_active_students` (active matches per tutor for the capacity check), `v_review_stats` (aggregated rating averages per tutor).
 
-### 6.2 各表欄位規格
+### 6.2 Table Field Reference
 
-#### 6.2.1 Users（使用者帳號）
+The tables below show columns relevant to application-level logic. For the complete schema with full type and index detail consult `database-schema.md`.
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| user_id | AutoNumber | PK | 主鍵 |
-| username | VARCHAR(100) | UNIQUE, NOT NULL | 登入帳號 |
-| password_hash | Text(255) | NOT NULL | bcrypt 雜湊密碼 |
-| role | Text(10) | NOT NULL | `tutor` / `parent` / `admin` |
-| display_name | VARCHAR(100) | NOT NULL | 顯示名稱 |
-| phone | Text(20) | | 聯絡電話 |
-| email | Text(100) | | 電子信箱 |
-| created_at | DateTime | NOT NULL | 帳號建立時間 |
+#### 6.2.1 `users`
 
-#### 6.2.2 Tutors（老師延伸資料）
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| user_id | SERIAL | PK | Surrogate key |
+| username | VARCHAR(100) | UNIQUE, NOT NULL | Login identifier |
+| password_hash | VARCHAR(255) | NOT NULL | bcrypt hash |
+| role | VARCHAR(10) | NOT NULL, CHECK in (`tutor`,`parent`,`admin`) | Account role |
+| display_name | VARCHAR(100) | NOT NULL | Display name |
+| phone | VARCHAR(20) | | Contact phone |
+| email | VARCHAR(100) | | Email address |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | Account creation |
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| tutor_id | AutoNumber | PK | 主鍵 |
-| user_id | Long Integer | FK → Users, UNIQUE | 對應帳號 |
-| university | Text(50) | | 就讀大學 |
-| department | Text(50) | | 科系 |
-| grade_year | Integer | | 年級 |
-| self_intro | Memo | | 自我介紹 |
-| teaching_experience | Memo | | 教學經歷 |
-| max_students | Integer | DEFAULT 5 | 最大接案學生數 |
-| show_university | Yes/No | DEFAULT Yes | 是否公開學校 |
-| show_department | Yes/No | DEFAULT Yes | 是否公開科系 |
-| show_grade_year | Yes/No | DEFAULT Yes | 是否公開年級 |
-| show_hourly_rate | Yes/No | DEFAULT Yes | 是否公開時薪 |
-| show_subjects | Yes/No | DEFAULT Yes | 是否公開可教科目 |
+#### 6.2.2 `tutors`
 
-#### 6.2.3 Students（學生）
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| tutor_id | SERIAL | PK | Surrogate key |
+| user_id | INTEGER | FK → users, UNIQUE | One-to-one with account |
+| university | VARCHAR(50) | | University |
+| department | VARCHAR(50) | | Department |
+| grade_year | SMALLINT | | Academic year |
+| self_intro | TEXT | | Self-introduction |
+| teaching_experience | TEXT | | Teaching background |
+| max_students | SMALLINT | NOT NULL DEFAULT 5 | Capacity cap |
+| show_university | BOOLEAN | NOT NULL DEFAULT TRUE | Visibility flag |
+| show_department | BOOLEAN | NOT NULL DEFAULT TRUE | Visibility flag |
+| show_grade_year | BOOLEAN | NOT NULL DEFAULT TRUE | Visibility flag |
+| show_hourly_rate | BOOLEAN | NOT NULL DEFAULT TRUE | Visibility flag |
+| show_subjects | BOOLEAN | NOT NULL DEFAULT TRUE | Visibility flag |
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| student_id | AutoNumber | PK | 主鍵 |
-| parent_user_id | Long Integer | FK → Users, NOT NULL | 所屬家長帳號 |
-| name | Text(50) | NOT NULL | 學生姓名 |
-| school | Text(50) | | 目前就讀學校 |
-| grade | Text(20) | | 年級 |
-| target_school | Text(50) | | 目標學校 |
-| parent_phone | Text(20) | | 家長電話 |
-| notes | Memo | | 備註 |
+#### 6.2.3 `students`
 
-#### 6.2.4 Subjects（科目）
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| student_id | SERIAL | PK | Surrogate key |
+| parent_user_id | INTEGER | FK → users, NOT NULL | Owning parent |
+| name | VARCHAR(50) | NOT NULL | Student name |
+| school | VARCHAR(50) | | Current school |
+| grade | VARCHAR(20) | | Grade |
+| target_school | VARCHAR(50) | | Target school |
+| parent_phone | VARCHAR(20) | | Contact phone |
+| notes | TEXT | | Free-text notes |
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| subject_id | AutoNumber | PK | 主鍵 |
-| subject_name | Text(30) | NOT NULL, UNIQUE | 科目名稱 |
-| category | VARCHAR(30) | NOT NULL | 分類：`math` / `science` / `lang` / `other` |
+A parent may register at most 20 students.
 
-#### 6.2.5 Tutor_Subjects（老師可教科目）
+#### 6.2.4 `subjects`
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| tutor_id | Long Integer | FK → Tutors, 聯合 PK | 老師 |
-| subject_id | Long Integer | FK → Subjects, 聯合 PK | 科目 |
-| hourly_rate | Currency | NOT NULL | 該科目之時薪 |
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| subject_id | SERIAL | PK | Surrogate key |
+| subject_name | VARCHAR(30) | UNIQUE, NOT NULL | Subject name |
+| category | VARCHAR(30) | NOT NULL | `math` / `science` / `lang` / `other` |
 
-#### 6.2.6 Tutor_Availability（老師可用時段）
+Seeded on first startup; the `GET /api/subjects` endpoint is unauthenticated.
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| availability_id | AutoNumber | PK | 主鍵 |
-| tutor_id | Long Integer | FK → Tutors, NOT NULL | 老師 |
-| day_of_week | Integer | NOT NULL, 1–7 | 星期（1=週一 ~ 7=週日） |
-| start_time | DateTime | NOT NULL | 起始時間 |
-| end_time | DateTime | NOT NULL | 結束時間 |
+#### 6.2.5 `tutor_subjects`
 
-#### 6.2.7 Conversations（對話）
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| tutor_id | INTEGER | FK → tutors, composite PK | Tutor |
+| subject_id | INTEGER | FK → subjects, composite PK | Subject |
+| hourly_rate | NUMERIC(10,2) | NOT NULL | Per-subject hourly rate |
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| conversation_id | AutoNumber | PK | 主鍵 |
-| user_a_id | Long Integer | FK → Users, NOT NULL | 對話者 A |
-| user_b_id | Long Integer | FK → Users, NOT NULL | 對話者 B |
-| created_at | DateTime | NOT NULL | 建立時間 |
-| last_message_at | DateTime | | 最後訊息時間（供排序用） |
+#### 6.2.6 `tutor_availability`
 
-**限制**：同一對 `(user_a_id, user_b_id)` 僅允許存在一筆紀錄。查詢時需同時考慮 `(A, B)` 與 `(B, A)` 之組合。
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| availability_id | SERIAL | PK | Surrogate key |
+| tutor_id | INTEGER | FK → tutors, NOT NULL | Tutor |
+| day_of_week | SMALLINT | NOT NULL, CHECK BETWEEN 1 AND 7 | 1 = Monday … 7 = Sunday |
+| start_time | TIME | NOT NULL | Slot start |
+| end_time | TIME | NOT NULL | Slot end |
 
-#### 6.2.8 Messages（訊息）
+#### 6.2.7 `conversations`
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| message_id | AutoNumber | PK | 主鍵 |
-| conversation_id | Long Integer | FK → Conversations, NOT NULL | 所屬對話 |
-| sender_user_id | Long Integer | FK → Users, NOT NULL | 發送者 |
-| content | Memo | NOT NULL | 訊息內容（純文字） |
-| sent_at | DateTime | NOT NULL | 發送時間 |
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| conversation_id | SERIAL | PK | Surrogate key |
+| user_a_id | INTEGER | FK → users, NOT NULL | Lower-ID participant |
+| user_b_id | INTEGER | FK → users, NOT NULL | Higher-ID participant |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | Created |
+| last_message_at | TIMESTAMPTZ | | Sort key for the conversation list |
 
-#### 6.2.9 Matches（媒合配對與合約條款）
+A `BEFORE INSERT/UPDATE` trigger (`fn_conversations_order_pair`) swaps the two user IDs if reversed; a unique index on `(user_a_id, user_b_id)` then enforces single-thread-per-pair without callers having to know the canonical order.
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| match_id | AutoNumber | PK | 主鍵 |
-| tutor_id | Long Integer | FK → Tutors, NOT NULL | 老師 |
-| student_id | Long Integer | FK → Students, NOT NULL | 學生 |
-| subject_id | Long Integer | FK → Subjects, NOT NULL | 科目 |
-| status | Text(15) | NOT NULL, DEFAULT 'pending' | 當前狀態 |
-| invite_message | Memo | | 家長邀請留言 |
-| want_trial | Yes/No | DEFAULT No | 是否試教 |
-| hourly_rate | Currency | | 正式時薪 |
-| sessions_per_week | Integer | | 每週堂數 |
-| start_date | Date | | 合約起始日期 |
-| end_date | Date | | 合約結束日期 |
-| penalty_amount | Currency | | 違約金 |
-| trial_price | Currency | | 試教價格 |
-| trial_count | Integer | | 試教次數 |
-| contract_notes | Memo | | 附加條款 |
-| terminated_by | Long Integer | FK → Users | 提出終止之使用者 |
-| termination_reason | Memo | | 終止原因 |
-| created_at | DateTime | NOT NULL | 建立時間 |
-| updated_at | DateTime | NOT NULL | 最後狀態變更時間 |
+#### 6.2.8 `messages`
 
-#### 6.2.10 Sessions（上課日誌）
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| message_id | SERIAL | PK | Surrogate key |
+| conversation_id | INTEGER | FK → conversations, NOT NULL | Owning conversation |
+| sender_user_id | INTEGER | FK → users, NOT NULL | Sender |
+| content | TEXT | NOT NULL | Plain text |
+| sent_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | Send time |
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| session_id | AutoNumber | PK | 主鍵 |
-| match_id | Long Integer | FK → Matches, NOT NULL | 所屬配對 |
-| session_date | Date | NOT NULL | 上課日期 |
-| hours | Double | NOT NULL | 時數 |
-| content_summary | Memo | NOT NULL | 內容摘要 |
-| homework | Memo | | 指派作業 |
-| student_performance | Memo | | 學生當堂表現 |
-| next_plan | Memo | | 下次預計進度 |
-| visible_to_parent | Yes/No | DEFAULT No | 是否公開予家長 |
-| created_at | DateTime | NOT NULL | 建立時間 |
-| updated_at | DateTime | NOT NULL | 最後修改時間 |
+#### 6.2.9 `matches`
 
-#### 6.2.11 Session_Edit_Logs（日誌修改歷史）
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| match_id | SERIAL | PK | Surrogate key |
+| tutor_id | INTEGER | FK → tutors, NOT NULL | Tutor |
+| student_id | INTEGER | FK → students, NOT NULL | Student |
+| subject_id | INTEGER | FK → subjects, NOT NULL | Subject |
+| parent_user_id | INTEGER | FK → users, NOT NULL | Owning parent (denormalised for permission checks) |
+| status | VARCHAR(15) | NOT NULL DEFAULT `pending` | One of pending / trial / active / paused / terminating / ended / cancelled / rejected |
+| invite_message | TEXT | | Invitation message |
+| want_trial | BOOLEAN | NOT NULL DEFAULT FALSE | If true, `accept` lands in `trial` |
+| hourly_rate | NUMERIC(10,2) | | Contracted rate |
+| sessions_per_week | SMALLINT | | Contracted cadence |
+| start_date | DATE | | Engagement start |
+| end_date | DATE | | Engagement end |
+| penalty_amount | NUMERIC(10,2) | | Early-termination penalty |
+| trial_price | NUMERIC(10,2) | | Trial-session price |
+| trial_count | SMALLINT | | Agreed trial count |
+| contract_notes | TEXT | | Addenda |
+| terminated_by | INTEGER | FK → users | The user who initiated termination |
+| termination_reason | TEXT | | Reason for termination |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | Created |
+| updated_at | TIMESTAMPTZ | NOT NULL | Last status change |
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| log_id | AutoNumber | PK | 主鍵 |
-| session_id | Long Integer | FK → Sessions, NOT NULL | 對應日誌 |
-| field_name | Text(50) | NOT NULL | 被修改之欄位名稱 |
-| old_value | Memo | | 修改前內容 |
-| new_value | Memo | | 修改後內容 |
-| edited_at | DateTime | NOT NULL | 修改時間 |
+#### 6.2.10 `sessions`
 
-#### 6.2.12 Exams（考試紀錄）
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| session_id | SERIAL | PK | Surrogate key |
+| match_id | INTEGER | FK → matches, NOT NULL | Owning match |
+| session_date | DATE | NOT NULL | Lesson date |
+| hours | NUMERIC(4,2) | NOT NULL | Lesson duration |
+| content_summary | TEXT | NOT NULL | Lesson content |
+| homework | TEXT | | Homework |
+| student_performance | TEXT | | Observation |
+| next_plan | TEXT | | Plan |
+| visible_to_parent | BOOLEAN | NOT NULL DEFAULT FALSE | Parent visibility |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | Created |
+| updated_at | TIMESTAMPTZ | NOT NULL | Last edit |
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| exam_id | AutoNumber | PK | 主鍵 |
-| student_id | Long Integer | FK → Students, NOT NULL | 學生 |
-| subject_id | Long Integer | FK → Subjects, NOT NULL | 科目 |
-| added_by_user_id | Long Integer | FK → Users, NOT NULL | 新增者 |
-| exam_date | Date | NOT NULL | 考試日期 |
-| exam_type | VARCHAR(20) | NOT NULL | `段考` / `小考` / `模擬考` / `其他` |
-| score | Double | NOT NULL | 分數 |
-| visible_to_parent | Yes/No | DEFAULT No | 是否公開予家長 |
-| created_at | DateTime | NOT NULL | 建立時間 |
+#### 6.2.11 `session_edit_logs`
 
-#### 6.2.13 Reviews（三向評價）
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| log_id | SERIAL | PK | Surrogate key |
+| session_id | INTEGER | FK → sessions, NOT NULL | Owning session |
+| field_name | VARCHAR(50) | NOT NULL | Edited field |
+| old_value | TEXT | | Value before |
+| new_value | TEXT | | Value after |
+| edited_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | Edit time |
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| review_id | AutoNumber | PK | 主鍵 |
-| match_id | Long Integer | FK → Matches, NOT NULL | 對應配對 |
-| reviewer_user_id | Long Integer | FK → Users, NOT NULL | 評價者 |
-| review_type | Text(20) | NOT NULL | `parent_to_tutor` / `tutor_to_student` / `tutor_to_parent` |
-| rating_1 | Integer | NOT NULL, 1–5 | 維度一 |
-| rating_2 | Integer | NOT NULL, 1–5 | 維度二 |
-| rating_3 | Integer | 1–5 | 維度三（可為空值） |
-| rating_4 | Integer | 1–5 | 維度四（可為空值） |
-| personality_comment | Memo | | 性格評價 |
-| comment | Memo | | 整體評論 |
-| created_at | DateTime | NOT NULL | 建立時間 |
-| updated_at | DateTime | | 最後修改時間 |
+#### 6.2.12 `exams`
 
-**唯一限制**：同一 `(match_id, reviewer_user_id, review_type)` 組合僅允許存在一筆紀錄。
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| exam_id | SERIAL | PK | Surrogate key |
+| student_id | INTEGER | FK → students, NOT NULL | Student |
+| subject_id | INTEGER | FK → subjects, NOT NULL | Subject |
+| added_by_user_id | INTEGER | FK → users, NOT NULL | Author |
+| exam_date | DATE | NOT NULL | Exam date |
+| exam_type | VARCHAR(20) | NOT NULL | 段考 / 小考 / 模擬考 / 其他 |
+| score | NUMERIC(5,2) | NOT NULL | Score |
+| visible_to_parent | BOOLEAN | NOT NULL DEFAULT FALSE | Visibility |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | Created |
 
-#### 6.2.14 Password_History（密碼歷史）
+#### 6.2.13 `reviews`
 
-儲存每位使用者最近 5 次的密碼 bcrypt 雜湊，用於密碼變更時的重複使用檢查。
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| review_id | SERIAL | PK | Surrogate key |
+| match_id | INTEGER | FK → matches, NOT NULL | Owning match |
+| reviewer_user_id | INTEGER | FK → users, NOT NULL | Author |
+| review_type | VARCHAR(20) | NOT NULL | `parent_to_tutor` / `tutor_to_student` / `tutor_to_parent` |
+| rating_1 | SMALLINT | NOT NULL, 1–5 | Dimension 1 |
+| rating_2 | SMALLINT | NOT NULL, 1–5 | Dimension 2 |
+| rating_3 | SMALLINT | 1–5 | Dimension 3 (nullable) |
+| rating_4 | SMALLINT | 1–5 | Dimension 4 (nullable) |
+| personality_comment | TEXT | | Personality note |
+| comment | TEXT | | Overall comment |
+| is_locked | BOOLEAN | NOT NULL DEFAULT FALSE | Set by the scheduled lock task |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | Created |
+| updated_at | TIMESTAMPTZ | | Last edit |
 
-| 欄位 | 資料型態 | 限制 | 說明 |
-|------|---------|------|------|
-| history_id | AutoNumber | PK | 主鍵 |
-| user_id | Long Integer | FK → Users, NOT NULL, ON DELETE CASCADE | 所屬帳號 |
-| password_hash | Text(255) | NOT NULL | bcrypt 雜湊值 |
-| changed_at | DateTime | NOT NULL | 密碼變更時間 |
+Unique index on `(match_id, reviewer_user_id, review_type)` enforces single-review-per-direction-per-match.
 
-**資安說明**：此表僅供後端寫入與查詢，不透過任何 API 端點公開。
+#### 6.2.14 `password_history`
 
-### 6.3 關聯圖摘要
+Stores up to five most recent bcrypt hashes per user; consulted at password change to reject reuse.
+
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| history_id | SERIAL | PK | Surrogate key |
+| user_id | INTEGER | FK → users ON DELETE CASCADE, NOT NULL | Owning account |
+| password_hash | VARCHAR(255) | NOT NULL | bcrypt hash |
+| changed_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | Change time |
+
+Backend-only; not exposed via any API endpoint.
+
+#### 6.2.15 Infrastructure Tables
+
+| Table | Purpose |
+|---|---|
+| `rate_limit_hits` | Per-bucket hit counters (`BIGSERIAL` id); pruned daily at 03:45 by `cleanup_rate_limit_hits` |
+| `audit_log` | Privileged-action audit trail (`BIGSERIAL` id); `actor_user_id ON DELETE SET NULL` so records survive account removal; `resource_id` is a soft reference without an FK so records survive row deletion |
+| `idempotency_keys` | DB-backed dedup store for match creation |
+| `user_token_revocations` | Per-user "revoke all refresh tokens" watermark; set on admin-forced password reset |
+| `refresh_token_blacklist` | Revoked JWT refresh tokens by JTI (`VARCHAR(64)` PK); pruned daily at 03:30 |
+
+### 6.3 Relationship Summary
 
 ```
-Users ──1:1───→ Tutors                    （帳號延伸）
-Users ──1:N───→ Students                  （家長之子女）
-Users ──1:N───→ Password_History          （密碼歷史，最多 5 筆）
-Tutors ──M:N──→ Subjects                  （透過 Tutor_Subjects，含各科時薪）
-Tutors ──1:N──→ Tutor_Availability        （可用時段）
-Users ──M:N───→ Users                     （透過 Conversations）
-Conversations ─1:N─→ Messages             （對話訊息）
-Tutors ──1:N──→ Matches                   （老師之配對）
-Students ─1:N─→ Matches                   （學生之配對）
-Subjects ─1:N─→ Matches                   （配對科目）
-Matches ──1:N─→ Sessions                  （上課日誌）
-Sessions ─1:N─→ Session_Edit_Logs         （修改歷史）
-Matches ──1:N─→ Reviews                   （評價）
-Students ─1:N─→ Exams                     （考試紀錄）
+users ──1:1──→ tutors                           account extension
+users ──1:N──→ students                         parent's children
+users ──1:N──→ password_history                 last five hashes per user
+tutors ──M:N──→ subjects   (via tutor_subjects, with per-subject rate)
+tutors ──1:N──→ tutor_availability              weekly slots
+users ──M:N──→ users       (via conversations, canonical pair ordering)
+conversations ──1:N──→ messages
+tutors ──1:N──→ matches
+students ──1:N──→ matches
+subjects ──1:N──→ matches
+matches ──1:N──→ sessions
+sessions ──1:N──→ session_edit_logs
+matches ──1:N──→ reviews
+students ──1:N──→ exams
 ```
 
 ---
 
-## 7. API 端點規格
+## 7. API Specification
 
-所有 API 端點之基礎路徑為 `/api`。FastAPI 自動於 `/docs` 路徑生成 Swagger UI 互動式文件。
+All endpoints live under `/api`. The unified envelope (§3.2) applies to every response. When `DEBUG=true` and `ENABLE_DOCS=true` the FastAPI auto-generated Swagger UI is served at `/docs`; in production both flags are off and the schema endpoints are suppressed.
 
-### 7.1 Auth（認證）
+Status codes follow REST conventions: 200, 201, 204, 400, 401, 403, 404, 409, 422, 429, 500.
 
-| Method | Path | 說明 | 權限 |
-|--------|------|------|------|
-| POST | `/api/auth/register` | 使用者註冊 | 公開 |
-| POST | `/api/auth/login` | 使用者登入，回傳 JWT Token | 公開 |
-| GET | `/api/auth/me` | 取得目前登入者資訊 | 需登入 |
+### 7.1 Auth (`/api/auth`)
 
-### 7.2 Tutors（老師）
+| Method | Path | Description | Authorization |
+|---|---|---|---|
+| POST | `/api/auth/register` | Create a parent or tutor account | Public |
+| POST | `/api/auth/login` | Authenticate; sets `access_token`, `refresh_token`, `csrf_token` cookies | Public |
+| POST | `/api/auth/refresh` | Issue a new access token from the refresh cookie | Refresh-cookie holder |
+| POST | `/api/auth/logout` | Invalidate the refresh token (JTI added to blacklist) | Authenticated |
+| GET | `/api/auth/me` | Return the authenticated user | Authenticated |
+| PUT | `/api/auth/me` | Update display name, phone, email | Authenticated |
+| PUT | `/api/password` | Change password (requires current password) | Authenticated |
 
-| Method | Path | 說明 | 權限 |
-|--------|------|------|------|
-| GET | `/api/tutors` | 搜尋老師列表 | 需登入 |
-| GET | `/api/tutors/me` | 取得登入老師的完整個人檔案（含科目與時段） | 老師本人 |
-| GET | `/api/tutors/{id}` | 老師詳情（含評分、接案狀態、時段） | 需登入 |
-| PUT | `/api/tutors/profile` | 更新個人資料（由 JWT 識別身份） | 老師本人 |
-| PUT | `/api/tutors/profile/subjects` | 更新可教授科目與各科時薪 | 老師本人 |
-| PUT | `/api/tutors/profile/availability` | 更新可用時段 | 老師本人 |
-| PUT | `/api/tutors/profile/visibility` | 更新欄位公開設定 | 老師本人 |
+Rate limit: login is capped at 5 attempts per 15 minutes per (IP, username) bucket.
 
-**GET `/api/tutors` 查詢參數**
+### 7.2 Tutors (`/api/tutors`)
 
-| 參數 | 型態 | 說明 |
-|------|------|------|
-| subject_id | Integer | 篩選可教授指定科目之老師 |
-| min_rate | Float | 時薪下限 |
-| max_rate | Float | 時薪上限 |
-| min_rating | Float | 評分門檻 |
-| school | String | 學校名稱（模糊比對） |
-| sort_by | String | 排序方式：`rating` / `rate_asc` / `newest` |
-| page | Integer | 頁碼（預設 1） |
-| page_size | Integer | 每頁筆數（預設 20） |
+| Method | Path | Description | Authorization |
+|---|---|---|---|
+| GET | `/api/tutors/me` | Get the authenticated tutor's full profile (subjects + availability) | Tutor (self) |
+| GET | `/api/tutors` | Search tutors | Parent or admin |
+| GET | `/api/tutors/{id}` | Tutor detail with averages, capacity, availability | Authenticated |
+| GET | `/api/tutors/{id}/reviews` | Paginated review list for a tutor | Authenticated |
+| PUT | `/api/tutors/profile` | Update basic profile (university, bio, `max_students`, etc.) | Tutor (self) |
+| PUT | `/api/tutors/profile/subjects` | Replace teachable subjects and per-subject rates | Tutor (self) |
+| PUT | `/api/tutors/profile/availability` | Replace weekly availability | Tutor (self) |
+| PUT | `/api/tutors/profile/visibility` | Update per-field visibility flags | Tutor (self) |
 
-### 7.3 Students（學生）
+**Query parameters for `GET /api/tutors`:**
 
-| Method | Path | 說明 | 權限 |
-|--------|------|------|------|
-| GET | `/api/students` | 取得學生列表 | 家長（自己子女）或老師（配對學生） |
-| POST | `/api/students` | 新增子女 | 家長 |
-| PUT | `/api/students/{id}` | 更新學生資料 | 家長（該子女之家長） |
-| DELETE | `/api/students/{id}` | 刪除子女資料 | 家長（該子女之家長） |
+| Parameter | Type | Description |
+|---|---|---|
+| `subject_id` | int | Filter to tutors teaching this subject |
+| `min_rate` / `max_rate` | float | Hourly rate range |
+| `min_rating` | float | Minimum average rating |
+| `school` | string | Substring match on university |
+| `sort_by` | string | `rating` / `rate_asc` / `newest` |
+| `page` / `page_size` | int | Default `page=1`, `page_size=20`, max 100 |
 
-### 7.4 Messages（訊息）
+### 7.3 Students (`/api/students`)
 
-| Method | Path | 說明 | 權限 |
-|--------|------|------|------|
-| GET | `/api/messages/conversations` | 取得對話列表 | 需登入 |
-| POST | `/api/messages/conversations` | 開啟新對話 | 需登入 |
-| GET | `/api/messages/conversations/{id}` | 取得訊息（分頁） | 對話參與者 |
-| POST | `/api/messages/conversations/{id}` | 發送訊息 | 對話參與者 |
+| Method | Path | Description | Authorization |
+|---|---|---|---|
+| GET | `/api/students` | List the parent's own students, or students of matches the tutor is in | Parent or tutor |
+| POST | `/api/students` | Register a new child (max 20 per parent) | Parent |
+| PUT | `/api/students/{id}` | Update the student | Owning parent |
+| DELETE | `/api/students/{id}` | Remove the student | Owning parent |
 
-### 7.5 Matches（媒合）
+### 7.4 Subjects (`/api/subjects`)
 
-| Method | Path | 說明 | 權限 |
-|--------|------|------|------|
-| POST | `/api/matches` | 送出邀請 | 家長 |
-| GET | `/api/matches` | 取得配對列表（可篩選 status） | 需登入 |
-| GET | `/api/matches/{id}` | 配對詳情 | 配對參與者 |
-| PATCH | `/api/matches/{id}/status` | 狀態轉換 | 依狀態機規則 |
+| Method | Path | Description | Authorization |
+|---|---|---|---|
+| GET | `/api/subjects` | Return the seeded subject catalogue | Public |
 
-**PATCH `/api/matches/{id}/status` 請求格式**
+### 7.5 Messages (`/api/messages`)
+
+| Method | Path | Description | Authorization |
+|---|---|---|---|
+| GET | `/api/messages/conversations` | List the user's conversations | Authenticated |
+| POST | `/api/messages/conversations` | Open a conversation (idempotent: returns the existing one if any) | Authenticated |
+| GET | `/api/messages/conversations/{id}` | Paginated message stream; `before_id` cursor, limit 1–500 | Conversation participant |
+| POST | `/api/messages/conversations/{id}/messages` | Send a message | Conversation participant |
+
+Rate limits: 30 messages per conversation per minute, 100 messages per user per hour globally.
+
+### 7.6 Matches (`/api/matches`)
+
+| Method | Path | Description | Authorization |
+|---|---|---|---|
+| POST | `/api/matches` | Send an invitation (consumes `Idempotency-Key`) | Parent |
+| GET | `/api/matches` | List matches; filterable by `status`, paginated | Authenticated |
+| GET | `/api/matches/{id}` | Full match detail | Match participant |
+| PATCH | `/api/matches/{id}/status` | Drive a state-machine transition | Per transition table (§5.4) |
+
+**`PATCH /api/matches/{id}/status` body:**
 
 ```json
 {
   "action": "accept | reject | cancel | confirm_trial | reject_trial | pause | resume | terminate | agree_terminate | disagree_terminate",
-  "reason": "終止原因（僅 terminate 時需要）"
+  "reason": "termination reason (required only for terminate)"
 }
 ```
 
-### 7.6 Sessions（上課日誌）
+Rate limit on invitations: 10 per (tutor, parent) pair per hour.
 
-| Method | Path | 說明 | 權限 |
-|--------|------|------|------|
-| GET | `/api/matches/{match_id}/sessions` | 取得日誌列表 | 配對參與者（家長依 visible_to_parent 過濾） |
-| POST | `/api/matches/{match_id}/sessions` | 新增日誌 | 老師 |
-| PUT | `/api/sessions/{id}` | 修改日誌（留修改歷史） | 老師 |
-| GET | `/api/sessions/{id}/edit-logs` | 查看修改歷史 | 配對參與者 |
+### 7.7 Sessions
 
-### 7.7 Exams（考試紀錄）
+| Method | Path | Description | Authorization |
+|---|---|---|---|
+| GET | `/api/matches/{match_id}/sessions` | List sessions for a match (filtered for parents by `visible_to_parent`) | Match participant |
+| POST | `/api/matches/{match_id}/sessions` | Log a new session | Tutor of the match |
+| PUT | `/api/sessions/{id}` | Edit a session (auto-creates edit log rows) | Tutor of the match |
+| GET | `/api/sessions/{id}/edit-logs` | View the edit history | Match participant |
 
-| Method | Path | 說明 | 權限 |
-|--------|------|------|------|
-| GET | `/api/students/{student_id}/exams` | 取得考試清單 | 配對參與者（依權限過濾） |
-| POST | `/api/students/{student_id}/exams` | 新增考試紀錄 | 老師或家長 |
-| PUT | `/api/exams/{id}` | 修改考試紀錄 | 新增者 |
+Rate limit: 10 session creations per match per minute.
 
-### 7.8 Reviews（評價）
+### 7.8 Exams
 
-| Method | Path | 說明 | 權限 |
-|--------|------|------|------|
-| GET | `/api/tutors/{tutor_id}/reviews` | 取得老師之評價列表 | 需登入 |
-| GET | `/api/matches/{match_id}/reviews` | 取得配對之所有評價（三向） | 配對參與者 |
-| POST | `/api/matches/{match_id}/reviews` | 撰寫評價 | 配對參與者（match 須為 ended） |
-| PATCH | `/api/reviews/{id}` | 修改評價（部分更新） | 評價者本人（7 日內） |
+| Method | Path | Description | Authorization |
+|---|---|---|---|
+| GET | `/api/students/{student_id}/exams` | List exams (filtered by visibility) | Match participant |
+| POST | `/api/students/{student_id}/exams` | Add an exam record | Parent of the student or tutor with an active match |
+| PUT | `/api/exams/{id}` | Update the exam record | Author |
+| DELETE | `/api/exams/{id}` | Delete the exam record | Author |
 
-### 7.9 Stats（統計）
+Rate limit: 20 exam writes per (student, user) per minute.
 
-| Method | Path | 說明 | 權限 |
-|--------|------|------|------|
-| GET | `/api/stats/income` | 老師收入統計 | 老師 |
-| GET | `/api/stats/expense` | 家長支出統計 | 家長 |
-| GET | `/api/stats/student-progress/{student_id}` | 學生成績趨勢 | 配對參與者（家長或有效配對老師）或管理員 |
+### 7.9 Reviews
 
-**查詢參數**
+| Method | Path | Description | Authorization |
+|---|---|---|---|
+| POST | `/api/matches/{match_id}/reviews` | Create a review (match must be `ended`) | Match participant per direction |
+| GET | `/api/matches/{match_id}/reviews` | List all reviews for a match | Match participant or admin |
+| PATCH | `/api/reviews/{id}` | Edit (rejected after `REVIEW_LOCK_DAYS`) | Author |
+| GET | `/api/tutors/{tutor_id}/reviews` | List a tutor's reviews | Authenticated |
 
-| 參數 | 適用端點 | 說明 |
-|------|---------|------|
-| month | income, expense | 年月篩選，格式 `YYYY-MM`（例如 `2026-03`），預設為當月 |
+### 7.10 Stats (`/api/stats`)
 
-### 7.10 Admin（系統管理）
+| Method | Path | Description | Authorization |
+|---|---|---|---|
+| GET | `/api/stats/income` | Dispatch tutor income aggregation; returns `task_id` | Tutor |
+| GET | `/api/stats/expense` | Dispatch parent expense aggregation; returns `task_id` | Parent |
+| GET | `/api/stats/student-progress/{student_id}` | Synchronous exam-trend response | Student's parent, tutor with an active match, or admin |
+| GET | `/api/stats/tasks/{task_id}` | Poll the status of a stats task | Authenticated |
 
-所有 Admin 端點均要求 `role = admin`。
+**Query parameters:**
 
-| Method | Path | 說明 |
-|--------|------|------|
-| GET | `/api/admin/tables` | 取得可操作的資料表清單（含匯出允許清單） |
-| GET | `/api/admin/users` | 取得所有使用者帳號列表 |
-| GET | `/api/admin/system-status` | 取得系統統計數據（各表筆數、角色分布、配對狀態、連線池） |
-| POST | `/api/admin/export/{table_name}` | 匯出指定表為 CSV |
-| POST | `/api/admin/import/{table_name}` | 匯入 CSV 至指定表（支援 `?upsert=true`） |
-| POST | `/api/admin/export-all` | 一鍵匯出全部可匯出資料表（ZIP） |
-| POST | `/api/admin/import-all` | 一鍵匯入全部資料表（ZIP，支援 `?clear_first=true&upsert=true`） |
-| POST | `/api/admin/seed` | 觸發假資料生成 |
-| POST | `/api/admin/reset` | 請求清空資料庫，Step 1 of 2：發放 reset token（有效期 5 分鐘） |
-| POST | `/api/admin/reset/confirm` | 確認清空資料庫，Step 2 of 2：憑 reset token + 密碼執行清空，並自動備份 |
-| POST | `/api/admin/users/{user_id}/anonymize` | 匿名化指定使用者（GDPR 合規替代刪除，保留 user_id 以維護 FK 審計關聯） |
-| POST | `/api/admin/users/{user_id}/reset-password` | 強制重設指定使用者密碼，並撤銷其所有 refresh token |
-| GET | `/api/admin/tasks/{task_id}` | 查詢背景任務執行狀態 |
+| Parameter | Endpoints | Description |
+|---|---|---|
+| `month` | income, expense | `YYYY-MM`, defaults to current month |
 
-**清空資料庫兩步驟流程**：Step 1 呼叫 `/reset` 取得 `reset_token`；Step 2 在 5 分鐘內呼叫 `/reset/confirm`，提交 `reset_token` 與管理員密碼。系統在執行清空前會自動備份至伺服器本地（含 `users` 表）。每個管理員帳號每 7 天最多執行一次清空操作。
+### 7.11 Admin (`/api/admin`)
 
----
+All admin endpoints require `role = admin`.
 
-## 8. 前端頁面與路由規格
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/admin/tables` | List tables and the import/export allow-list |
+| GET | `/api/admin/users` | List all accounts |
+| GET | `/api/admin/system-status` | Per-table counts, role distribution, match-status distribution, pool stats |
+| POST | `/api/admin/export/{table_name}` | Export a single table as CSV |
+| POST | `/api/admin/import/{table_name}` | Import a CSV (`?upsert=true` for upsert mode) |
+| POST | `/api/admin/export-all` | Export all exportable tables as a ZIP |
+| POST | `/api/admin/import-all` | Import a ZIP (`?clear_first=true&upsert=true`) |
+| POST | `/api/admin/seed` | Trigger fake-data generation |
+| POST | `/api/admin/reset` | Step 1 of database reset: issue a reset token (5-minute TTL) |
+| POST | `/api/admin/reset/confirm` | Step 2: redeem the token + password to truncate, after automatic backup |
+| POST | `/api/admin/users/{user_id}/anonymize` | GDPR anonymisation (keeps `user_id` for FK audit) |
+| POST | `/api/admin/users/{user_id}/reset-password` | Force password reset; revokes all refresh tokens for the user |
+| GET | `/api/admin/tasks/{task_id}` | Poll admin background task status |
 
-### 8.1 路由表
+**Database reset flow:** Step 1 calls `/reset` to obtain a `reset_token`; Step 2 calls `/reset/confirm` within 5 minutes with the token and the admin's password. The system backs up everything (including `users`) to the local filesystem before truncating. Each admin account is rate-limited to one reset per 7 days.
 
-```
-/login                              → 登入頁
-/register                           → 註冊頁
+### 7.12 Health (`/health`)
 
-# 共用
-/messages                           → 對話列表
-/messages/:conversation_id          → 對話頁面
+| Method | Path | Description | Authorization |
+|---|---|---|---|
+| GET | `/health` | Liveness + DB ping for the container healthcheck | Public |
 
-# 家長端（需登入，role = parent）
-/parent/dashboard                   → 家長首頁
-/parent/search                      → 搜尋老師
-/parent/tutor/:id                   → 老師詳情頁
-/parent/students                    → 子女管理
-/parent/match/:id                   → 配對詳情
-/parent/expense                     → 支出統計
+### 7.13 Cross-Cutting Middleware
 
-# 老師端（需登入，role = tutor）
-/tutor/dashboard                    → 老師首頁
-/tutor/profile                      → 個人檔案編輯
-/tutor/match/:id                    → 配對詳情
-/tutor/income                       → 收入統計
+The middleware stack, from outermost to innermost in the request flow:
 
-# Admin（需登入，role = admin）
-/admin/dashboard                    → 系統管理後台
-```
+| Order | Middleware | Behaviour |
+|---|---|---|
+| 1 | CORS | Origin allow-list from `CORS_ORIGINS`; `allow_credentials=True` |
+| 2 | RequestID | Injects `X-Request-ID` (request and response); included in every log line |
+| 3 | BodySizeLimit | Rejects oversized bodies before the handler reads them (default 50 MB) |
+| 4 | SecurityHeaders | `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Strict-Transport-Security`, conservative CSP |
+| 5 | AccessLog | Structured JSON access log entries |
+| 6 | UserConcurrencyQuota | Caps simultaneous in-flight requests per authenticated user (default 5); returns 429 with `Retry-After: 1` |
+| 7 | CSRF | Double-submit `X-CSRF-Token` against `csrf_token` cookie on mutating methods; rejected before the rate limiter so an attacker can't drain a victim's bucket |
+| 8 | RateLimit | Per-path and per-user buckets, backed by `rate_limit_hits` so workers share counters |
 
-### 8.2 重要元件清單
-
-| 元件 | 說明 | 使用頁面 |
-|------|------|---------|
-| TutorCard.vue | 老師搜尋結果卡片 | SearchView |
-| TutorFilter.vue | 搜尋篩選與排序控制 | SearchView |
-| AvailabilityCalendar.vue | 可用時段行事曆 | TutorDetailView、ProfileView |
-| MatchStatusBadge.vue | 配對狀態標籤 | Dashboard、MatchDetailView |
-| ContractForm.vue | 合約條款表單 | MatchDetailView |
-| InviteForm.vue | 媒合邀請表單 | TutorDetailView |
-| ReviewForm.vue | 評價表單（三向共用） | MatchDetailView |
-| ReviewList.vue | 評價列表 | TutorDetailView、MatchDetailView |
-| RadarChart.vue | 評價雷達圖 | TutorDetailView |
-| SessionForm.vue | 上課日誌表單 | MatchDetailView |
-| SessionTimeline.vue | 上課日誌時間軸 | MatchDetailView |
-| IncomeChart.vue | 收入統計圖表 | IncomeView |
-| ExpenseChart.vue | 支出統計圖表 | ExpenseView |
-| ProgressChart.vue | 成績趨勢圖表 | MatchDetailView |
+Nginx in front of the API also applies an edge-level `limit_req_zone` (20 r/s, burst 40) and a global CSP.
 
 ---
 
-## 9. 非同步任務引擎規格
+## 8. Frontend Routes and Components
 
-### 9.1 架構
+### 8.1 Route Table
 
-本系統採用 huey 作為非同步任務引擎，以 SQLite 作為訊息佇列之 broker。huey worker 作為獨立 process 運行，與 FastAPI server 共用相同之 Python 環境與 PostgreSQL 資料庫連線。
+```
+/login                              → LoginView           (guest only)
+/register                           → RegisterView        (guest only)
 
-### 9.2 任務清單
+# Shared (parent or tutor, not admin)
+/messages                           → ConversationListView
+/messages/:id                       → ChatView
 
-以下任務中，`calculate_income_stats`、`calculate_expense_stats` 與排程任務為真正非同步（由 Huey worker 執行）；`import_csv_task`、`export_csv_task`、`generate_seed_data` 的 Huey 任務定義存在於 codebase，但目前對應的管理員 API 路由係同步執行於 FastAPI 請求處理器中，並非派送至 worker。
+# Parent (role: parent)
+/parent                             → ParentDashboardView
+/parent/search                      → SearchView
+/parent/tutor/:id                   → TutorDetailView
+/parent/students                    → StudentsView
+/parent/match/:id                   → MatchDetailView
+/parent/expense                     → ExpenseView
+/parent/profile                     → ProfileView
 
-| 任務 | 觸發方式 | 說明 |
-|------|---------|------|
-| `import_csv_task` | 任務定義已實作；管理員路由目前同步執行 | 匯入 CSV 至指定資料表（Huey 任務存在但未由路由派送） |
-| `export_csv_task` | 任務定義已實作；管理員路由目前同步執行 | 匯出指定資料表為 CSV 檔案（Huey 任務存在但未由路由派送） |
-| `generate_seed_data` | 任務定義已實作；管理員路由目前同步執行 | 生成假資料並匯入（Huey 任務存在但未由路由派送） |
-| `calculate_income_stats` | API 呼叫（老師，`GET /api/stats/income`），非同步 | 計算老師收入統計，回傳 task_id |
-| `calculate_expense_stats` | API 呼叫（家長，`GET /api/stats/expense`），非同步 | 計算家長支出統計，回傳 task_id |
-| `lock_expired_reviews` | 定時排程（每日 03:00） | 標記超過 7 日之評價為不可修改 |
+# Tutor (role: tutor)
+/tutor                              → TutorDashboardView
+/tutor/profile                      → ProfileView
+/tutor/match/:id                    → MatchDetailView
+/tutor/income                       → IncomeView
 
-### 9.3 任務狀態查詢
+# Admin (role: admin)
+/admin                              → AdminDashboardView
 
-非同步任務派送後回傳 `task_id`，前端透過 `GET /api/stats/tasks/{task_id}`（收入／支出統計）以 polling 方式查詢執行狀態；管理員任務狀態查詢使用 `GET /api/admin/tasks/{task_id}`。回應格式：
+# Defaults
+/                                   → Redirect to role-specific home
+/:pathMatch(.*)*                    → NotFoundView
+```
+
+Guarded routes call `auth.ensureVerified()` to re-confirm role from the server on every navigation. `localStorage.user` is a cache only; the server is authoritative. Unverified cache contents never influence role checks, so a tampered client cannot escalate privilege.
+
+### 8.2 Pinia Stores
+
+| Store | Responsibility |
+|---|---|
+| `stores/auth.js` | Authenticated user, role, `ensureVerified()`, token-refresh orchestration |
+| `stores/tutor.js` | Tutor search results cache and current filters |
+| `stores/notifications.js` | User-scoped notification queue (localStorage-backed) |
+| `stores/toast.js` | Transient toast messages |
+
+### 8.3 Key Components
+
+| Component | Used In |
+|---|---|
+| `common/AppNav.vue` | All authenticated views |
+| `common/StatusBadge.vue` | Dashboards, MatchDetailView |
+| `common/StatCard.vue` | Dashboards, IncomeView, ExpenseView |
+| `common/ConfirmDialog.vue` | Destructive actions |
+| `tutor/TutorCard.vue` | SearchView |
+| `tutor/TutorFilter.vue` | SearchView |
+| `tutor/AvailabilityCalendar.vue` | TutorDetailView, tutor ProfileView |
+| `match/ContractForm.vue` | MatchDetailView |
+| `match/ContractConfirmModal.vue` | MatchDetailView (accept-with-trial flow) |
+| `match/InviteForm.vue` | TutorDetailView |
+| `session/SessionForm.vue` | MatchDetailView |
+| `session/SessionTimeline.vue` | MatchDetailView |
+| `review/RadarChart.vue` | TutorDetailView |
+| `review/ReviewList.vue` | TutorDetailView, MatchDetailView |
+| `stats/IncomeChart.vue` | IncomeView |
+| `stats/ExpenseChart.vue` | ExpenseView |
+| `stats/ProgressChart.vue` | MatchDetailView |
+
+---
+
+## 9. Asynchronous Task Engine
+
+### 9.1 Architecture
+
+The worker runs as a dedicated container (`docker-compose.yml` service `worker`) using `SqliteHuey` with a custom JSON serialiser (the default pickle serialiser is unsafe for cross-process use). The queue file `data/huey.db` lives on a Docker volume shared with the API container so both processes see the same queue state. Tasks open their own psycopg2 connections to the same PostgreSQL database the API uses.
+
+### 9.2 Task Inventory
+
+Among the tasks listed below, the stats tasks and the scheduled tasks are genuinely asynchronous (dispatched to the worker). The import/export and seed tasks have Huey task definitions in the codebase but the current admin routes execute them synchronously inside the request handler.
+
+| Task | Trigger | Description |
+|---|---|---|
+| `calculate_income_stats(user_id, month?)` | `GET /api/stats/income` | Aggregate tutor earnings; 3 retries with 10 s backoff |
+| `calculate_expense_stats(user_id, month?)` | `GET /api/stats/expense` | Aggregate parent expense; 3 retries with 10 s backoff |
+| `lock_expired_reviews` | Cron, daily 03:00 UTC | Sets `is_locked=true` on reviews older than `REVIEW_LOCK_DAYS`; protected by a task lock so concurrent runs are skipped |
+| `cleanup_refresh_token_blacklist` | Cron, daily 03:30 UTC | Prunes rows past `expiry_at` |
+| `cleanup_rate_limit_hits` | Cron, daily 03:45 UTC | Prunes expired rate-limit buckets |
+| `import_csv_task` | Task definition only | Admin routes currently import synchronously |
+| `export_csv_task` | Task definition only | Admin routes currently export synchronously |
+| `generate_seed_data` | Task definition only | Admin `/seed` currently runs synchronously |
+
+### 9.3 Task-Status Polling
+
+Asynchronous endpoints return a `task_id` immediately. The frontend polls `GET /api/stats/tasks/{task_id}` (stats) or `GET /api/admin/tasks/{task_id}` (admin). Response:
 
 ```json
 {
@@ -1716,13 +1355,13 @@ Students ─1:N─→ Exams                     （考試紀錄）
   "data": {
     "task_id": "abc123",
     "status": "pending | running | completed | failed",
-    "result": { ... },
+    "result": { "...": "..." },
     "error": null
   }
 }
 ```
 
-### 9.4 程式碼範例
+### 9.4 Worker Module Layout
 
 ```python
 # app/worker.py
@@ -1732,198 +1371,214 @@ from app.shared.infrastructure.huey_json_serializer import JSONSerializer
 
 huey = SqliteHuey(filename=settings.huey_db_path, serializer=JSONSerializer())
 
-from app.tasks import scheduled   # noqa: periodic tasks (lock_expired_reviews, etc.)
-from app.tasks import import_export  # noqa: Huey task definitions (not currently dispatched by admin routes)
-from app.tasks import stats_tasks    # noqa: calculate_income_stats, calculate_expense_stats
-from app.tasks import seed_tasks     # noqa: generate_seed_data (not currently dispatched by admin routes)
+from app.tasks import scheduled       # noqa: cron-scheduled maintenance tasks
+from app.tasks import stats_tasks     # noqa: calculate_income_stats, calculate_expense_stats
+from app.tasks import import_export   # noqa: task defs (admin routes run sync today)
+from app.tasks import seed_tasks      # noqa: task def (admin route runs sync today)
 ```
 
-以下為 `app/tasks/` 中各模組的用途摘要（詳細實作請參閱原始碼）：
+`app/tasks/` modules in summary:
 
-- **`import_export.py`**：`import_csv_task`、`export_csv_task` — Huey 任務定義，目前管理員 API 路由係同步執行；任務定義已備妥供未來切換為非同步模式。
-- **`stats_tasks.py`**：`calculate_income_stats`、`calculate_expense_stats` — 實際由分析路由（`GET /api/stats/income`、`GET /api/stats/expense`）非同步派送至 Huey worker；回傳 `task_id`，前端透過 `GET /api/stats/tasks/{task_id}` polling 結果。
-- **`seed_tasks.py`**：`generate_seed_data` — Huey 任務定義，目前管理員 `/seed` 路由係同步執行。
-- **`scheduled.py`**：`lock_expired_reviews`（每日 03:00）、`cleanup_refresh_token_blacklist`（每日 03:30）、`cleanup_rate_limit_hits`（每日 03:45）— 純定時排程，不由 API 路由觸發。
-
----
-
-## 10. 分工規劃
-
-### 10.1 團隊組成
-
-| 成員 | 技術背景 | 角色定位 |
-|------|---------|---------|
-| **A（Tech Lead）** | 全端開發 | 系統架構設計與核心開發 |
-| **B** | 基礎網頁知識 | 前端開發支援 |
-| **C** | 基礎網頁知識 | 前端開發支援 + 系統測試 |
-| **D** | 正在學習 Access | 資料庫建置 + 簡報製作 |
-| **E** | 正在學習 Access | 資料庫建置 + 書面報告 |
-
-### 10.2 各成員職責
-
-| 成員 | 負責範圍 | 交付物 |
-|------|---------|--------|
-| **A** | 後端架構搭建（FastAPI、Repository、JWT 認證）、huey worker 建置、複雜前端頁面（媒合狀態機、評價雷達圖、統計圖表）、假資料生成器、程式碼審查與技術指導 | 後端完整原始碼、核心前端頁面、start.bat |
-| **B** | 前端頁面開發：登入/註冊頁、家長 Dashboard、搜尋頁面、老師卡片元件、訊息系統 UI | 所負責之 Vue 頁面與元件 |
-| **C** | 前端頁面開發：老師 Dashboard、老師個人檔案編輯頁、上課日誌表單/時間軸、考試紀錄頁面；系統整合測試 | 所負責之 Vue 頁面與元件、測試紀錄文件 |
-| **D** | 於 MS Access 中建立 13 張資料表與關聯圖、設定欄位型態與限制條件；簡報製作與上台口頭報告 | Access 資料庫檔案（.accdb）、PowerPoint 簡報 |
-| **E** | 協助 D 完成 Access 資料表建置（分工各負責約一半的表）；書面報告撰寫（系統說明、功能截圖、使用者操作手冊） | Access 資料庫檔案（.accdb）、書面報告文件 |
-| **全體** | 展示前排練、Demo 情境腳本設計與演練 | Demo 流程表 |
-
-### 10.3 協作方式與時程搭配
-
-| 週次 | A（Tech Lead） | B、C（前端） | D、E（Access + 文件） |
-|:----:|---------------|-------------|---------------------|
-| **1** | 搭建後端骨架、Auth 模組、huey 初始化、前端專案初始化 | 熟悉 Vue 開發環境、跑通範例頁面、練習 Axios 呼叫 API | 在 Access 中建立 13 張資料表、設定關聯圖，交付 .accdb 檔案 |
-| **2** | 開發核心 API（老師搜尋、學生 CRUD、媒合狀態機、訊息） | B：登入/註冊頁、搜尋頁、老師卡片；C：老師 Dashboard、個人檔案編輯頁 | 用 Admin 後台匯入假資料，驗證資料表結構是否正確；開始規劃簡報大綱 |
-| **3** | 開發教學管理 API（日誌、考試）、Admin 後台 API | B：家長 Dashboard、訊息系統 UI；C：上課日誌表單/時間軸、考試紀錄頁 | 按 Demo 腳本操作系統並截圖；撰寫書面報告初稿 |
-| **4** | 開發評價系統、統計報表、CSV 匯入匯出、假資料生成器 | B：配對詳情頁（邀請表單、合約表單）；C：評價表單、整合測試 | 完成簡報製作；完成書面報告（含功能截圖與操作手冊） |
-| **5** | 全系統 bug 修復、UI 細節調整 | 協助修復前端 bug、最終 UI 微調 | 全體排練展示流程、準備備用測試情境 |
-
-### 10.4 B、C 組員的前端開發指引
-
-B 和 C 負責的頁面不涉及後端邏輯，只需完成以下工作：
-
-1. **畫面排版**：依照設計稿（或口頭討論的樣式）用 Vue 元件搭出頁面
-2. **呼叫 API**：使用 `src/api/` 目錄下已封裝好的函式取得資料（A 會先寫好）
-3. **資料綁定**：把 API 回傳的資料顯示到畫面上
-4. **表單送出**：把使用者填寫的內容透過 API 送到後端
-
-> A 會負責建立好前端專案結構、API 封裝層、路由設定、以及 Pinia store，讓 B 和 C 可以專注在「把頁面畫出來、把資料接上去」。
-
-### 10.5 D、E 組員的 Access 建置指引
-
-D 和 E 負責的工作不需要寫程式，但需要在 Access 裡精確地建好資料表：
-
-1. **對照第 6 節的欄位規格表**，在 Access 的設計檢視中逐一建立欄位、設定資料型態和限制
-2. **建立資料表之間的關聯**（在 Access 的「資料庫關聯圖」工具中拉線）
-3. **建議分工**：D 負責 Users、Tutors、Students、Subjects、Tutor_Subjects、Tutor_Availability、Conversations（7 張）；E 負責 Messages、Matches、Sessions、Session_Edit_Logs、Exams、Reviews（6 張）
-4. **完成後交給 A 驗證**——A 會用 pyodbc 連上去跑測試，確認欄位名稱和型態都正確
+- **`scheduled.py`** — `lock_expired_reviews` (daily 03:00 UTC), `cleanup_refresh_token_blacklist` (03:30), `cleanup_rate_limit_hits` (03:45). Cron-only; never triggered by API routes.
+- **`stats_tasks.py`** — `calculate_income_stats`, `calculate_expense_stats`. Dispatched by the analytics routes; results polled by the frontend.
+- **`import_export.py`** — Huey definitions for `import_csv_task` / `export_csv_task`; not currently dispatched by the admin routes.
+- **`seed_tasks.py`** — Huey definition for `generate_seed_data`; not currently dispatched by the admin `/seed` route.
 
 ---
 
-## 11. 開發排程
+## 10. Team Responsibilities
 
-預計開發週期為 5 週，以下依週次列示各階段之工作項目。
+### 10.1 Team Composition
 
-### 第 1 週：基礎建設
+| Member | Background | Role |
+|---|---|---|
+| **A (Tech Lead)** | Full-stack development | System architecture and core implementation |
+| **B** | Basic web | Frontend implementation |
+| **C** | Basic web | Frontend implementation + system testing |
+| **D** | Learning relational databases | Schema build-out + presentation slides |
+| **E** | Learning relational databases | Schema build-out + written report |
 
-- [ ] 於 MS Access 中建立全部 13 張資料表及其關聯圖
-- [ ] 初始化後端儲存庫：FastAPI 專案結構、pyodbc 連線驗證、config 組態、logging 設定
-- [ ] 實作 BaseRepository 與 auth_repo
-- [ ] 完成 Auth 模組：註冊、登入、JWT 簽發、Admin 帳號自動建立
-- [ ] 初始化 huey worker，驗證任務派發與執行
-- [ ] 初始化前端儲存庫：Vue + Router + Pinia + Axios 封裝
-- [ ] 完成登入頁面與路由守衛
-- [ ] 撰寫 start.bat 一鍵啟動腳本
+### 10.2 Member Responsibilities
 
-### 第 2 週：核心業務流程
+| Member | Scope | Deliverables |
+|---|---|---|
+| **A** | Backend architecture (FastAPI, bounded contexts, repositories, JWT auth, middleware stack), Huey worker, complex frontend pages (match state machine, review radar chart, stats charts), fake-data generator, code review, technical guidance | Backend source, core frontend pages, Docker compose stack, `start.bat` |
+| **B** | Frontend: login/register pages, parent dashboard, search page, tutor card, messaging UI | Owned Vue views and components |
+| **C** | Frontend: tutor dashboard, tutor profile editor, session log form/timeline, exam record page; integration testing | Owned Vue views and components, test notes |
+| **D** | Schema build-out (~half the tables) in both the Access prototype and the PostgreSQL DDL; presentation slides and oral delivery | `.accdb` prototype, schema DDL contributions, PowerPoint deck |
+| **E** | Schema build-out (the other ~half of the tables); written report (system description, screenshots, user manual) | `.accdb` prototype, schema DDL contributions, written report |
+| **All** | Demo rehearsals; demo-script design | Demo script |
 
-- [ ] 實作 tutor_repo、student_repo 與對應前端頁面
-- [ ] 完成搜尋老師功能（篩選、排序、卡片列表、詳情頁）
-- [ ] 完成老師個人檔案編輯（基本資料、可用時段、公開設定）
-- [ ] 實作 match_repo 與完整狀態機 API（含所有狀態轉換）
-- [ ] 實作 message_repo 與訊息系統前端 UI
+### 10.3 Weekly Cadence
 
-### 第 3 週：教學管理
+| Week | A (Tech Lead) | B, C (Frontend) | D, E (Database + Docs) |
+|:---:|---|---|---|
+| **1** | Backend skeleton, identity context, Huey init, frontend project init, Docker compose v1 | Familiarise with Vue dev environment, run sample pages, practise Axios calls | Build the 13 business tables in Access; mirror in the PostgreSQL DDL inside `init_db.py`; hand the schema to A for verification |
+| **2** | Core APIs (tutor search, student CRUD, match state machine, messaging) | B: login/register, search, tutor card; C: tutor dashboard, profile editor | Use the admin console to load seed data; validate the schema against actual queries; start outlining the slides |
+| **3** | Teaching-management APIs (session, exam), admin console APIs, middleware hardening | B: parent dashboard, messaging UI; C: session log form/timeline, exam page | Walk the demo script and capture screenshots; first draft of the written report |
+| **4** | Review system, statistics, CSV import/export, fake-data generator | B: match detail (invite form, contract form); C: review form, integration testing | Finalise the slides; finish the written report (including screenshots and user manual) |
+| **5** | End-to-end bug fixes, UI polish | Assist with frontend bug fixes, final UI tweaks | Full-team demo rehearsals; spare-scenario preparation |
 
-- [ ] 實作 session_repo（含 visible_to_parent、修改歷史記錄）
-- [ ] 實作 exam_repo（含權限控制）
-- [ ] 完成老師 Dashboard 與家長 Dashboard
-- [ ] 建立 Admin 後台基本框架
+### 10.4 Frontend Member Guidance (B, C)
 
-### 第 4 週：評價、統計、匯入匯出
+The pages owned by B and C do not require backend changes. The workflow is:
 
-- [ ] 實作 review_repo 與前端評價元件（三向共用表單、雷達圖、七日修改期限）
-- [ ] 實作 stats_repo 與前端圖表（收入統計、支出統計、成績趨勢）
-- [ ] 實作 CSV 匯入匯出之 huey 背景任務
-- [ ] 實作假資料生成器之 huey 背景任務
-- [ ] 完成 Admin 後台全部功能（匯入匯出、清空、假資料、系統狀態）
+1. **Layout** — assemble the page from Vue components per the agreed design.
+2. **API calls** — use the wrapped functions in `src/api/` (already prepared by A).
+3. **Data binding** — render the response into the page.
+4. **Form submission** — push user input through the matching API function.
 
-### 第 5 週：收尾與交付
+The project skeleton (router, Pinia stores, Axios wrapper) and per-resource API modules are prepared in advance so B and C focus on UI work.
 
-- [ ] 全系統端對端測試
-- [ ] UI 視覺調整與細節修正
-- [ ] 組員製作簡報、截取系統畫面、撰寫書面報告
-- [ ] 全體進行展示排練
+### 10.5 Database Member Guidance (D, E)
 
----
+D and E do not need to write application code. The deliverables are:
 
-## 12. 展示流程
-
-建議之展示流程約 10–15 分鐘，依以下順序進行。
-
-### 12.1 技術架構展示（2 分鐘）
-
-1. 開啟 Swagger UI（`http://localhost:8000/docs`），展示完整之 API 端點清單與互動式測試介面。
-2. 開啟 MS Access，展示 13 張資料表之結構與關聯圖（滿足課程要求）。
-3. 簡要說明系統架構：FastAPI + huey + Vue + Access 之分層設計。
-
-### 12.2 Admin 操作展示（2 分鐘）
-
-1. 以 Admin 帳號登入，進入系統管理後台。
-2. 展示系統狀態面板（各類統計數據）。
-3. 點擊「假資料生成」按鈕，展示 huey 背景任務之運作（UI 不阻塞，任務於背景執行）。
-4. 資料生成完成後，展示系統已自動匯入資料。
-
-### 12.3 家長操作展示（4 分鐘）
-
-1. 以家長帳號註冊並登入，進入家長 Dashboard。
-2. 新增子女資料。
-3. 進入搜尋頁面，使用篩選條件（科目、時薪、評分）搜尋老師。
-4. 點擊老師卡片進入詳情頁，檢視評價雷達圖與可用時段。
-5. 點擊「傳送訊息」與老師溝通需求。
-6. 點擊「送出邀請」，勾選試教選項並填寫留言。
-
-### 12.4 老師操作展示（4 分鐘）
-
-1. 切換至老師帳號登入，Dashboard 顯示新邀請通知。
-2. 查看邀請詳情，接受邀請進入試教階段。
-3. 試教完成，雙方確認後轉為正式上課。
-4. 記錄一筆上課日誌（設定為公開予家長）。
-5. 記錄一筆考試成績。
-
-### 12.5 評價與統計展示（2 分鐘）
-
-1. 結束配對，家長撰寫評價（含各維度評分與性格自由文字）。
-2. 老師分別對學生與家長撰寫評價。
-3. 展示老師收入統計圖表（切換月份/學生/科目分群）。
-4. 展示家長支出統計。
-5. 展示學生成績趨勢折線圖。
-
-### 12.6 收尾亮點（1 分鐘）
-
-1. 於 Admin 後台執行一鍵匯出全部資料為 CSV。
-2. 切換至 MS Access，展示方才操作所產生之資料已確實寫入資料表。
-3. 於 Swagger UI 直接對特定 API 發送測試請求，展示 JSON 回應結構。
+1. **Schema build-out** — work through §6.2 in both the Access prototype (course requirement) and the PostgreSQL DDL inside `app/init_db.py` (running system).
+2. **Relationship diagram** — draw the relationships in Access's relationship view (slide material).
+3. **Suggested split** — D owns `users`, `tutors`, `students`, `subjects`, `tutor_subjects`, `tutor_availability`, `conversations` (7 tables); E owns `messages`, `matches`, `sessions`, `session_edit_logs`, `exams`, `reviews` plus the support tables (6+ tables).
+4. **Verification** — A reviews the PostgreSQL DDL and runs end-to-end queries against the live database to confirm names and types match the API expectations.
 
 ---
 
-## 13. 附錄
+## 11. Development Schedule
 
-### 13.1 可選之擴充功能
+Five-week cycle.
 
-以下功能不在本版本之必要範圍內，可視開發進度評估是否納入。
+### Week 1 — Foundation
 
-| 功能 | 說明 |
-|------|------|
-| Access 報表功能 | 於 Access 內建置月收入報表，展示 Access 之進階功能 |
-| 大頭照上傳 | 老師個人檔案支援上傳照片 |
-| 已讀未讀標記 | 訊息系統加入已讀標記與未讀訊息計數 |
-| 即時通知 | Dashboard 即時顯示通知（新邀請、新訊息、配對狀態變更） |
-| 暗色模式 | 前端支援深色主題切換 |
-| 日曆檢視 | 上課日誌以日曆形式呈現 |
+- [ ] Build the 13 business tables in the Access prototype and mirror them in the PostgreSQL DDL (`init_db.py`)
+- [ ] Initialise the backend repository: FastAPI scaffolding, psycopg2 pool, `Settings`, structured logging
+- [ ] Implement the shared kernel (base repository, exception hierarchy, response envelope)
+- [ ] Complete the identity context: register, login, refresh, logout, admin bootstrap
+- [ ] Initialise the Huey worker and verify task dispatch
+- [ ] Initialise the frontend repository: Vue + Router + Pinia + Axios wrapper
+- [ ] Build the login page and the navigation guard
+- [ ] Stand up the Docker compose stack (`db`, `api`, `worker`, `web`) and `start.bat`
 
-### 13.2 已知限制
+### Week 2 — Core Business Flows
 
-| 限制 | 說明 |
-|------|------|
-| MS Access ODBC Driver | 僅支援 Windows 作業系統，無法於 macOS 或 Linux 環境下運行 |
-| MS Access 分頁查詢 | Access SQL 不支援 `LIMIT` / `OFFSET` 語法，分頁於 Python 端處理 |
-| MS Access 並行存取 | Access 對多執行緒並行寫入之支援有限，高並發場景可能產生鎖定問題 |
-| 非即時通訊 | 訊息系統採 HTTP polling 模式，非 WebSocket 即時推播 |
-| 不部署上線 | 系統設計為本機運行，未考慮生產環境之安全性與效能優化 |
+- [ ] Catalog context: tutor and student repositories plus pages
+- [ ] Tutor search (filters, sort, card list, detail page)
+- [ ] Tutor profile editor (basic, availability, visibility)
+- [ ] Matching context: full state-machine API and tests, idempotency, per-pair rate limit
+- [ ] Messaging context: conversation creation, message paging, rate limits
+
+### Week 3 — Teaching Management
+
+- [ ] Teaching context: session logs (with `visible_to_parent` and the edit-log trigger)
+- [ ] Teaching context: exam records with the visibility rule
+- [ ] Tutor and parent dashboards
+- [ ] Admin console skeleton
+
+### Week 4 — Reviews, Statistics, Bulk Operations
+
+- [ ] Review context: three-way form, radar chart, 7-day lock
+- [ ] Analytics context: Huey-based income and expense; synchronous student-progress
+- [ ] CSV import/export (admin synchronous routes)
+- [ ] Fake-data generator and the `/seed` route
+- [ ] Complete the admin console (import/export, reset two-step flow, system status)
+
+### Week 5 — Hardening and Delivery
+
+- [ ] End-to-end testing
+- [ ] UI polish
+- [ ] Slides, screenshots, written report
+- [ ] Full-team demo rehearsals
 
 ---
 
-*文件結束*
+## 12. Demonstration Flow
+
+Total target: 10–15 minutes.
+
+### 12.1 Architecture Walkthrough (2 min)
+
+1. Open the Swagger UI (`http://localhost:8000/docs`, with `DEBUG=true` and `ENABLE_DOCS=true`) to show the full endpoint catalogue and interactive testing surface.
+2. Open the Access prototype (`docs/tutoring.accdb`) and show the relationship diagram — the course-required artefact.
+3. Walk through the architecture diagram (§2.1): Nginx → FastAPI → PostgreSQL, with the Huey worker on the side.
+
+### 12.2 Admin Operations (2 min)
+
+1. Log in as admin and open the admin console.
+2. Show the system-status panel.
+3. Click "seed data" and explain that the UI stays responsive while the data is generated.
+4. After generation, show that the dataset is now visible across the system.
+
+### 12.3 Parent Flow (4 min)
+
+1. Register and log in as a parent.
+2. Add a child.
+3. Open the search page; filter by subject, hourly rate, and rating.
+4. Click a tutor card and review the radar chart and availability.
+5. Use "Send message" to open a conversation.
+6. Use "Send invitation" with a trial period and an invitation message.
+
+### 12.4 Tutor Flow (4 min)
+
+1. Log in as the tutor; the dashboard surfaces the new invitation.
+2. Open the invitation, accept it, and enter the trial phase.
+3. Confirm the trial; the match moves to `active`.
+4. Log a session marked visible to the parent.
+5. Log an exam record.
+
+### 12.5 Reviews and Statistics (2 min)
+
+1. End the match and have the parent write the parent→tutor review.
+2. Have the tutor write the tutor→student and tutor→parent reviews.
+3. Show the tutor income chart (toggle month/student/subject groupings).
+4. Show the parent expense chart.
+5. Show the student progress line chart.
+
+### 12.6 Closing (1 min)
+
+1. From the admin console, trigger a one-click export-all (ZIP).
+2. Open the Access prototype to compare schema with the live PostgreSQL data.
+3. Issue a request against a specific endpoint in Swagger UI to show the JSON envelope.
+
+---
+
+## 13. Appendix
+
+### 13.1 Optional Extensions
+
+Not in the base scope; consider only if schedule permits.
+
+| Feature | Notes |
+|---|---|
+| Access reporting | Add a monthly-income report inside the Access prototype to showcase Access's reporting features |
+| Profile photos | Tutor profile photo upload |
+| Read receipts | Add read markers and unread counters to the messaging system |
+| Real-time notifications | Dashboard push for new invitations, messages, and status changes |
+| Dark mode | Frontend dark theme |
+| Calendar view | Session logs rendered on a calendar |
+
+### 13.2 Known Limitations
+
+| Limitation | Detail |
+|---|---|
+| Non-realtime messaging | Polling-based; no WebSocket push |
+| Not internet-ready as shipped | The compose stack is suitable for classroom demos and development; production deployment requires TLS termination in front of the web container, rotated secrets, a backup policy, and DB connection-pool sizing under load |
+| Single node | One instance of each service; the API is designed so rate-limit and token-blacklist state are shared in the database, but horizontal scaling has not been exercised |
+| Import/export is synchronous | The Huey task definitions exist but the admin routes run import and export synchronously inside the request handler |
+
+### 13.3 Production Deployment Notes
+
+The `web` container listens on plain HTTP port 8080 because the official `nginx-unprivileged` image cannot bind 443 without extra capabilities. In production:
+
+- Terminate TLS in front of the container (Caddy, Traefik, an AWS ALB, Cloudflare, etc.). Pointing the public address directly at port 80 will ship auth cookies in cleartext and silently neuter the HSTS header.
+- Set `COOKIE_SECURE=true` so auth cookies carry the `Secure` attribute. The default is `false` to keep local `docker compose up` usable without a TLS cert.
+- Point the TLS proxy at `web:8080` inside the overlay network; let it set `X-Forwarded-Proto: https`. Uvicorn runs with `--proxy-headers` and will honour the forwarded scheme when generating redirects.
+
+The complete deployment checklist lives in `SECURITY.md`.
+
+### 13.4 Related Documents
+
+- **[`docs/architecture.md`](architecture.md)** — System architecture reference: C4-style diagrams, bounded-context map, frontend module map, request/auth flows, match state machine, ER view.
+- **[`docs/database-schema.md`](database-schema.md)** — Complete database schema reference: table structure, relationships, constraints, materialised views, triggers, indexes.
+- **`README.md`** — Quick-start, technology stack summary, repository layout, run instructions.
+- **`SECURITY.md`** — Security controls, threat matrix, production-deployment checklist, token rotation procedure.
+
+---
+
+*End of document.*

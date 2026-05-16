@@ -586,7 +586,7 @@ Each `(current_status, action)` pair maps to a permitted set of roles. `MatchApp
 
 ## 10. Database Schema (ER View)
 
-19 tables: 14 business + 5 support. All timestamps are `TIMESTAMPTZ` with `NOW()` defaults.
+19 tables: 13 business + 6 support (`password_history`, `idempotency_keys`, `refresh_token_blacklist`, `user_token_revocations`, `rate_limit_hits`, `audit_log`). All timestamps are `TIMESTAMPTZ`, with `NOW()` defaults on creation-time columns.
 
 ```mermaid
 erDiagram
@@ -598,15 +598,18 @@ erDiagram
     tutors ||--o{ tutor_availability : "weekly slots"
     users ||--o{ conversations   : "user_a or user_b"
     conversations ||--o{ messages: contains
-    users ||--o{ matches         : "tutor or parent side"
+    tutors ||--o{ matches        : "tutor side"
     students ||--o{ matches      : about
     subjects ||--o{ matches      : about
+    users ||--o{ matches         : "parent_user_id (denormalised) / terminated_by"
     matches ||--o{ sessions      : "lessons under"
     sessions ||--o{ session_edit_logs : audited
-    matches ||--o{ exams         : "exam scores"
+    students ||--o{ exams        : "exam scores"
+    subjects ||--o{ exams        : "subject of exam"
+    users ||--o{ exams           : "added_by"
     matches ||--o{ reviews       : "post-match ratings (3 directions)"
-    users ||--o{ reviews         : "reviewer / reviewee"
-    users ||--o{ refresh_token_blacklist : "owns JTI"
+    users ||--o{ reviews         : "reviewer"
+    refresh_token_blacklist }o--|| users : "(no FK; jti only)"
     users ||--o{ audit_log       : "actor (SET NULL on delete)"
     users ||--o{ idempotency_keys : "dedup key"
     matches ||--o{ idempotency_keys : "result"
@@ -618,7 +621,8 @@ erDiagram
         VARCHAR password_hash
         VARCHAR role  "parent|tutor|admin"
         VARCHAR display_name
-        VARCHAR contact_email
+        VARCHAR phone
+        VARCHAR email UK "CHECK like '%@%'"
         TIMESTAMPTZ created_at
     }
     tutors {
@@ -626,55 +630,61 @@ erDiagram
         INT user_id FK
         VARCHAR university
         VARCHAR department
-        INT grade_year
-        TEXT bio
+        SMALLINT grade_year
+        TEXT self_intro
+        TEXT teaching_experience
+        SMALLINT max_students
         BOOLEAN show_university
-        BOOLEAN show_major
-        BOOLEAN show_rates
+        BOOLEAN show_department
+        BOOLEAN show_grade_year
+        BOOLEAN show_hourly_rate
+        BOOLEAN show_subjects
     }
     students {
         SERIAL student_id PK
         INT parent_user_id FK
         VARCHAR name
         VARCHAR school
-        INT grade
+        VARCHAR grade
         VARCHAR target_school
+        VARCHAR parent_phone
         TEXT notes
     }
     password_history {
-        SERIAL id PK
+        SERIAL history_id PK
         INT user_id FK
         VARCHAR password_hash
-        TIMESTAMPTZ created_at
+        TIMESTAMPTZ changed_at
     }
     subjects {
         SERIAL subject_id PK
-        VARCHAR name
-        VARCHAR category
+        VARCHAR subject_name UK
+        VARCHAR category "math|science|lang|other"
     }
     tutor_subjects {
         INT tutor_id PK,FK
         INT subject_id PK,FK
-        DECIMAL hourly_rate
+        NUMERIC hourly_rate
     }
     tutor_availability {
-        SERIAL id PK
+        SERIAL availability_id PK
         INT tutor_id FK
-        SMALLINT day_of_week "CHECK 0..6"
+        SMALLINT day_of_week "CHECK 1..7"
         TIME start_time
         TIME end_time
     }
     conversations {
         SERIAL conversation_id PK
-        INT user_a_id FK
+        INT user_a_id FK "CHECK user_a < user_b"
         INT user_b_id FK
         TIMESTAMPTZ created_at
+        TIMESTAMPTZ last_message_at
     }
     messages {
         SERIAL message_id PK
         INT conversation_id FK
         INT sender_user_id FK
-        TEXT body
+        TEXT content
         TIMESTAMPTZ sent_at
     }
     matches {
@@ -682,24 +692,38 @@ erDiagram
         INT tutor_id FK
         INT student_id FK
         INT subject_id FK
-        DECIMAL hourly_rate
-        SMALLINT sessions_per_week
-        BOOLEAN want_trial
+        INT parent_user_id FK "denormalised owner"
         VARCHAR status
-        TIMESTAMPTZ ended_at
+        TEXT invite_message
+        BOOLEAN want_trial
+        NUMERIC hourly_rate
+        SMALLINT sessions_per_week
+        TIMESTAMPTZ start_date
+        TIMESTAMPTZ end_date
+        NUMERIC penalty_amount
+        NUMERIC trial_price
+        SMALLINT trial_count
+        TEXT contract_notes
+        INT terminated_by FK
+        TEXT termination_reason
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
     }
     sessions {
         SERIAL session_id PK
         INT match_id FK
-        DATE date
-        DECIMAL hours
-        TEXT content
+        TIMESTAMPTZ session_date
+        NUMERIC hours "CHECK > 0"
+        TEXT content_summary
         TEXT homework
-        TEXT performance
+        TEXT student_performance
         TEXT next_plan
+        BOOLEAN visible_to_parent
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
     }
     session_edit_logs {
-        SERIAL id PK
+        SERIAL log_id PK
         INT session_id FK
         VARCHAR field_name
         TEXT old_value
@@ -708,28 +732,34 @@ erDiagram
     }
     exams {
         SERIAL exam_id PK
-        INT match_id FK
-        VARCHAR exam_name
-        INT score
+        INT student_id FK
+        INT subject_id FK
+        INT added_by_user_id FK
+        TIMESTAMPTZ exam_date
+        VARCHAR exam_type "CHECK in EXAM_TYPES"
+        DOUBLE score
         BOOLEAN visible_to_parent
-        DATE taken_at
+        TIMESTAMPTZ created_at
     }
     reviews {
         SERIAL review_id PK
         INT match_id FK
         INT reviewer_user_id FK
-        INT reviewee_user_id FK
-        VARCHAR review_type
-        SMALLINT stars
+        VARCHAR review_type "parent_to_tutor|tutor_to_parent|tutor_to_student"
+        SMALLINT rating_1 "1..5"
+        SMALLINT rating_2 "1..5"
+        SMALLINT rating_3 "nullable 1..5"
+        SMALLINT rating_4 "nullable 1..5"
+        TEXT personality_comment
         TEXT comment
-        BOOLEAN locked
+        BOOLEAN is_locked
         TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
     }
     refresh_token_blacklist {
         VARCHAR jti PK
-        INT user_id FK
-        TIMESTAMPTZ revoked_at
         TIMESTAMPTZ expires_at
+        TIMESTAMPTZ created_at
     }
     rate_limit_hits {
         BIGSERIAL id PK
@@ -749,23 +779,27 @@ erDiagram
         TIMESTAMPTZ revoked_at
     }
     audit_log {
-        BIGSERIAL id PK
+        BIGSERIAL audit_id PK
         INT actor_user_id FK "ON DELETE SET NULL"
         VARCHAR action
         VARCHAR resource_type
-        BIGINT resource_id
-        JSONB old_value
-        JSONB new_value
-        TIMESTAMPTZ at
+        INT resource_id "soft reference"
+        TEXT old_value
+        TEXT new_value
+        TEXT reason
+        TIMESTAMPTZ created_at
     }
 ```
 
-**Notable constraints**
-- `tutor_subjects` — composite PK `(tutor_id, subject_id)`.
-- `conversations` — unique index on `(user_a_id, user_b_id)` to prevent duplicate threads (callers normalise so `user_a_id < user_b_id`).
-- `reviews` — unique index on `(match_id, reviewer_user_id, review_type)` — one review per reviewer per match per direction.
-- `tutor_availability.day_of_week` — `CHECK BETWEEN 0 AND 6`.
-- `audit_log.actor_user_id` uses `ON DELETE SET NULL`; `resource_id` is a soft reference (no FK) so audit records survive row deletion.
+**Notable constraints and indexes**
+- `tutor_subjects` — composite PK `(tutor_id, subject_id)`; subject has `ON DELETE RESTRICT` so a subject cannot be removed while tutors still teach it.
+- `conversations` — unique index on `(user_a_id, user_b_id)` plus a `CHECK (user_a_id < user_b_id)` so the application's normalised ordering is enforced by the DB itself.
+- `reviews` — unique index on `(match_id, reviewer_user_id, review_type)`; the reviewee is implied by `review_type` rather than stored as a column.
+- `tutor_availability.day_of_week` — `CHECK BETWEEN 1 AND 7`; a separate unique index on `(tutor_id, day_of_week, start_time)` blocks duplicate slots.
+- `matches` — `CHECK status IN ('pending','trial','active','paused','terminating','ended','cancelled','rejected')`; a partial unique index on `(tutor_id, student_id, subject_id) WHERE status IN (non-terminal)` closes the TOCTOU race on duplicate-active detection. `parent_user_id` is denormalised and maintained by triggers `trg_matches_set_parent` and `trg_students_propagate_parent`.
+- `matches.tutor_id` / `student_id` / `subject_id` use `ON DELETE RESTRICT` (matches are billing-relevant audit records); `matches.terminated_by` also uses RESTRICT so the audit trail cannot be silently broken.
+- `audit_log.actor_user_id` uses `ON DELETE SET NULL`; `resource_id` is a soft reference (no FK) so audit records survive row deletion. `old_value` / `new_value` are stored as `TEXT` (JSON-serialised by callers), not `JSONB`.
+- `refresh_token_blacklist` stores only `(jti, expires_at, created_at)` — there is **no** `user_id` column; per-user mass revocation is handled by `user_token_revocations` instead.
 - Schema bootstrap (`init_db.run_bootstrap`) is idempotent and serialised across uvicorn workers via a Postgres advisory lock.
 
 ---

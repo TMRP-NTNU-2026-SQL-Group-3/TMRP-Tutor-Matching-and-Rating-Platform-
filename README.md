@@ -89,7 +89,7 @@ The backend enforces all business rules — the status machine, rating visibilit
 | Backend framework | FastAPI | 0.115.6 |
 | ASGI server | Uvicorn | 0.34.0 |
 | Data validation | Pydantic | 2.10.4 |
-| Database driver | psycopg2 | >=2.9.11 |
+| Database driver | psycopg2-binary | 2.9.11 |
 | Password hashing | bcrypt | 4.2.1 |
 | JWT | PyJWT | 2.9.0 |
 | Task queue | huey | 2.5.2 |
@@ -226,7 +226,8 @@ project-root/
 ├── secrets/                     # Docker secrets (db_password, jwt_secret_key, jwt_secret_key_previous, admin_password)
 ├── scripts/                     # Helper shell scripts (check-prod-compose.sh, pin-base-images.sh)
 ├── docs/                        # Specifications and design notes
-│   ├── project-spec.md          # Full system specification (v5.1)
+│   ├── project-spec.md          # Full system specification (v6.0)
+│   ├── architecture.md          # C4 diagrams, bounded contexts, request/auth flows
 │   └── database-schema.md       # Complete database schema reference
 │
 ├── tutor-platform-api/          # Python backend (FastAPI)
@@ -488,6 +489,8 @@ The huey worker runs in a separate container backed by a SQLite queue at `data/h
 | `calculate_income_stats` | Tutor action (`GET /api/stats/income`) | Aggregate tutor earnings by month, student, and subject |
 | `calculate_expense_stats` | Parent action (`GET /api/stats/expense`) | Aggregate parent spending by month and subject |
 | `lock_expired_reviews` | Scheduled (03:00 daily) | Mark reviews older than 7 days as immutable |
+| `cleanup_refresh_token_blacklist` | Scheduled (03:30 daily) | Purge expired entries from `refresh_token_blacklist` |
+| `cleanup_rate_limit_hits` | Scheduled (03:45 daily) | Purge expired hit counters from `rate_limit_hits` |
 
 Stats tasks return a `task_id` immediately. The frontend polls `GET /api/stats/tasks/{task_id}` for status and completion.
 
@@ -498,12 +501,13 @@ Stats tasks return a `task_id` immediately. The frontend polls `GET /api/stats/t
 The backend ships with several middleware layers (innermost → outermost):
 
 1. **RateLimitMiddleware** — per-IP and per-user rate limits, persisted in `rate_limit_hits` so limits are consistent across API replicas.
-2. **UserConcurrencyQuotaMiddleware** — caps the number of simultaneous in-flight requests a single authenticated user may hold open (default 5, configurable via `DB_PER_USER_QUOTA`). Prevents one caller from monopolising all database pool slots; returns 429 with `Retry-After: 1` when the limit is hit.
-3. **AccessLogMiddleware** — structured JSON access logs, tagged with the request ID.
-4. **SecurityHeadersMiddleware** — sets `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Strict-Transport-Security`, and a conservative CSP.
-5. **BodySizeLimitMiddleware** — rejects oversized request bodies before the handler reads them (cap from `MAX_REQUEST_BODY_BYTES`, default 50 MB).
-6. **RequestIDMiddleware** — injects an `X-Request-ID` into every request and response; propagated into logs and 500 error bodies.
-7. **CORSMiddleware** — origin allow-list driven by the `CORS_ORIGINS` environment variable.
+2. **CSRFMiddleware** — double-submit cookie CSRF validation on state-changing requests; an invalid CSRF request is rejected before any rate-limit bucket is debited.
+3. **UserConcurrencyQuotaMiddleware** — caps the number of simultaneous in-flight requests a single authenticated user may hold open (default 5, configurable via `DB_PER_USER_QUOTA`). Prevents one caller from monopolising all database pool slots; returns 429 with `Retry-After: 1` when the limit is hit.
+4. **AccessLogMiddleware** — structured JSON access logs, tagged with the request ID.
+5. **SecurityHeadersMiddleware** — sets `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Strict-Transport-Security`, and a conservative CSP.
+6. **BodySizeLimitMiddleware** — rejects oversized request bodies before the handler reads them (cap from `MAX_REQUEST_BODY_BYTES`, default 50 MB).
+7. **RequestIDMiddleware** — injects an `X-Request-ID` into every request and response; propagated into logs and 500 error bodies.
+8. **CORSMiddleware** — origin allow-list driven by the `CORS_ORIGINS` environment variable.
 
 Nginx in the `web` container adds an edge-layer `limit_req_zone` (20 r/s, burst 40) in front of `/api/*`, plus global security headers and a CSP applied to every `location`.
 
@@ -536,7 +540,7 @@ See `SECURITY.md` for the full checklist and environment configuration requireme
 
 ## Documentation
 
-- **`docs/project-spec.md` (v5.1)** — Full system specification. Sections 1–5 are accessible to all team members; sections 6–13 are the technical reference (DB schema, API endpoints, frontend routes, async tasks).
+- **`docs/project-spec.md` (v6.0)** — Full system specification. Sections 1–5 are accessible to all team members; sections 6–13 are the technical reference (DB schema, API endpoints, frontend routes, async tasks).
 - **[`docs/architecture.md`](docs/architecture.md)** — System architecture reference: C4-style diagrams (context, container, components), backend bounded contexts, frontend module map, request/auth flows, match state machine, ER view, and cross-cutting concerns. All diagrams in Mermaid.
 - **[`docs/database-schema.md`](docs/database-schema.md)** — Complete database schema reference with table structure, relationships, and constraints.
 - **`SECURITY.md`** — Security controls, known limitations, required production environment configuration, and token rotation procedure.

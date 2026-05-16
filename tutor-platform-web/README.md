@@ -95,34 +95,41 @@ In both cases every frontend API call already includes the `/api/` prefix (e.g. 
 
 ```
 tutor-platform-web/
-├── Dockerfile                  # Multi-stage: Vite build → nginx-unprivileged static serve
-├── nginx.conf                  # /api/* → api:8000, SPA fallback, asset caching,
-│                               # edge rate limit (20 r/s, burst 40), global security headers + CSP
-├── vite.config.js              # Port 5273, @ alias, dev proxy (/api → localhost:8000), vendor/charts manual chunks, sourcemap off
+├── Dockerfile                       # Multi-stage: Vite build → nginx-unprivileged static serve
+├── nginx.conf                       # /api/* → api:8000, SPA fallback, asset caching,
+│                                    # edge rate limit (20 r/s, burst 40), HSTS gated on x-forwarded-proto
+├── nginx-security-headers.conf      # Shared CSP / X-Frame-Options / Referrer-Policy snippet
+│                                    # included from every `location` that calls add_header
+├── vite.config.js                   # Port 5273, @ alias, dev proxy (/api → localhost:8000),
+│                                    # vendor/charts manual chunks, sourcemap off, SRI plugin
+├── vite-plugin-sri.js               # Post-build plugin: injects sha384 integrity attributes
+│                                    # into index.html for every emitted JS/CSS chunk
 ├── index.html
 ├── package.json
+├── .env.development / .env.production / .env.example
 ├── scripts/
-│   └── check-no-v-html.mjs     # Pre-build lint: fail if any template uses v-html
+│   ├── check-no-v-html.mjs          # Pre-build lint: fail if any template uses v-html
+│   └── pin-base-images.sh           # Pin Docker base images to current digests for reproducible builds
 └── src/
-    ├── main.js                 # App bootstrap: Pinia, router, global styles
+    ├── main.js                      # App bootstrap: Pinia, router, global styles
     ├── App.vue
-    ├── constants.js            # Shared enums (roles, match status values, labels, ...)
-    ├── style.css               # Tailwind entry
+    ├── constants.js                 # Shared enums (roles, match status values, labels, ...)
+    ├── style.css                    # Tailwind entry
     │
     ├── router/
-    │   └── index.js            # Route table, role-based navigation guards
+    │   └── index.js                 # Route table, role-based navigation guards
     │
-    ├── stores/                 # Pinia stores
-    │   ├── auth.js             # Current user, role, verified flag, login/logout/refresh flow
-    │   │                       # (tokens themselves live in HttpOnly cookies — never in JS)
-    │   ├── tutor.js            # Tutor search filters, results, profile cache
-    │   ├── notifications.js    # In-app notification history (per-user localStorage, 1 h TTL)
-    │   └── toast.js            # Global toast notifications
+    ├── stores/                      # Pinia stores
+    │   ├── auth.js                  # Current user, role, verified flag, login/logout/refresh flow
+    │   │                            # (tokens themselves live in HttpOnly cookies — never in JS)
+    │   ├── tutor.js                 # Tutor search filters, results, profile cache
+    │   ├── notifications.js         # In-app notification history (per-user localStorage, 1 h TTL)
+    │   └── toast.js                 # Global toast notifications
     │
-    ├── api/                    # Axios service layer (one file per resource)
-    │   ├── index.js            # Axios instance: baseURL, auth interceptor, error mapping
-    │   ├── baseURL.js          # API_BASE_URL resolver (see Environment Variables)
-    │   ├── authHandler.js      # Shared 401 / refresh-token handler reused by the interceptor
+    ├── api/                         # Axios service layer (one file per resource)
+    │   ├── index.js                 # Axios instance: baseURL, auth interceptor, error mapping
+    │   ├── baseURL.js               # API_BASE_URL resolver (see Environment Variables)
+    │   ├── authHandler.js           # Shared 401 / refresh-token handler reused by the interceptor
     │   ├── auth.js
     │   ├── tutors.js
     │   ├── students.js
@@ -135,10 +142,10 @@ tutor-platform-web/
     │   ├── stats.js
     │   └── admin.js
     │
-    ├── views/                  # Page-level components (mapped by router)
+    ├── views/                       # Page-level components (mapped by router)
     │   ├── LoginView.vue
     │   ├── RegisterView.vue
-    │   ├── NotFoundView.vue    # 404 fallback for unmatched routes
+    │   ├── NotFoundView.vue         # 404 fallback for unmatched routes
     │   ├── parent/
     │   │   ├── DashboardView.vue
     │   │   ├── SearchView.vue
@@ -158,18 +165,23 @@ tutor-platform-web/
     │   └── admin/
     │       └── AdminDashboardView.vue
     │
-    ├── components/             # Reusable UI
-    │   ├── common/              # AppNav, PageHeader, StatCard, StatusBadge, EmptyState,
-    │   │                        # ConfirmDialog, ToastNotification, NotificationBell
-    │   ├── tutor/               # Tutor card, availability editor, subject picker
-    │   ├── match/               # Status badge, invitation form, timeline
-    │   ├── session/             # Session form, edit-history viewer
-    │   ├── review/              # Rating sliders, three-way review forms
-    │   └── stats/               # Income/expense charts (Chart.js)
+    ├── components/                  # Reusable UI
+    │   ├── common/                  # AppNav, PageHeader, StatCard, StatusBadge, EmptyState,
+    │   │                            # ConfirmDialog, ToastNotification, NotificationBell
+    │   ├── tutor/                   # TutorCard, TutorFilter, AvailabilityCalendar
+    │   ├── match/                   # InviteForm, ContractForm, ContractConfirmModal
+    │   ├── session/                 # SessionForm, SessionTimeline (edit-history viewer)
+    │   ├── review/                  # RadarChart (per-dimension rating), ReviewList
+    │   └── stats/                   # IncomeChart, ExpenseChart, ProgressChart (Chart.js)
     │
-    └── composables/
-        ├── useMatchDetail.js    # Shared logic between parent/tutor MatchDetail views
-        └── useConfirm.js        # Promise-based wrapper around the global ConfirmDialog
+    ├── composables/
+    │   ├── useMatchDetail.js        # Shared logic between parent/tutor MatchDetail views
+    │   └── useConfirm.js            # Promise-based wrapper around the global ConfirmDialog
+    │
+    └── utils/
+        ├── format.js                # Locale-safe date/time formatters (avoid TZ off-by-one)
+        └── highlight.js             # Search-term highlight splitter — returns segment array,
+                                     # never raw HTML (XSS-safe, paired with the no-v-html lint)
 ```
 
 The `@/` alias (configured in `vite.config.js`) resolves to `src/`, so imports like `import { useAuthStore } from '@/stores/auth'` work from anywhere.
@@ -181,10 +193,11 @@ The `@/` alias (configured in `vite.config.js`) resolves to `src/`, so imports l
 Route definitions live in `src/router/index.js`. A global `beforeEach` guard:
 
 1. Redirects unauthenticated users hitting protected routes to `/login`.
-2. Enforces role restrictions on role-scoped routes (e.g. `/parent/*` requires `role === 'parent'`).
+2. Enforces role restrictions on role-scoped routes (e.g. `/parent/*` requires `role === 'parent'`). The `/messages/*` subtree uses both an `roles: ['parent', 'tutor']` allow-list **and** an `excludeRoles: ['admin']` deny-list as belt-and-braces — admin has no chat surface.
 3. Redirects logged-in users away from `/login` and `/register` to their role's dashboard.
+4. Awaits `auth.ensureVerified()` on every protected navigation (not just the first one). `ensureVerified()` short-circuits on a cached verification, so the cost is one function call but it closes the window where a tampered `localStorage.user` could bypass the role check on in-session navigations.
 
-Role detection reads from the Pinia `auth` store. On app boot the store rehydrates cached user info (role, display name) from `localStorage`; auth tokens themselves live in HttpOnly cookies and are never accessible to JavaScript. Route guards call `ensureVerified()`, which hits `GET /api/auth/me` to obtain an authoritative role from the server before trusting the cached value.
+Role detection reads from the Pinia `auth` store. On app boot the store rehydrates cached user info (role, display name) from `localStorage`; auth tokens themselves live in HttpOnly cookies and are never accessible to JavaScript. `ensureVerified()` hits `GET /api/auth/me` to obtain an authoritative role from the server before trusting the cached value.
 
 ---
 
@@ -227,9 +240,11 @@ const { data } = await searchTutors({ subject: 'math', minRating: 4 })
 
 `npm run build` produces `dist/` with:
 
-- `index.html`
+- `index.html` — every emitted `<script>` and `<link rel="stylesheet">` carries an `integrity="sha384-..."` attribute injected by `vite-plugin-sri.js`, so the browser refuses to execute a tampered bundle.
 - `assets/` — hashed JS/CSS bundles. `manualChunks` splits `vendor` (vue, router, pinia, axios) and `charts` (chart.js, vue-chartjs) into separate files for better caching.
 - Source maps are **disabled** in production (`vite.config.js`: `build.sourcemap: false`).
+
+The SRI plugin runs in the `writeBundle` hook (post-enforce), not `generateBundle`, because Vite's `vite:build-import-analysis` plugin rewrites entry-chunk code to inline `__VITE_PRELOAD__` lists after `generateBundle` returns — hashing the in-memory chunk there yields a stale digest and the browser silently blocks the script. Reading the on-disk bytes after the bundle is fully written guarantees the hash matches what the browser fetches.
 
 The production `Dockerfile` is a two-stage build: a Node image runs `npm run build`, then the `dist/` folder is copied into an `nginx-unprivileged` image that listens on **8080** (non-root nginx cannot bind <1024). `docker-compose.yml` maps host `80 → 8080` so the site is still served at `http://localhost/`. Nginx serves the SPA and proxies `/api/*` and `/health` to the `api` container.
 
@@ -240,7 +255,9 @@ Relevant bits of `nginx.conf`:
 - `location / { try_files $uri $uri/ /index.html; }` — SPA fallback for client-side routing.
 - `location = /index.html` — explicit `no-store` so clients always fetch a fresh entry document (prevents loading a stale index that references hashed assets that no longer exist).
 - `location /assets/ { expires 1y; }` — long cache for hashed bundles.
-- Global security headers (CSP, HSTS, X-Frame-Options, ...) are re-declared in every `location` that sets any header, because nginx's `add_header` does not inherit across `location` blocks once the block sets even a single header.
+- `proxy_cookie_flags ~.* secure samesite=lax` on `/api/` — asserts `Secure` and `SameSite=Lax` on every proxied `Set-Cookie`, so a missing flag from the backend cannot reach the browser unpatched.
+- `proxy_set_header X-Forwarded-For $remote_addr` — overwrites rather than appends, pinning the IP seen by the backend's rate limiter and audit log to the real peer address. Appending the client-supplied value would let an attacker spoof the origin IP.
+- Security headers (CSP, X-Frame-Options, Referrer-Policy, ...) live in `nginx-security-headers.conf` and are `include`d from every `location` that calls `add_header`, because nginx's `add_header` does **not** inherit across `location` blocks once the block sets any header. HSTS is emitted via a `map $http_x_forwarded_proto $hsts_header` so the header is only set when the upstream TLS terminator confirms HTTPS.
 
 ---
 

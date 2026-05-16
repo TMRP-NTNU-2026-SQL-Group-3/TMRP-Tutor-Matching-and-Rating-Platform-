@@ -224,6 +224,19 @@ erDiagram
         timestamptz created_at
     }
 
+    idempotency_keys {
+        int user_id PK, FK
+        varchar idem_key PK
+        int match_id FK
+        timestamptz expires_at
+        timestamptz created_at
+    }
+
+    user_token_revocations {
+        int user_id PK, FK
+        timestamptz revoked_at
+    }
+
     %% Identity & Profiles
     users ||--o| tutors : "has tutor profile"
     users ||--o{ students : "is parent of"
@@ -260,6 +273,11 @@ erDiagram
 
     %% Audit
     users ||--o{ audit_log : "actor in"
+
+    %% Infrastructure
+    users   ||--o{ idempotency_keys      : "dedup key owner"
+    matches ||--o{ idempotency_keys      : "result"
+    users   ||--o| user_token_revocations: "bulk revoke watermark"
 ```
 
 ---
@@ -277,10 +295,10 @@ The central account table. Every actor in the system — parent, tutor, or admin
 | `user_id` | `SERIAL` | PK | auto | |
 | `username` | `VARCHAR(100)` | NOT NULL, UNIQUE | — | Login identifier; `idx_users_username` |
 | `password_hash` | `VARCHAR(255)` | NOT NULL | — | Bcrypt hash |
-| `role` | `VARCHAR(10)` | NOT NULL | — | `'parent'` / `'tutor'` / `'admin'` (app-layer enum) |
+| `role` | `VARCHAR(10)` | NOT NULL, CHECK | — | `chk_users_role`: `'parent'` / `'tutor'` / `'admin'` |
 | `display_name` | `VARCHAR(100)` | NOT NULL | — | Shown in UI |
 | `phone` | `VARCHAR(30)` | nullable | — | |
-| `email` | `VARCHAR(100)` | nullable | — | |
+| `email` | `VARCHAR(100)` | nullable, CHECK | — | `chk_users_email_format` (`email LIKE '%@%'`); unique when not null via `idx_users_email` |
 | `created_at` | `TIMESTAMPTZ` | NOT NULL | `NOW()` | |
 
 **Outgoing FK references from other tables:** `tutors.user_id`, `students.parent_user_id`, `conversations.user_a_id`, `conversations.user_b_id`, `messages.sender_user_id`, `matches.terminated_by`, `matches.parent_user_id`, `exams.added_by_user_id`, `reviews.reviewer_user_id`, `audit_log.actor_user_id`
@@ -397,9 +415,11 @@ Weekly recurring time slots. Each row represents one day-of-week window for a tu
 |--------|------|-------------|---------|-------|
 | `availability_id` | `SERIAL` | PK | auto | |
 | `tutor_id` | `INTEGER` | NOT NULL, FK → `tutors` | — | `idx_tutor_avail_tutor`; CASCADE delete |
-| `day_of_week` | `SMALLINT` | NOT NULL, CHECK 0–6 | — | 0 = Sunday, 6 = Saturday |
+| `day_of_week` | `SMALLINT` | NOT NULL, CHECK 1–7 | — | Application convention: 1 = Monday … 7 = Sunday |
 | `start_time` | `TIME` | NOT NULL | — | Wall-clock time (no date — slot recurs weekly) |
 | `end_time` | `TIME` | NOT NULL, CHECK > start | — | `chk_tutor_availability_time_order` |
+
+**Unique index:** `idx_tutor_avail_slot (tutor_id, day_of_week, start_time)` — blocks duplicate slots from concurrent inserts or direct DB writes.
 
 ---
 
@@ -476,7 +496,9 @@ pending ──► trial ──► active ──► paused ──► terminating 
    └──► cancelled
 ```
 
-Valid statuses: `'pending'`, `'trial'`, `'active'`, `'paused'`, `'cancelled'`, `'rejected'`, `'terminating'`, `'ended'`
+Valid statuses (enforced by `chk_matches_status`): `'pending'`, `'trial'`, `'active'`, `'paused'`, `'cancelled'`, `'rejected'`, `'terminating'`, `'ended'`
+
+**Unique index:** `idx_matches_one_active (tutor_id, student_id, subject_id) WHERE status IN ('pending','trial','active','paused','terminating')` — DB-level guard against the TOCTOU race in duplicate-active detection. Terminal statuses (`ended`, `cancelled`, `rejected`) can coexist for the same triple.
 
 **Triggers:**
 - `fn_match_set_parent_user` (BEFORE INSERT/UPDATE OF `student_id`) — auto-populates `parent_user_id` from `students.parent_user_id`
@@ -712,9 +734,12 @@ GROUP BY tutor_id
 | Index Name | Table | Columns | Enforces |
 |------------|-------|---------|----------|
 | `idx_users_username` | `users` | `username` | One account per username |
+| `idx_users_email` | `users` | `email WHERE email IS NOT NULL` | At most one account per non-null email (partial unique) |
 | `idx_tutors_user_id` | `tutors` | `user_id` | 1:1 user–tutor relationship |
 | `idx_subjects_name` | `subjects` | `subject_name` | No duplicate subjects |
+| `idx_tutor_avail_slot` | `tutor_availability` | `(tutor_id, day_of_week, start_time)` | No duplicate availability slots |
 | `idx_conversations_pair` | `conversations` | `(user_a_id, user_b_id)` | One thread per user pair |
+| `idx_matches_one_active` | `matches` | `(tutor_id, student_id, subject_id) WHERE status IN ('pending','trial','active','paused','terminating')` | One active match per (tutor, student, subject) triple (partial unique) |
 | `idx_reviews_unique` | `reviews` | `(match_id, reviewer_user_id, review_type)` | One review per reviewer per match per type |
 | `idx_mv_tutor_ratings_tutor` | `v_tutor_ratings` | `tutor_id` | Fast MV lookup |
 | `idx_mv_tutor_active_tutor` | `v_tutor_active_students` | `tutor_id` | Fast MV lookup |
@@ -753,7 +778,9 @@ GROUP BY tutor_id
 | `idx_audit_log_resource` | `audit_log` | `(resource_type, resource_id)` | Resource history lookup |
 | `idx_audit_log_actor` | `audit_log` | `(actor_user_id, created_at)` | Actor history lookup |
 | `idx_rl_bucket_hit_at` | `rate_limit_hits` | `(bucket_key, hit_at)` | Sliding-window count |
+| `idx_rl_expires_at` | `rate_limit_hits` | `expires_at` | TTL-based pruning of expired buckets |
 | `idx_rt_blacklist_exp` | `refresh_token_blacklist` | `expires_at` | Expired token pruning |
+| `idx_idempotency_expires` | `idempotency_keys` | `expires_at` | TTL-based pruning |
 | `idx_pw_history_user` | `password_history` | `(user_id, changed_at DESC)` | Most-recent N hashes per user |
 
 ---
@@ -764,10 +791,13 @@ GROUP BY tutor_id
 
 | Table | Constraint Name | Expression |
 |-------|----------------|------------|
+| `users` | `chk_users_role` | `role IN ('parent', 'tutor', 'admin')` |
+| `users` | `chk_users_email_format` | `email IS NULL OR email LIKE '%@%'` |
 | `subjects` | `chk_subject_category` | `category IN ('math', 'science', 'lang', 'other')` |
-| `tutor_availability` | *(inline)* | `day_of_week >= 0 AND day_of_week <= 6` |
+| `tutor_availability` | *(inline)* | `day_of_week >= 1 AND day_of_week <= 7` |
 | `tutor_availability` | `chk_tutor_availability_time_order` | `start_time < end_time` |
 | `conversations` | `chk_conversations_pair_order` | `user_a_id < user_b_id` |
+| `matches` | `chk_matches_status` | `status IN ('pending','trial','active','paused','terminating','ended','cancelled','rejected')` |
 | `sessions` | *(inline)* | `hours > 0` |
 | `exams` | *(inline)* | `exam_type IN ('段考', '小考', '模擬考', '其他')` |
 | `reviews` | *(inline)* | `review_type IN ('parent_to_tutor', 'tutor_to_parent', 'tutor_to_student')` |
@@ -803,6 +833,9 @@ GROUP BY tutor_id
 | `reviews` | `reviewer_user_id` | `users` | `user_id` | RESTRICT | Preserve reviewer audit trail |
 | `password_history` | `user_id` | `users` | `user_id` | CASCADE | Remove history with account |
 | `audit_log` | `actor_user_id` | `users` | `user_id` | SET NULL | Record survives actor deletion |
+| `idempotency_keys` | `user_id` | `users` | `user_id` | CASCADE | Remove keys with account |
+| `idempotency_keys` | `match_id` | `matches` | `match_id` | CASCADE | Key tied to its created match |
+| `user_token_revocations` | `user_id` | `users` | `user_id` | CASCADE | Remove watermark with account |
 
 ---
 

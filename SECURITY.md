@@ -47,6 +47,10 @@ The `JWT_SECRET_KEY_PREVIOUS` and `JWT_SECRET_KEY_PREVIOUS_EXPIRES_AT` environme
 
 Login attempts are tracked per username (case-insensitive) in PostgreSQL, shared across all API workers. Five failed attempts within any 15-minute window lock out further attempts with a `429 Too Many Requests` response and a `Retry-After` header. The check runs before bcrypt comparison to prevent cost-amplification denial-of-service.
 
+### Username Enumeration Mitigation
+
+The login path executes a constant-time bcrypt comparison against a dummy hash when the username does not exist, so successful and failed lookups exhibit indistinguishable timing. Registration applies the same dummy-hash pattern on duplicate usernames. This prevents an attacker from probing for valid accounts via response-time differentials.
+
 ### Password Reuse Prevention
 
 Password changes (`PUT /api/auth/password`) reject any new password that matches one of the user's last five bcrypt hashes. History entries are stored in `password_history`, trimmed to the five most recent on every write. The table is removed with the account (`ON DELETE CASCADE`).
@@ -72,11 +76,11 @@ The following middleware layers are applied in order (outermost first):
 | BodySizeLimit | Rejects payloads exceeding `MAX_REQUEST_BODY_BYTES` (default 50 MB) |
 | SecurityHeaders | Sets `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Cache-Control: no-store`, and a restrictive Content-Security-Policy |
 | AccessLog | Structured JSON logging with client IP, method, path, status, and duration |
-| UserConcurrencyQuota | Per-authenticated-user DB connection cap (default 5, `DB_PER_USER_QUOTA`); returns `429` with `Retry-After: 1` when exceeded |
+| UserConcurrencyQuota | Per-authenticated-user concurrent-request cap (default 5, `DB_PER_USER_QUOTA`); returns `429` with `Retry-After: 1` when exceeded. The counter is held in-process, so the cap is enforced per API worker rather than globally — under horizontal scaling, the effective per-user ceiling is `workers × DB_PER_USER_QUOTA`. |
 | CSRFMiddleware | Double-submit cookie pattern: every mutating request must present an `X-CSRF-Token` header whose value matches the `csrf_token` cookie set on login. An invalid or missing CSRF token is rejected before the per-path rate-limit bucket is debited. |
 | RateLimitMiddleware | Per-path limits (login: 10/60 s, register: 5/60 s, refresh: 20/60 s, admin reset: 5/3600 s, subjects: 30/60 s, default: 60/60 s); fail-closed on critical paths |
 
-Nginx applies an additional edge limit of 20 r/s with a burst of 40 before requests reach FastAPI.
+Nginx applies an additional edge limit of 20 r/s with a burst of 40 before requests reach FastAPI. At the same layer, `proxy_cookie_flags` re-applies `Secure` and `SameSite=Lax` to every outbound `Set-Cookie` header as defense-in-depth against an application-tier misconfiguration, and inbound `X-Forwarded-*` headers are rewritten (not appended) so clients cannot spoof a trusted source address. Uvicorn's `ProxyHeadersMiddleware` is configured via `FORWARDED_ALLOW_IPS` to trust only the pinned web-sidecar IP on the internal bridge network.
 
 ---
 
@@ -111,7 +115,7 @@ All containers run with:
 - Non-root users (API: UID 1000, Nginx: UID 101, PostgreSQL: UID 70)
 - Base images pinned by SHA-256 digest
 
-Resource limits are applied per service (API/DB: 512 MB RAM, 1.0 CPU; Worker: 256 MB RAM, 0.5 CPU). The database port is not bound to the host in production. API and web containers are assigned fixed IPs on a custom bridge network for reliable `X-Forwarded-For` validation.
+Resource limits are applied per service (API/DB: 512 MB RAM, 1.0 CPU; Worker: 256 MB RAM, 0.5 CPU; Web: 128 MB RAM, 0.5 CPU). The database port is not bound to the host in production. API and web containers are assigned fixed IPs on a custom bridge network for reliable `X-Forwarded-For` validation.
 
 ---
 
@@ -134,9 +138,13 @@ The `secrets/` directory and all `.env` files are excluded from version control 
 
 ## Logging and Audit Trail
 
-All API requests produce a structured JSON log entry containing the request ID, HTTP method, path, status code, duration in milliseconds, client IP, and user agent. Sensitive fields are scrubbed before the log entry is written.
+All API requests produce a structured JSON log entry containing the request ID, HTTP method, path, status code, duration in milliseconds, client IP, and user agent. Sensitive fields are scrubbed before the log entry is written, and CR/LF characters in user-controlled fields (username, user agent) are stripped to prevent log-line injection.
 
-Privileged actions (user role changes, password resets, admin-initiated operations) are recorded in the `audit_log` table with actor identity, action type, resource ID, and timestamp. Actor foreign keys are set to `NULL` rather than deleted when a user account is removed, preserving the audit record.
+A dedicated `audit` logger additionally records every authentication event — successful logins, failed login attempts (with reason), token refreshes, and logout-driven token revocations — so that suspicious activity can be reconstructed independently of the access log.
+
+Privileged actions (user role changes, password resets, admin-initiated operations) are recorded in the `audit_log` table with actor identity, action type, resource ID, and timestamp. Actor foreign keys are set to `NULL` rather than deleted when a user account is removed, preserving the audit record. Field-level edits to teaching sessions are captured separately in `session_edit_logs`, which stores the old and new values for each changed column along with the editor's identity.
+
+Match-creation endpoints accept an idempotency key persisted in `idempotency_keys`; duplicate submissions return the original result rather than creating a second match, eliminating race conditions across workers.
 
 ---
 
