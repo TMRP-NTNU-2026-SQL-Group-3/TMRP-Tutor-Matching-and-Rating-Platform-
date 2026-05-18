@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 def _get_allowed_base() -> Path:
-    return (Path(__file__).resolve().parent.parent / "data").resolve()
+    return (Path(__file__).resolve().parent.parent.parent / "data").resolve()
 
 
 def read_csv(file_path: str) -> list[dict]:

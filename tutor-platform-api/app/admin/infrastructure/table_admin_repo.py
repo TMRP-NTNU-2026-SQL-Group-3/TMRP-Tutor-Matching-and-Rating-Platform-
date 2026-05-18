@@ -132,6 +132,7 @@ class TableAdminRepository(BaseRepository):
         # table_schema is constrained to the active schema so a same-named
         # table in another schema cannot leak into the match.
         for table in table_names:
+            validate_table(table)
             self.cursor.execute(
                 "SELECT column_name, pg_get_serial_sequence(%s, column_name) AS seq "
                 "FROM information_schema.columns "
