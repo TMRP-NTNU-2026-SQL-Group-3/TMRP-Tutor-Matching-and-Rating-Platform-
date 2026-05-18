@@ -480,8 +480,8 @@ function cancelExamEdit() {
 }
 
 async function saveExamEdit(examId) {
-  if (editExamForm.score < 0 || editExamForm.score > 100) {
-    toast.error('分數必須在 0-100 之間')
+  if (editExamForm.score < 0 || editExamForm.score > 150) {
+    toast.error('分數必須在 0-150 之間')
     return
   }
   examEditSaving.value = true
@@ -630,8 +630,8 @@ async function submitExam() {
     examError.value = '日期為必填'
     return
   }
-  if (!Number.isFinite(examForm.score) || examForm.score < 0 || examForm.score > 100) {
-    examError.value = '分數必須在 0-100 之間'
+  if (!Number.isFinite(examForm.score) || examForm.score < 0 || examForm.score > 150) {
+    examError.value = '分數必須在 0-150 之間'
     return
   }
   // Bug #24: match 載入失敗時 student_id / subject_id 會是 undefined，

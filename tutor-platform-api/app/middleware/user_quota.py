@@ -69,27 +69,32 @@ class UserConcurrencyQuotaMiddleware:
         with self._lock:
             current = self._counts.get(user_id, 0)
             if current >= self._max:
-                path = scope.get("path", "?")
-                logger.warning(
-                    "user_quota: user_id=%s denied — %d concurrent requests (cap=%d) path=%s",
-                    user_id, current, self._max, path,
-                )
-                body = json.dumps({
-                    "success": False, "data": None,
-                    "message": "同時進行中的請求過多，請稍後再試",
-                }).encode()
-                await send({
-                    "type": "http.response.start",
-                    "status": 429,
-                    "headers": [
-                        (b"content-type", b"application/json"),
-                        (b"retry-after", b"1"),
-                        (b"content-length", str(len(body)).encode()),
-                    ],
-                })
-                await send({"type": "http.response.body", "body": body})
-                return
-            self._counts[user_id] = current + 1
+                over_limit = True
+            else:
+                over_limit = False
+                self._counts[user_id] = current + 1
+
+        if over_limit:
+            path = scope.get("path", "?")
+            logger.warning(
+                "user_quota: user_id=%s denied — %d concurrent requests (cap=%d) path=%s",
+                user_id, current, self._max, path,
+            )
+            body = json.dumps({
+                "success": False, "data": None,
+                "message": "同時進行中的請求過多，請稍後再試",
+            }).encode()
+            await send({
+                "type": "http.response.start",
+                "status": 429,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"retry-after", b"1"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            })
+            await send({"type": "http.response.body", "body": body})
+            return
 
         try:
             await self.app(scope, receive, send)

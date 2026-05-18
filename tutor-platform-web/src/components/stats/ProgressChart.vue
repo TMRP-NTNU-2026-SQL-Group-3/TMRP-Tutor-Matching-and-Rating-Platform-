@@ -87,7 +87,7 @@ const chartOptions = {
   scales: {
     y: {
       beginAtZero: true,
-      max: 100,
+      max: 150,
       title: { display: true, text: '分數' },
     },
   },
