@@ -361,12 +361,14 @@ def admin_reset_user_password(
     repo: TableAdminRepository = Depends(get_admin_repo),
 ):
     # Hash comparison (bcrypt verify_password × up to 6 entries) is ~600ms of
-    # pure CPU. Running it inside the transaction would hold the users row
-    # locked that long under SELECT ... FOR UPDATE, serialising any
-    # concurrent admin action. Lift the prior-hash read + verify out, then
-    # let reset_user_password re-fetch the current hash inside the write
-    # transaction so password_history records the *current* hash even if a
-    # race with another admin reset slipped in between.
+    # pure CPU. Keeping it inside the transaction would extend the open
+    # backend XID for half a second per request, increasing vacuum pressure
+    # and blocking the connection from returning useful work. Lift the
+    # prior-hash read + verify out, explicitly close the read snapshot, run
+    # bcrypt with no tx open, then start a fresh write tx for the mutation.
+    # reset_user_password re-fetches the current hash inside the write tx
+    # so password_history captures the *current* hash even if a concurrent
+    # admin reset slipped in between.
     target = repo.fetch_one("SELECT password_hash FROM users WHERE user_id = %s", (user_id,))
     if not target:
         raise HTTPException(status_code=404, detail="使用者不存在")
@@ -376,6 +378,9 @@ def admin_reset_user_password(
         "SELECT password_hash FROM password_history WHERE user_id = %s ORDER BY changed_at DESC LIMIT 5",
         (user_id,),
     )]
+    # End the implicit read tx started by the two SELECTs above so the
+    # backend isn't sitting "idle in transaction" through the bcrypt loop.
+    repo.conn.rollback()
     if any(verify_password(body.new_password, h) for h in prior_hashes):
         raise HTTPException(status_code=422, detail="新密碼不得與近期使用過的密碼相同")
     new_hash = hash_password(body.new_password)
