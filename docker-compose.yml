@@ -187,8 +187,11 @@ services:
         # the WEB_IP default in the api service's FORWARDED_ALLOW_IPS above.
         ipv4_address: ${WEB_IP:-172.28.0.10}
     ports:
-      # nginx listens on 8080 as a non-root user inside the container; host exposes port 80.
-      - "80:8080"
+      # H-03: In production, this service MUST sit behind a TLS-terminating
+      # reverse proxy (e.g. Caddy, Traefik, or a cloud load balancer).
+      # Auth cookies carry the Secure flag and will not be sent over plain HTTP.
+      # For a quick self-hosted setup, see the optional caddy service below.
+      - "${WEB_PORT:-80}:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8080/ || exit 1"]
       interval: 10s
@@ -201,10 +204,37 @@ services:
           memory: 128M
           cpus: "0.5"
 
+  # H-03: Optional TLS-terminating reverse proxy. Enable by setting
+  # DOMAIN in .env.docker (e.g. DOMAIN=tutor.example.com). Caddy obtains
+  # and renews Let's Encrypt certificates automatically.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    command: caddy reverse-proxy --from ${DOMAIN:?Set DOMAIN in .env.docker} --to web:8080
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - appnet
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+
 volumes:
   pgdata:
   api-data:
   api-logs:
+  caddy-data:
+  caddy-config:
 
 # MEDIUM-2: custom bridge with a known subnet so the api service can list the
 # nginx sidecar's fixed IP in FORWARDED_ALLOW_IPS. Also gives us a foothold

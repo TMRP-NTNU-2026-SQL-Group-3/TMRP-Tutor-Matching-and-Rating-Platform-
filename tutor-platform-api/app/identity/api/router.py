@@ -10,6 +10,7 @@ from app.shared.api.schemas import ApiResponse
 from app.shared.domain.exceptions import DomainException
 from app.shared.infrastructure.config import settings
 from app.shared.infrastructure.database_tx import transaction
+from app.shared.infrastructure.security import revoke_all_user_tokens
 
 # H-03: per-username rate limit in addition to the per-IP limit applied by
 # RateLimitMiddleware. An attacker using a distributed IP pool can stay under
@@ -193,12 +194,16 @@ def change_password(
     conn=Depends(get_db),
     service: AuthService = Depends(get_auth_service),
 ):
+    uid = int(user["sub"])
     with transaction(conn):
         service.change_password(
-            user_id=int(user["sub"]),
+            user_id=uid,
             current_password=body.current_password,
             new_password=body.new_password,
         )
+        # H-01: invalidate all existing refresh tokens so a compromised session
+        # cannot survive a user-initiated password change.
+        revoke_all_user_tokens(uid, conn=conn)
     # SEC-6: rotate CSRF token on credential change to close the window where
     # a leaked pre-change CSRF token could still authorize requests.
     response.set_cookie(

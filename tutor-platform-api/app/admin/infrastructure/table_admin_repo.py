@@ -80,7 +80,10 @@ class TableAdminRepository(BaseRepository):
         so the caller avoids a DB round-trip per row.
         """
         validate_columns(columns)
+        _USERS_UPSERT_DENY = {"password_hash", "role"}
         non_pk_cols = [c for c in columns if c not in pk_cols]
+        if table == "users":
+            non_pk_cols = [c for c in non_pk_cols if c not in _USERS_UPSERT_DENY]
         col_list = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
         placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in columns)
         conflict_target = sql.SQL(", ").join(sql.Identifier(c) for c in pk_cols)
