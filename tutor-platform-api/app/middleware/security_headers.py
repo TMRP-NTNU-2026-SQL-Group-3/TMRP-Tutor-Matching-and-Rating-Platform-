@@ -24,10 +24,18 @@ class SecurityHeadersMiddleware:
                     (b"cache-control", b"no-store"),
                     (b"content-security-policy", b"default-src 'none'; frame-ancestors 'none'"),
                 ]
-                message = {
-                    **message,
-                    "headers": list(message.get("headers", [])) + extra,
-                }
+                # Replace, don't append: a handler (or an upstream middleware)
+                # may have already set one of these headers, and emitting the
+                # same name twice leaves the browser to pick — which on some
+                # combinations (notably CSP) collapses to the *most permissive*
+                # value and silently weakens the policy we intended to enforce.
+                override_names = {name for name, _ in extra}
+                preserved = [
+                    (name, value)
+                    for name, value in message.get("headers", [])
+                    if name.lower() not in override_names
+                ]
+                message = {**message, "headers": preserved + extra}
             await send(message)
 
         await self.app(scope, receive, send_with_headers)

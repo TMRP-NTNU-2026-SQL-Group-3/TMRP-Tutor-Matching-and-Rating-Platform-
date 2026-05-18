@@ -1,3 +1,4 @@
+import re
 import secrets
 
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -5,6 +6,12 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 _CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login", "/api/auth/register"})
+
+# Collapse repeated slashes so a request to ``/api//foo`` is matched against
+# the exempt list (and routed by FastAPI) the same way as ``/api/foo``. Without
+# this, a crafted double-slash path can both bypass the exempt check below
+# and still resolve to the same backend handler.
+_MULTI_SLASH_RE = re.compile(r"/+")
 
 _REJECT_BODY = b'{"success":false,"data":null,"message":"CSRF token \\u7121\\u6548\\u6216\\u7f3a\\u5931"}'
 
@@ -34,7 +41,8 @@ class CSRFMiddleware:
             return
 
         method = scope.get("method", "GET")
-        path = scope.get("path", "/").rstrip("/") or "/"
+        raw_path = scope.get("path", "/")
+        path = _MULTI_SLASH_RE.sub("/", raw_path).rstrip("/") or "/"
         if method in _SAFE_METHODS or path in _CSRF_EXEMPT_PATHS:
             await self.app(scope, receive, send)
             return

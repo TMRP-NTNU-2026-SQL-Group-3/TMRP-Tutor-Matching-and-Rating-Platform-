@@ -15,6 +15,15 @@ from app.worker import huey
 
 logger = logging.getLogger("app.tasks.import_export")
 
+# Anchor the on-disk export directory to the package root rather than the
+# current working directory. The container WORKDIR is /app today, so
+# ``Path("data/export")`` happens to resolve correctly — but if a future
+# operator launches the worker from a different CWD (custom systemd unit,
+# local dev with ``cd app && huey_consumer …``, etc.) the relative form would
+# silently start writing exports outside the api-data volume. parents[2]
+# points at the package root (/app) so the resolved path is volume-stable.
+_EXPORT_DIR = Path(__file__).resolve().parents[2] / "data" / "export"
+
 
 def _task_extra(request_id: str | None, **fields) -> dict:
     """Bundle structured fields with the originating request_id so worker logs
@@ -138,9 +147,8 @@ def export_csv_task(table_name: str, admin_user_id: int, request_id: str | None 
         if not rows:
             return {"table": table_name, "count": 0, "path": None}
 
-        export_dir = Path("data/export")
-        export_dir.mkdir(parents=True, exist_ok=True)
-        export_path = export_dir / f"{table_name}.csv"
+        _EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        export_path = _EXPORT_DIR / f"{table_name}.csv"
         write_csv(str(export_path), rows)
 
         logger.info(

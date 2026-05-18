@@ -22,12 +22,15 @@ def init_pool():
         dsn=settings.database_url,
         **_TCP_KEEPALIVE_OPTS,
     )
-    # M-08: dedicated small pool for rate-limit middleware so its DB checks
-    # do not compete with handler connections from the main pool, preventing
-    # pool exhaustion under concurrent load.
+    # M-08: dedicated pool for rate-limit middleware so its DB checks do not
+    # compete with handler connections from the main pool. Cap is sized to
+    # match expected concurrent rate-limit checks (one per inbound request +
+    # per-username/per-action sub-buckets) so a burst does not exhaust the
+    # rl pool and force sensitive endpoints (login) into fail-closed mode,
+    # which would surface to legitimate users as spurious 429s.
     _rl_pool = pool.ThreadedConnectionPool(
         minconn=2,
-        maxconn=5,
+        maxconn=max(10, settings.db_pool_max // 2),
         dsn=settings.database_url,
         **_TCP_KEEPALIVE_OPTS,
     )

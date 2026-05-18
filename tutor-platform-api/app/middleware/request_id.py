@@ -31,9 +31,17 @@ class RequestIDMiddleware:
 
         async def send_with_request_id(message):
             if message["type"] == "http.response.start":
+                # Replace any existing X-Request-ID so an upstream proxy that
+                # also injects one cannot leave the response carrying two
+                # different IDs (which would split log correlation chains).
+                preserved = [
+                    (name, value)
+                    for name, value in message.get("headers", [])
+                    if name.lower() != b"x-request-id"
+                ]
                 message = {
                     **message,
-                    "headers": list(message.get("headers", []))
+                    "headers": preserved
                     + [(b"x-request-id", request_id.encode("latin-1"))],
                 }
             await send(message)

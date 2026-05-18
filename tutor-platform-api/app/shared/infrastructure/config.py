@@ -120,6 +120,15 @@ class Settings(BaseSettings):
                 "JWT_SECRET_KEY must be a real secret. "
                 "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\""
             )
+        # Restrict jwt_algorithm to the HMAC-SHA2 family we actually support.
+        # Without this, an operator could set JWT_ALGORITHM=none (or any other
+        # value PyJWT understands) via env and silently weaken token verification.
+        if self.jwt_algorithm not in {"HS256", "HS384", "HS512"}:
+            raise ValueError(
+                f"JWT_ALGORITHM ({self.jwt_algorithm}) must be one of "
+                "HS256, HS384, HS512. Asymmetric algorithms require keypair "
+                "configuration changes."
+            )
         # Same enforcement applies to the rotation slot when set — otherwise an
         # operator could "rotate" to a placeholder and reopen the verification path.
         if self.jwt_secret_key_previous and len(self.jwt_secret_key_previous) < 32:

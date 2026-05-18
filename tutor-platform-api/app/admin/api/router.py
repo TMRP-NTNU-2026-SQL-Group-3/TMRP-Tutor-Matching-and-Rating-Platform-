@@ -360,19 +360,27 @@ def admin_reset_user_password(
     user=Depends(require_role("admin")),
     repo: TableAdminRepository = Depends(get_admin_repo),
 ):
+    # Hash comparison (bcrypt verify_password × up to 6 entries) is ~600ms of
+    # pure CPU. Running it inside the transaction would hold the users row
+    # locked that long under SELECT ... FOR UPDATE, serialising any
+    # concurrent admin action. Lift the prior-hash read + verify out, then
+    # let reset_user_password re-fetch the current hash inside the write
+    # transaction so password_history records the *current* hash even if a
+    # race with another admin reset slipped in between.
+    target = repo.fetch_one("SELECT password_hash FROM users WHERE user_id = %s", (user_id,))
+    if not target:
+        raise HTTPException(status_code=404, detail="使用者不存在")
+    old_hash = target["password_hash"]
+    prior_hashes = [old_hash] if old_hash and old_hash != "ANONYMIZED" else []
+    prior_hashes += [r["password_hash"] for r in repo.fetch_all(
+        "SELECT password_hash FROM password_history WHERE user_id = %s ORDER BY changed_at DESC LIMIT 5",
+        (user_id,),
+    )]
+    if any(verify_password(body.new_password, h) for h in prior_hashes):
+        raise HTTPException(status_code=422, detail="新密碼不得與近期使用過的密碼相同")
+    new_hash = hash_password(body.new_password)
     with transaction(repo.conn):
-        target = repo.fetch_one("SELECT password_hash FROM users WHERE user_id = %s", (user_id,))
-        if not target:
-            raise HTTPException(status_code=404, detail="使用者不存在")
-        old_hash = target["password_hash"]
-        prior_hashes = [old_hash] if old_hash and old_hash != "ANONYMIZED" else []
-        prior_hashes += [r["password_hash"] for r in repo.fetch_all(
-            "SELECT password_hash FROM password_history WHERE user_id = %s ORDER BY changed_at DESC LIMIT 5",
-            (user_id,),
-        )]
-        if any(verify_password(body.new_password, h) for h in prior_hashes):
-            raise HTTPException(status_code=422, detail="新密碼不得與近期使用過的密碼相同")
-        found = repo.reset_user_password(user_id, hash_password(body.new_password), old_hash=old_hash)
+        found = repo.reset_user_password(user_id, new_hash)
         if not found:
             raise HTTPException(status_code=404, detail="使用者不存在")
         # SEC-2: revoke all refresh tokens for the target user so they cannot
