@@ -117,15 +117,18 @@ export const useAuthStore = defineStore('auth', () => {
 
     // SEC-C02: attempt backend logout with one retry so the refresh token
     // does not linger valid for 7 days after a transient network failure.
+    // Guard the retry: if another user has logged in during the delay,
+    // retrying would send *their* cookies to the logout endpoint.
     const doLogout = () => axios.post(`${API_BASE_URL}/api/auth/logout`, null, {
       withCredentials: true,
     })
     doLogout().catch(() =>
-      new Promise((r) => setTimeout(r, 1500)).then(() =>
-        doLogout().catch((err) => {
+      new Promise((r) => setTimeout(r, 1500)).then(() => {
+        if (user.value) return
+        return doLogout().catch((err) => {
           console.warn('[auth] logout request failed after retry:', err?.message)
         })
-      )
+      })
     )
   }
 

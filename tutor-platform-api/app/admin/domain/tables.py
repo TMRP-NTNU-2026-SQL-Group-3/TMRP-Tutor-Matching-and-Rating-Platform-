@@ -8,7 +8,7 @@ DELETE_ORDER: tuple[str, ...] = (
     "rate_limit_hits",
     "session_edit_logs", "messages", "conversations", "reviews", "exams",
     "sessions", "matches", "tutor_availability", "tutor_subjects",
-    "students", "tutors", "subjects", "users",
+    "students", "tutors", "subjects", "password_history", "users",
 )
 
 IMPORT_ORDER: tuple[str, ...] = tuple(reversed(DELETE_ORDER))
@@ -21,7 +21,7 @@ ALLOWED_TABLES: frozenset[str] = frozenset(DELETE_ORDER)
 # password_hash and are therefore excluded from export even though admin
 # import still needs to handle them. Anyone with the admin role holding the
 # users export would effectively hold an offline-crackable credential dump.
-EXPORT_DENYLIST: frozenset[str] = frozenset({"users"})
+EXPORT_DENYLIST: frozenset[str] = frozenset({"users", "password_history"})
 
 EXPORTABLE_TABLES: frozenset[str] = ALLOWED_TABLES - EXPORT_DENYLIST
 

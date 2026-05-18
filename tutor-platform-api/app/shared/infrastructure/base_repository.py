@@ -107,8 +107,9 @@ class BaseRepository:
     def fetch_paginated(
         self, sql: "str | psql.Composable", params: tuple, page: int, page_size: int
     ) -> tuple[list[dict], int]:
+        inner = sql if isinstance(sql, psql.Composable) else psql.SQL(sql)
         count_sql = psql.SQL("SELECT COUNT(*) AS cnt FROM ({inner}) AS _sub").format(
-            inner=psql.SQL(sql)
+            inner=inner
         )
         self.cursor.execute(count_sql, params)
         total = self.cursor.fetchone()[0]
@@ -128,6 +129,6 @@ class BaseRepository:
             )
 
         offset = (page - 1) * page_size
-        paged_sql = sql + " LIMIT %s OFFSET %s"
+        paged_sql = psql.SQL("{q} LIMIT %s OFFSET %s").format(q=inner)
         items = self.fetch_all(paged_sql, tuple(params) + (page_size, offset))
         return items, total

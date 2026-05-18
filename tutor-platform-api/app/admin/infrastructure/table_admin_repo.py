@@ -234,22 +234,26 @@ class TableAdminRepository(BaseRepository):
         )
         return self.cursor.rowcount > 0
 
-    def reset_user_password(self, user_id: int, new_password_hash: str) -> bool:
+    def reset_user_password(
+        self, user_id: int, new_password_hash: str, *, old_hash: str | None = None
+    ) -> bool:
         """Replace a user's password hash. Returns True when the row was found
         and updated, False when user_id does not exist.
 
         SEC-06: saves the previous hash to password_history before overwriting
         so the user cannot immediately cycle back to the same password via a
-        self-initiated change. The admin-reset path does not enforce the history
-        check itself (admin sets a known-safe value), but recording the prior
-        hash lets the user-facing check catch any subsequent reuse.
+        self-initiated change.
+
+        When *old_hash* is supplied (caller already fetched it inside the same
+        transaction), the extra SELECT is skipped.
         """
-        row = self.fetch_one(
-            "SELECT password_hash FROM users WHERE user_id = %s", (user_id,)
-        )
-        if row is None:
-            return False
-        old_hash = row["password_hash"]
+        if old_hash is None:
+            row = self.fetch_one(
+                "SELECT password_hash FROM users WHERE user_id = %s", (user_id,)
+            )
+            if row is None:
+                return False
+            old_hash = row["password_hash"]
         if old_hash and old_hash != "ANONYMIZED":
             _persist_history(self.cursor, user_id, old_hash)
         self.cursor.execute(
