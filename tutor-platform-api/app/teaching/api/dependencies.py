@@ -18,4 +18,4 @@ def get_session_service(conn=Depends(get_db)) -> SessionAppService:
 
 
 def get_exam_service(conn=Depends(get_db)) -> ExamAppService:
-    return ExamAppService(repo=PostgresExamRepository(conn))
+    return ExamAppService(repo=PostgresExamRepository(conn), uow=PostgresUnitOfWork(conn))

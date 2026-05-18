@@ -53,6 +53,9 @@ class IExamRepository(ABC):
     def get_by_id(self, exam_id: int) -> dict | None: ...
 
     @abstractmethod
+    def get_by_id_for_update(self, exam_id: int) -> dict | None: ...
+
+    @abstractmethod
     def update(self, exam_id: int, updates: dict) -> None: ...
 
     @abstractmethod

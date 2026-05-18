@@ -1,10 +1,12 @@
 from app.shared.domain.exceptions import DomainException, NotFoundError, PermissionDeniedError
+from app.shared.domain.ports import IUnitOfWork
 from app.teaching.domain.ports import IExamRepository
 
 
 class ExamAppService:
-    def __init__(self, repo: IExamRepository):
+    def __init__(self, repo: IExamRepository, uow: IUnitOfWork):
         self._repo = repo
+        self._uow = uow
 
     def create_exam(self, *, user_id: int, role: str, body) -> int:
         if role not in ("parent", "tutor"):
@@ -45,16 +47,15 @@ class ExamAppService:
         return self._repo.list_by_student(student_id, parent_only=is_parent and not is_admin)
 
     def delete_exam(self, *, exam_id: int, user_id: int) -> None:
-        exam = self._repo.get_by_id(exam_id)
-        # SEC-10: normalize ownership failure to 404 so sequential exam_id values
-        # cannot be enumerated by comparing 403 vs 404 response codes.
-        if not exam or exam["added_by_user_id"] != user_id:
-            raise NotFoundError("找不到此考試紀錄")
-        self._repo.delete(exam_id)
+        with self._uow.begin():
+            exam = self._repo.get_by_id_for_update(exam_id)
+            if not exam or exam["added_by_user_id"] != user_id:
+                raise NotFoundError("找不到此考試紀錄")
+            self._repo.delete(exam_id)
 
     def update_exam(self, *, exam_id: int, user_id: int, updates: dict) -> None:
-        exam = self._repo.get_by_id(exam_id)
-        # SEC-10: normalize ownership failure to 404.
-        if not exam or exam["added_by_user_id"] != user_id:
-            raise NotFoundError("找不到此考試紀錄")
-        self._repo.update(exam_id, updates)
+        with self._uow.begin():
+            exam = self._repo.get_by_id_for_update(exam_id)
+            if not exam or exam["added_by_user_id"] != user_id:
+                raise NotFoundError("找不到此考試紀錄")
+            self._repo.update(exam_id, updates)

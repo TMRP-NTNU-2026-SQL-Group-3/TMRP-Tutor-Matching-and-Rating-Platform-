@@ -45,6 +45,9 @@ class PostgresExamRepository(BaseRepository, IExamRepository):
     def get_by_id(self, exam_id: int) -> dict | None:
         return self.fetch_one("SELECT * FROM exams WHERE exam_id = %s", (exam_id,))
 
+    def get_by_id_for_update(self, exam_id: int) -> dict | None:
+        return self.fetch_one("SELECT * FROM exams WHERE exam_id = %s FOR UPDATE", (exam_id,))
+
     ALLOWED_COLUMNS = {"exam_date", "exam_type", "score", "visible_to_parent"}
 
     def update(self, exam_id: int, updates: dict) -> None:

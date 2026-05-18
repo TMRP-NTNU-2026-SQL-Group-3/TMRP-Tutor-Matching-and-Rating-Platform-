@@ -8,6 +8,7 @@ from app.messaging.domain.exceptions import (
     ConversationNotAllowedError,
     EmptyMessageError,
     InvalidBeforeIdError,
+    MessageTooLongError,
     NotConversationParticipantError,
     SelfConversationError,
 )
@@ -60,13 +61,14 @@ class MessageAppService:
             raise InvalidBeforeIdError()
         return self._repo.get_messages(conversation_id, limit=limit, before_id=before_id)
 
+    _MAX_MESSAGE_LENGTH = 4000
+
     def send_message(self, *, conversation_id: int, user_id: int, content: str) -> int:
-        # MessageSend.content is already trimmed + non-empty via TrimmedStr,
-        # but keep a strip-and-check here for direct service callers that
-        # may not go through the Pydantic schema.
         cleaned = (content or "").strip()
         if not cleaned:
             raise EmptyMessageError()
+        if len(cleaned) > self._MAX_MESSAGE_LENGTH:
+            raise MessageTooLongError()
         if not self._conv_repo.user_is_participant(conversation_id, user_id):
             raise NotConversationParticipantError("在此對話中發送訊息")
         return self._repo.send_message(conversation_id, user_id, cleaned)

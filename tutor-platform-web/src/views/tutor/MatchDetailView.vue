@@ -212,7 +212,7 @@
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">分數 *</label>
-                <input v-model.number="examForm.score" type="number" min="0" max="100"
+                <input v-model.number="examForm.score" type="number" min="0" max="150"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
               </div>
               <div class="flex items-end pb-2">
@@ -266,7 +266,7 @@
                     </select>
                   </td>
                   <td class="px-4 py-2.5 text-right">
-                    <input v-model.number="editExamForm.score" type="number" min="0" max="100"
+                    <input v-model.number="editExamForm.score" type="number" min="0" max="150"
                       class="w-20 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none" />
                   </td>
                   <td class="px-4 py-2.5 text-right">

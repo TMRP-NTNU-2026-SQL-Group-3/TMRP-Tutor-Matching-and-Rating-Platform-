@@ -67,7 +67,7 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
                INNER JOIN students st ON m.student_id = st.student_id
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
                INNER JOIN users u ON t.user_id = u.user_id
-               WHERE m.match_id = %s FOR UPDATE""",
+               WHERE m.match_id = %s FOR UPDATE OF m""",
             (match_id,),
         )
         return self._row_to_entity(row) if row else None

@@ -9,11 +9,11 @@ but per-worker is sufficient to bound the fraction of the pool any one
 caller can occupy: each worker has its own db_pool_max slice.
 """
 
+import json
 import logging
 import threading
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.shared.infrastructure.config import settings
 from app.shared.infrastructure.security import decode_access_token
@@ -21,17 +21,31 @@ from app.shared.infrastructure.security import decode_access_token
 logger = logging.getLogger("app.user_quota")
 
 
-class UserConcurrencyQuotaMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, max_concurrent: int | None = None):
-        super().__init__(app)
+def _parse_cookies(raw: bytes) -> dict[str, str]:
+    result = {}
+    for item in raw.decode("latin-1").split(";"):
+        item = item.strip()
+        if "=" in item:
+            k, v = item.split("=", 1)
+            result[k.strip()] = v.strip()
+    return result
+
+
+class UserConcurrencyQuotaMiddleware:
+    """Pure ASGI implementation — does not buffer the response body."""
+
+    def __init__(self, app: ASGIApp, max_concurrent: int | None = None):
+        self.app = app
         self._max = max_concurrent or settings.db_per_user_quota
         self._counts: dict[str, int] = {}
         self._lock = threading.Lock()
 
-    def _identify(self, request) -> str | None:
-        token = request.cookies.get("access_token")
+    def _identify(self, scope: Scope) -> str | None:
+        headers = dict(scope.get("headers", []))
+        cookies = _parse_cookies(headers.get(b"cookie", b""))
+        token = cookies.get("access_token")
         if not token:
-            auth = request.headers.get("authorization", "")
+            auth = headers.get(b"authorization", b"").decode("latin-1")
             if auth.lower().startswith("bearer "):
                 token = auth.split(" ", 1)[1].strip()
         if not token:
@@ -42,30 +56,43 @@ class UserConcurrencyQuotaMiddleware(BaseHTTPMiddleware):
         sub = payload.get("sub")
         return str(sub) if sub is not None else None
 
-    async def dispatch(self, request, call_next):
-        user_id = self._identify(request)
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        user_id = self._identify(scope)
         if user_id is None:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         with self._lock:
             current = self._counts.get(user_id, 0)
             if current >= self._max:
+                path = scope.get("path", "?")
                 logger.warning(
                     "user_quota: user_id=%s denied — %d concurrent requests (cap=%d) path=%s",
-                    user_id, current, self._max, request.url.path,
+                    user_id, current, self._max, path,
                 )
-                return JSONResponse(
-                    status_code=429,
-                    headers={"Retry-After": "1"},
-                    content={
-                        "success": False, "data": None,
-                        "message": "同時進行中的請求過多，請稍後再試",
-                    },
-                )
+                body = json.dumps({
+                    "success": False, "data": None,
+                    "message": "同時進行中的請求過多，請稍後再試",
+                }).encode()
+                await send({
+                    "type": "http.response.start",
+                    "status": 429,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"retry-after", b"1"),
+                        (b"content-length", str(len(body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": body})
+                return
             self._counts[user_id] = current + 1
 
         try:
-            return await call_next(request)
+            await self.app(scope, receive, send)
         finally:
             with self._lock:
                 remaining = self._counts.get(user_id, 1) - 1

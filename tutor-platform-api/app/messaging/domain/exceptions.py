@@ -24,6 +24,11 @@ class EmptyMessageError(DomainException):
         super().__init__("訊息內容不可為空")
 
 
+class MessageTooLongError(DomainException):
+    def __init__(self):
+        super().__init__("訊息內容過長，上限為 4000 字元")
+
+
 class NotConversationParticipantError(PermissionDeniedError):
     def __init__(self, action: str = "查看"):
         super().__init__(f"無權{action}此對話")

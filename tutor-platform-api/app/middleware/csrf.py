@@ -1,40 +1,63 @@
 import secrets
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
-# Login and register have no csrf_token cookie yet — the cookie is issued as
-# part of the response, so the request itself cannot carry it.
 _CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login", "/api/auth/register"})
 
+_REJECT_BODY = b'{"success":false,"data":null,"message":"CSRF token \\u7121\\u6548\\u6216\\u7f3a\\u5931"}'
 
-class CSRFMiddleware(BaseHTTPMiddleware):
+
+def _parse_cookies(raw: bytes) -> dict[str, str]:
+    result = {}
+    for item in raw.decode("latin-1").split(";"):
+        item = item.strip()
+        if "=" in item:
+            k, v = item.split("=", 1)
+            result[k.strip()] = v.strip()
+    return result
+
+
+class CSRFMiddleware:
     """Double-submit cookie CSRF protection (SEC-03).
 
-    For every mutating request not in _CSRF_EXEMPT_PATHS the value of the
-    non-httpOnly `csrf_token` cookie must match the `X-CSRF-Token` request
-    header.  The server never stores the token; cross-origin scripts cannot
-    read a cookie set by a different origin, so a mismatch proves the request
-    did not originate from the legitimate SPA.
+    Pure ASGI implementation — does not buffer the response body.
     """
 
-    async def dispatch(self, request, call_next):
-        if request.method in _SAFE_METHODS or request.url.path in _CSRF_EXEMPT_PATHS:
-            return await call_next(request)
+    def __init__(self, app: ASGIApp):
+        self.app = app
 
-        cookie_token = request.cookies.get("csrf_token", "")
-        header_token = request.headers.get("x-csrf-token", "")
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "GET")
+        path = scope.get("path", "/")
+        if method in _SAFE_METHODS or path in _CSRF_EXEMPT_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers", []))
+        cookies = _parse_cookies(headers.get(b"cookie", b""))
+        cookie_token = cookies.get("csrf_token", "")
+        header_token = headers.get(b"x-csrf-token", b"").decode("latin-1")
 
         if (
             not cookie_token
             or not header_token
             or not secrets.compare_digest(cookie_token, header_token)
         ):
-            return JSONResponse(
-                status_code=403,
-                content={"success": False, "data": None, "message": "CSRF token 無效或缺失"},
-            )
+            await send({
+                "type": "http.response.start",
+                "status": 403,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(_REJECT_BODY)).encode()),
+                ],
+            })
+            await send({"type": "http.response.body", "body": _REJECT_BODY})
+            return
 
-        return await call_next(request)
+        await self.app(scope, receive, send)

@@ -86,7 +86,12 @@ class SessionAppService:
             if not is_admin and match["status"] in _SESSION_UNREADABLE_STATUSES:
                 raise PermissionDeniedError("此配對狀態下無法查看上課日誌")
             # Parents only see entries the tutor flagged visible.
-            return self._repo.list_by_match(match_id, visible_only=is_parent and not is_tutor)
+            sessions = self._repo.list_by_match(match_id, visible_only=is_parent and not is_tutor)
+            if is_parent and not is_tutor and not is_admin:
+                for s in sessions:
+                    for f in _PARENT_HIDDEN_FIELDS:
+                        s.pop(f, None)
+            return sessions
 
     def update(self, *, session_id: int, tutor_user_id: int, updates: dict) -> dict:
         if not updates:
@@ -125,6 +130,8 @@ class SessionAppService:
             match = self._repo.get_match_for_create(session["match_id"])
             if not match or match["tutor_user_id"] != tutor_user_id:
                 raise PermissionDeniedError("只有此配對的老師可以刪除上課日誌")
+            if match["status"] not in _ACTIVE_SESSION_STATUSES:
+                raise MatchNotActiveError()
             self._repo.delete(session_id)
 
     def get_edit_logs(self, *, session_id: int, user_id: int, is_admin: bool) -> list[dict]:
