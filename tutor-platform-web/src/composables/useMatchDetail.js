@@ -81,7 +81,7 @@ export function useMatchDetail() {
       if (userId.value) {
         const owned = auth.role === 'tutor'
           ? detail.tutor_user_id === userId.value
-          : detail.parent_id === userId.value
+          : detail.parent_user_id === userId.value
         if (!owned) {
           error.value = '您無權存取此配對'
           toast.error('您無權存取此配對')

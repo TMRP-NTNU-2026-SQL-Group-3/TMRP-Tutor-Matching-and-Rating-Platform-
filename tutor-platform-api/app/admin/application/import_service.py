@@ -248,6 +248,11 @@ class AdminImportService:
         archives cannot leak credential material. The pre-reset DR backup
         passes True because the archive is written to a server-local path
         and a reset without users is not actually restorable.
+
+        Security note: when include_sensitive=True the ZIP contains bcrypt
+        password hashes in plaintext. The ZIP itself is not encrypted, so
+        the server's data directory must be protected by disk-level encryption
+        (e.g. LUKS) to prevent offline hash extraction if the disk is stolen.
         """
         export_dir.mkdir(parents=True, exist_ok=True)
         exported: list[Path] = []

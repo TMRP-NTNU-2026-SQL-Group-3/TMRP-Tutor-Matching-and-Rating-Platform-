@@ -129,7 +129,7 @@ async function fetchMessages({ dedupe = true } = {}) {
   if (inFlightFetch) {
     const existing = inFlightFetch
     if (dedupe) return existing
-    try { await existing } catch { /* 既有 fetch 的錯誤由它自己處理 */ }
+    try { await existing } catch { /* errors handled by original caller */ }
   }
   const myFetchId = fetchId
   const promise = (async () => {
@@ -139,7 +139,7 @@ async function fetchMessages({ dedupe = true } = {}) {
       // Preserve optimistic (pending) entries so a poll firing mid-send does not
       // visually drop the user's just-typed bubble.
       const pending = messages.value.filter(m => m.pending)
-      messages.value = [...result, ...pending]
+      messages.value = [...(result.items || []), ...pending]
       fetchError.value = ''
       hasLoaded.value = true
       scrollToBottom()

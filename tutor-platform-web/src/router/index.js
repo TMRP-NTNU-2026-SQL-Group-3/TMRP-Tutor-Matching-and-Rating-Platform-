@@ -77,8 +77,14 @@ const routes = [
 function roleHome() {
   const auth = useAuthStore()
   if (!auth.isLoggedIn) return '/login'
-  if (auth.role === 'admin') return '/admin'
-  if (auth.role === 'tutor') return '/tutor'
+  // Use the localStorage-cached role for the initial redirect target so there
+  // is no flash on fresh page load. auth.role intentionally returns '' before
+  // ensureVerified() completes; auth.user?.role holds the cached value that
+  // is close enough for a UX routing hint. The beforeEach guard enforces the
+  // authoritative role via ensureVerified() on the destination route.
+  const cachedRole = auth.user?.role
+  if (cachedRole === 'admin') return '/admin'
+  if (cachedRole === 'tutor') return '/tutor'
   return '/parent'
 }
 

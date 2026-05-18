@@ -60,7 +60,7 @@ onMounted(async () => {
   loading.value = true
   fetchError.value = ''
   try {
-    matches.value = await matchesApi.list()
+    matches.value = (await matchesApi.list())?.items ?? []
   } catch (e) {
     fetchError.value = e.message
     toast.error('載入配對資料失敗')

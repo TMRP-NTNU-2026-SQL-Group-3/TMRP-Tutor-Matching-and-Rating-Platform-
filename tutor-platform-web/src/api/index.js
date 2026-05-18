@@ -84,7 +84,7 @@ api.interceptors.request.use(config => {
     const token = getCsrfToken()
     if (token) {
       config.headers['X-CSRF-Token'] = token
-    } else if (process.env.NODE_ENV !== 'production') {
+    } else if (import.meta.env.DEV) {
       // Expected before login; a warning here surfaces misconfigured cookie
       // domains or missing Set-Cookie headers early in development.
       console.warn('[CSRF] X-CSRF-Token absent for', method.toUpperCase(), config.url)
@@ -160,7 +160,7 @@ api.interceptors.response.use(
     const { success, data, message } = body
     if (!success) {
       // FE-12: log raw backend message in dev before it may be exposed to users.
-      if (process.env.NODE_ENV !== 'production') {
+      if (import.meta.env.DEV) {
         console.error('[API] business error:', message, body)
       }
       return Promise.reject(new Error(message || '操作失敗'))
@@ -217,7 +217,7 @@ api.interceptors.response.use(
     } else {
       rawMessage = error.response?.data?.message || rawMessage
     }
-    if (process.env.NODE_ENV !== 'production') {
+    if (import.meta.env.DEV) {
       console.error('[API] request error:', rawMessage, error.response?.status, error.config?.url)
     }
     const status = error.response?.status

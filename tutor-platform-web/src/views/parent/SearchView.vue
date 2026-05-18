@@ -176,7 +176,7 @@ function goToPage(num) {
 onMounted(async () => {
   subjectsLoading.value = true
   try {
-    subjects.value = await subjectsApi.list()
+    subjects.value = (await subjectsApi.list())?.items ?? []
   } catch (e) {
     subjectsError.value = '科目載入失敗，篩選器可能不完整'
     toast.error('載入科目失敗')

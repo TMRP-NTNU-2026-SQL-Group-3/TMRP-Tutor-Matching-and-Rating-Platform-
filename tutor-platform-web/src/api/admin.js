@@ -28,13 +28,13 @@ export const adminApi = {
   },
   importCsv(formData, tableName) {
     return postMultipart(
-      `/api/admin/import?table_name=${encodeURIComponent(tableName)}`,
+      `/api/admin/import/${encodeURIComponent(tableName)}`,
       formData,
       { timeout: 120000 },
     )
   },
   exportCsv(tableName) {
-    return api.get(`/api/admin/export/${tableName}`, { responseType: 'blob', timeout: 120000 })
+    return api.post(`/api/admin/export/${tableName}`, null, { responseType: 'blob', timeout: 120000 })
   },
   exportAll() {
     return api.post('/api/admin/export-all', null, { responseType: 'blob', timeout: 120000 })

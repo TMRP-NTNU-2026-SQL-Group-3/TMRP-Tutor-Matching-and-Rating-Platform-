@@ -22,9 +22,9 @@
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">密碼</label>
-          <input v-model="form.password" type="password" required minlength="8"
+          <input v-model="form.password" type="password" required minlength="10"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
-          <p class="text-xs mt-1" :class="passwordHintClass">至少 8 個字元，且需同時包含英文字母與數字</p>
+          <p class="text-xs mt-1" :class="passwordHintClass">至少 10 個字元，且需同時包含英文字母與數字</p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">姓名</label>
@@ -80,7 +80,7 @@ const form = reactive({
 
 const passwordValid = computed(() => {
   const v = form.password || ''
-  return v.length >= 8 && /[A-Za-z]/.test(v) && /\d/.test(v)
+  return v.length >= 10 && /[A-Za-z]/.test(v) && /\d/.test(v)
 })
 const passwordHintClass = computed(() => {
   if (!form.password) return 'text-gray-500'
@@ -95,7 +95,7 @@ async function handleRegister() {
     return
   }
   if (!passwordValid.value) {
-    error.value = '密碼至少 8 個字元，且需同時包含英文字母與數字'
+    error.value = '密碼至少 10 個字元，且需同時包含英文字母與數字'
     return
   }
   submitting.value = true

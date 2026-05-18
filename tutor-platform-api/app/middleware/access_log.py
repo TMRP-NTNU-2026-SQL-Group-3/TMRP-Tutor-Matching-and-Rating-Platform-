@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 import time
 
@@ -6,6 +7,25 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 logger = logging.getLogger("app.access")
 
 _USER_AGENT_MAX_CHARS = 120
+
+
+def _pseudonymize_ip(ip: str) -> str:
+    """Retain enough of the address for network-level debugging while dropping
+    the host-identifying suffix (GDPR Art. 25 — data minimisation).
+
+    IPv4: mask the last octet (→ /24 prefix).
+    IPv6: mask the interface identifier, keep the /64 routing prefix.
+    Uses ipaddress to handle compressed :: notation correctly.
+    """
+    try:
+        addr = ipaddress.ip_address(ip)
+        if isinstance(addr, ipaddress.IPv6Address):
+            net = ipaddress.IPv6Network(f"{ip}/64", strict=False)
+            return str(net.network_address) + "/64"
+        parts = ip.split(".")
+        return f"{parts[0]}.{parts[1]}.{parts[2]}.0"
+    except ValueError:
+        return ip
 
 
 def _truncate_user_agent(ua: str) -> tuple[str, int, bool]:
@@ -52,7 +72,7 @@ class AccessLogMiddleware:
             method = scope.get("method", "?")
             path = scope.get("path", "?")
             client = scope.get("client")
-            client_ip = client[0] if client else "unknown"
+            client_ip = _pseudonymize_ip(client[0]) if client else "unknown"
 
             logger.info(
                 "request",

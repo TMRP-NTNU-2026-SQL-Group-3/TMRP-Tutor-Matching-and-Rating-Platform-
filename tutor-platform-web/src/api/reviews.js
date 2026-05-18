@@ -1,11 +1,11 @@
 import api from './index'
 
 export const reviewsApi = {
-  create(data) {
-    return api.post('/api/reviews', data)
+  create({ match_id, ...body }) {
+    return api.post(`/api/matches/${match_id}/reviews`, body)
   },
-  list(params, config) {
-    return api.get('/api/reviews', { params, ...config })
+  list({ match_id, ...params }, config) {
+    return api.get(`/api/matches/${match_id}/reviews`, { params, ...config })
   },
   update(reviewId, data) {
     return api.patch(`/api/reviews/${reviewId}`, data)

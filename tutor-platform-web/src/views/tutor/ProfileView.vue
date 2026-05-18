@@ -203,13 +203,13 @@ const visibilitySuccess = ref('')
 const visibilityError = ref('')
 
 const dayOptions = [
-  { value: 0, label: '週日' },
   { value: 1, label: '週一' },
   { value: 2, label: '週二' },
   { value: 3, label: '週三' },
   { value: 4, label: '週四' },
   { value: 5, label: '週五' },
   { value: 6, label: '週六' },
+  { value: 7, label: '週日' },
 ]
 
 function _hhmm(t) {
@@ -431,7 +431,7 @@ onMounted(async () => {
   try {
     const [detail, subjects] = await Promise.all([
       tutorsApi.getMyProfile(),
-      subjectsApi.list(),
+      subjectsApi.list().then(r => r?.items ?? []),
     ])
     if (!isMounted) return
 

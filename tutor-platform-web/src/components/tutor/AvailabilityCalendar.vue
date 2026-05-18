@@ -46,8 +46,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue'])
 
-const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
-const dayNames = { 0: '週日', 1: '週一', 2: '週二', 3: '週三', 4: '週四', 5: '週五', 6: '週六' }
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 7]
+const dayNames = { 1: '週一', 2: '週二', 3: '週三', 4: '週四', 5: '週五', 6: '週六', 7: '週日' }
 
 const slotsByDay = computed(() => {
   const map = {}

@@ -1,11 +1,11 @@
 import api from './index'
 
 export const sessionsApi = {
-  create(data) {
-    return api.post('/api/sessions', data)
+  create({ match_id, ...body }) {
+    return api.post(`/api/matches/${match_id}/sessions`, body)
   },
-  list(params, config) {
-    return api.get('/api/sessions', { params, ...config })
+  list({ match_id, ...params }, config) {
+    return api.get(`/api/matches/${match_id}/sessions`, { params, ...config })
   },
   update(sessionId, data) {
     return api.put(`/api/sessions/${sessionId}`, data)

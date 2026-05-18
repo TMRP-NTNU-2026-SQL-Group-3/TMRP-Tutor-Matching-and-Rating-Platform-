@@ -34,7 +34,8 @@ class Match:
             return None
         if "|" in self.termination_reason:
             return self.termination_reason.split("|", 1)[1]
-        return self.termination_reason
+        # No pipe means the raw value is the previous_status with no user reason.
+        return None
 
     _VALID_PRE_TERMINATION_STATUSES = {"active", "paused"}
 

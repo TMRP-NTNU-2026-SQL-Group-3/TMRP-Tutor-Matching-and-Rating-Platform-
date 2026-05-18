@@ -192,7 +192,7 @@ onMounted(async () => {
   try {
     const id = route.params.id
     tutor.value = await tutorsApi.getDetail(id)
-    students.value = await studentsApi.list()
+    students.value = (await studentsApi.list())?.items ?? []
   } catch (e) {
     error.value = e.message
   } finally {

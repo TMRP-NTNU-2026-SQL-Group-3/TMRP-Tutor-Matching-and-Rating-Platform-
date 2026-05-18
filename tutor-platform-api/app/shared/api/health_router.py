@@ -11,9 +11,9 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health", summary="健康檢查", description="檢查 API 與資料庫連線狀態。")
 def health_check(conn=Depends(get_db)):
-    # Return a uniform shape regardless of caller so the response cannot be
-    # used to infer whether the caller is an admin.  Admin-only details
-    # (database connectivity) are gated behind a separate admin endpoint.
+    # Intentionally reveals DB reachability via 200/503 so load balancers and
+    # orchestrators can drain the instance when the DB is unreachable. The
+    # endpoint is rate-limited (30 req/min) to bound information-leakage risk.
     try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT 1")

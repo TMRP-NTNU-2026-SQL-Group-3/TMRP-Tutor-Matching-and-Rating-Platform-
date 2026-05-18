@@ -7,6 +7,10 @@ class PostgresStatsRepository(BaseRepository):
         return self.fetch_one("SELECT tutor_id FROM tutors WHERE user_id = %s", (user_id,))
 
     def income_summary(self, tutor_id: int, year: int, month: int, tz: str = "Asia/Taipei") -> dict:
+        # No match-status filter is intentional: sessions are financial facts
+        # that occurred regardless of subsequent match cancellation. Excluding
+        # sessions from cancelled matches would understate actual income.
+        #
         # `missing_rate_count` surfaces sessions whose match has a NULL
         # hourly_rate — otherwise SUM(se.hours * m.hourly_rate) silently
         # drops those rows and the caller can't tell a legitimately low
@@ -41,6 +45,7 @@ class PostgresStatsRepository(BaseRepository):
         )
 
     def expense_summary(self, parent_user_id: int, year: int, month: int, tz: str = "Asia/Taipei") -> dict:
+        # No match-status filter — intentional, same rationale as income_summary.
         # See income_summary: surface the NULL-rate row count so the
         # caller can distinguish low expense from missing rate data.
         return self.fetch_one(

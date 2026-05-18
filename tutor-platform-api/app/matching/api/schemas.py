@@ -67,9 +67,9 @@ class MatchListItemResponse(BaseModel):
     def _parse_termination_reason(cls, data: Any) -> Any:
         if isinstance(data, dict):
             raw = data.get("termination_reason")
-            if raw and "|" in raw:
+            if raw:
                 data = dict(data)
-                data["termination_reason"] = raw.split("|", 1)[1]
+                data["termination_reason"] = raw.split("|", 1)[1] if "|" in raw else None
         return data
 
 
