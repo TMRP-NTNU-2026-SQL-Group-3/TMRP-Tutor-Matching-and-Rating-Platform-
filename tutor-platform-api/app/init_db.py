@@ -426,34 +426,14 @@ GROUP BY tutor_id;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_tutor_active_tutor
     ON v_tutor_active_students (tutor_id);
 
-CREATE OR REPLACE FUNCTION fn_refresh_tutor_active_students() RETURNS TRIGGER AS $fn$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY v_tutor_active_students;
-    RETURN NULL;
-END;
-$fn$ LANGUAGE plpgsql;
-
+-- M-09: MV refresh moved from statement-level triggers to a periodic
+-- background task (see app.tasks.mv_refresh) to avoid holding exclusive
+-- locks on the MVs during write transactions. Drop legacy triggers if
+-- they exist from an older deployment.
 DROP TRIGGER IF EXISTS trg_matches_refresh_active_students ON matches;
-CREATE TRIGGER trg_matches_refresh_active_students
-    AFTER INSERT OR UPDATE OF status OR DELETE ON matches
-    FOR EACH STATEMENT
-    EXECUTE FUNCTION fn_refresh_tutor_active_students();
-
--- B11: Statement-level trigger refreshes the materialised view after any
--- write to reviews. CONCURRENTLY keeps reads unblocked; statement scope
--- means a multi-row batch refreshes once, not per row.
-CREATE OR REPLACE FUNCTION fn_refresh_tutor_ratings() RETURNS TRIGGER AS $fn$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY v_tutor_ratings;
-    RETURN NULL;
-END;
-$fn$ LANGUAGE plpgsql;
-
 DROP TRIGGER IF EXISTS trg_reviews_refresh_ratings ON reviews;
-CREATE TRIGGER trg_reviews_refresh_ratings
-    AFTER INSERT OR UPDATE OR DELETE ON reviews
-    FOR EACH STATEMENT
-    EXECUTE FUNCTION fn_refresh_tutor_ratings();
+DROP FUNCTION IF EXISTS fn_refresh_tutor_active_students();
+DROP FUNCTION IF EXISTS fn_refresh_tutor_ratings();
 
 -- D4: keep matches.parent_user_id in sync with the owning student. The
 -- BEFORE trigger populates it on INSERT or whenever student_id moves;

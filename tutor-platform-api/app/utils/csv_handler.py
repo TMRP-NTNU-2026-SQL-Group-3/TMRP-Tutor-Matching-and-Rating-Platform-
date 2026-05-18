@@ -3,8 +3,7 @@ from pathlib import Path
 
 
 def _get_allowed_base() -> Path:
-    """以 data/ 目錄作為允許的檔案存取根目錄。"""
-    return Path("data").resolve()
+    return (Path(__file__).resolve().parent.parent / "data").resolve()
 
 
 def read_csv(file_path: str) -> list[dict]:

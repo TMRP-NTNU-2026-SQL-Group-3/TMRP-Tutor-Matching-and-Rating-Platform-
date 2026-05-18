@@ -8,33 +8,40 @@ from app.shared.infrastructure.config import settings
 logger = logging.getLogger("app.db")
 
 _pool: pool.ThreadedConnectionPool | None = None
+_rl_pool: pool.ThreadedConnectionPool | None = None
+
+_TCP_KEEPALIVE_OPTS = dict(keepalives=1, keepalives_idle=60, keepalives_interval=10, keepalives_count=3)
 
 
 def init_pool():
     """Initialize the PostgreSQL connection pool. Call once at app startup."""
-    global _pool
-    # I-12: TCP keepalives so NAT timeouts, transient network hiccups, or a
-    # restarted Postgres node cause connections to be detected as dead and
-    # discarded, rather than sitting in the pool as zombies that surface as
-    # OperationalError on the next lease. Postgres docs recommend 60/10/3
-    # as a conservative default.
+    global _pool, _rl_pool
     _pool = pool.ThreadedConnectionPool(
         minconn=settings.db_pool_min,
         maxconn=settings.db_pool_max,
         dsn=settings.database_url,
-        keepalives=1,
-        keepalives_idle=60,
-        keepalives_interval=10,
-        keepalives_count=3,
+        **_TCP_KEEPALIVE_OPTS,
+    )
+    # M-08: dedicated small pool for rate-limit middleware so its DB checks
+    # do not compete with handler connections from the main pool, preventing
+    # pool exhaustion under concurrent load.
+    _rl_pool = pool.ThreadedConnectionPool(
+        minconn=2,
+        maxconn=5,
+        dsn=settings.database_url,
+        **_TCP_KEEPALIVE_OPTS,
     )
 
 
 def close_pool():
     """Close the connection pool. Call at app shutdown."""
-    global _pool
+    global _pool, _rl_pool
     if _pool:
         _pool.closeall()
         _pool = None
+    if _rl_pool:
+        _rl_pool.closeall()
+        _rl_pool = None
 
 
 def _require_pool() -> pool.ThreadedConnectionPool:
@@ -46,6 +53,11 @@ def _require_pool() -> pool.ThreadedConnectionPool:
             "modules in isolation)."
         )
     return _pool
+
+
+def _require_rl_pool() -> pool.ThreadedConnectionPool:
+    """Return the rate-limit pool, falling back to the main pool."""
+    return _rl_pool if _rl_pool is not None else _require_pool()
 
 
 def get_db():

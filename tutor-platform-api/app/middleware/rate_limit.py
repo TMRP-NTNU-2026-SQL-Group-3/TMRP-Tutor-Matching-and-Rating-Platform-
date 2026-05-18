@@ -110,15 +110,11 @@ def check_and_record_bucket(
     rate-limiting degrades. Callers guarding authentication or destructive
     admin actions pass True so an outage can't remove the brake.
     """
-    from app.shared.infrastructure.database import _require_pool
-    # pool_ref/conn initialised to None so the finally block can guard against
-    # failures that occur before the connection is acquired (e.g. pool not yet
-    # initialised, pool exhausted). Without this the fail_closed logic is
-    # unreachable when _require_pool() or getconn() itself raises.
+    from app.shared.infrastructure.database import _require_rl_pool
     pool_ref = None
     conn = None
     try:
-        pool_ref = _require_pool()
+        pool_ref = _require_rl_pool()
         conn = pool_ref.getconn()
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
         with conn.cursor() as cur:
@@ -178,11 +174,11 @@ async def run_periodic_cleanup(interval: int = _CLEANUP_INTERVAL) -> None:
 
 def _cleanup_expired() -> int:
     """Delete rate-limit records whose per-bucket expiry has passed."""
-    from app.shared.infrastructure.database import _require_pool
+    from app.shared.infrastructure.database import _require_rl_pool
     pool_ref = None
     conn = None
     try:
-        pool_ref = _require_pool()
+        pool_ref = _require_rl_pool()
         conn = pool_ref.getconn()
         with conn.cursor() as cur:
             cur.execute("DELETE FROM rate_limit_hits WHERE expires_at < NOW()")

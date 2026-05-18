@@ -18,7 +18,7 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
             subject_id=row["subject_id"],
             status=MatchStatus(row["status"]),
             contract=Contract(
-                hourly_rate=float(row.get("hourly_rate") or 0),
+                hourly_rate=float(row.get("hourly_rate") or 1),
                 sessions_per_week=int(row.get("sessions_per_week") or 0),
                 want_trial=bool(row.get("want_trial")),
                 invite_message=row.get("invite_message"),

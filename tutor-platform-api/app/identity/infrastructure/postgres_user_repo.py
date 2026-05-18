@@ -10,13 +10,22 @@ from app.shared.infrastructure.password_history import save_password_history as 
 _UPDATABLE_COLUMNS = frozenset({'display_name', 'phone', 'email'})
 
 
+_USER_COLUMNS = (
+    "user_id, username, password_hash, role, display_name, phone, email, created_at"
+)
+
+
 class PostgresUserRepository(BaseRepository, IUserRepository):
 
     def find_by_username(self, username: str) -> dict | None:
-        return self.fetch_one("SELECT * FROM users WHERE username = %s", (username,))
+        return self.fetch_one(
+            f"SELECT {_USER_COLUMNS} FROM users WHERE username = %s", (username,),
+        )
 
     def find_by_id(self, user_id: int) -> dict | None:
-        return self.fetch_one("SELECT * FROM users WHERE user_id = %s", (user_id,))
+        return self.fetch_one(
+            f"SELECT {_USER_COLUMNS} FROM users WHERE user_id = %s", (user_id,),
+        )
 
     def register_user(
         self, username: str, password_hash: str, display_name: str,
@@ -45,7 +54,7 @@ class PostgresUserRepository(BaseRepository, IUserRepository):
         if not safe:
             return None
         set_parts = [psql.SQL("{} = %s").format(psql.Identifier(k)) for k in safe]
-        query = psql.SQL("UPDATE users SET {} WHERE user_id = %s RETURNING *").format(
+        query = psql.SQL("UPDATE users SET {} WHERE user_id = %s RETURNING " + _USER_COLUMNS).format(
             psql.SQL(", ").join(set_parts))
         return self.fetch_one(query, tuple(list(safe.values()) + [user_id]))
 

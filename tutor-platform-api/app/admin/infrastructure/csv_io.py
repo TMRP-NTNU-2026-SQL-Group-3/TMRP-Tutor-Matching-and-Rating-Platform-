@@ -22,7 +22,7 @@ def write_csv(file_path: str, rows: list[dict], fieldnames: list[str] | None = N
     if not rows:
         return
     path = Path(file_path).resolve()
-    allowed_base = Path("data").resolve()
+    allowed_base = (Path(__file__).resolve().parent.parent.parent.parent / "data").resolve()
     if not path.is_relative_to(allowed_base):
         raise ValueError(f"不允許的檔案路徑：{file_path}")
     path.parent.mkdir(parents=True, exist_ok=True)

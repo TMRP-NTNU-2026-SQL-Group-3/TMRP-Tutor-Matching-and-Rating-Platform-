@@ -224,24 +224,11 @@ class MatchAppService:
             # and overflow the cap; re-check capacity here under the same lock
             # pattern as create_match / resume.
             has_terms = self._has_contract_terms(contract_terms)
-            # ARCH-4: validate contract terms before opening the transaction so
-            # a malformed payload raises immediately rather than rolling back
-            # after the lock has already been acquired.
             new_rate = new_spw = new_start = None
             if has_terms:
                 new_rate = contract_terms.get("hourly_rate")
                 new_spw = contract_terms.get("sessions_per_week")
                 new_start = contract_terms.get("start_date")
-                try:
-                    Contract(
-                        hourly_rate=float(new_rate) if new_rate is not None else match.contract.hourly_rate,
-                        sessions_per_week=int(new_spw) if new_spw is not None else match.contract.sessions_per_week,
-                        want_trial=match.contract.want_trial,
-                        start_date=new_start if new_start is not None else match.contract.start_date,
-                        end_date=match.contract.end_date,
-                    )
-                except ValueError as exc:
-                    raise InvalidTransitionError(str(exc)) from exc
             with self._uow.begin():
                 fresh = self._match_repo.find_by_id_for_update(match_id)
                 if fresh is None:
@@ -250,6 +237,20 @@ class MatchAppService:
                 is_tutor = fresh.tutor_user_id == user_id
                 if not is_parent and not is_tutor and not is_admin:
                     raise MatchPermissionDeniedError("無權操作此配對")
+                # M-14: validate contract terms against the locked row so
+                # concurrent contract changes cannot slip stale defaults
+                # past the invariant checks.
+                if has_terms:
+                    try:
+                        Contract(
+                            hourly_rate=float(new_rate) if new_rate is not None else fresh.contract.hourly_rate,
+                            sessions_per_week=int(new_spw) if new_spw is not None else fresh.contract.sessions_per_week,
+                            want_trial=fresh.contract.want_trial,
+                            start_date=new_start if new_start is not None else fresh.contract.start_date,
+                            end_date=fresh.contract.end_date,
+                        )
+                    except ValueError as exc:
+                        raise InvalidTransitionError(str(exc)) from exc
                 locked_old_status = fresh.status.value
                 new_status = state_machine.resolve_transition(
                     current=fresh.status,

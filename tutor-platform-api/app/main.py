@@ -171,6 +171,35 @@ async def unhandled_exception_handler(request, exc: Exception):
 # the only requirement is that docker healthcheck's start_period is greater
 # than initialization time. docker-compose.yml sets start_period=30s, which
 # covers the first cold start.
+_MV_REFRESH_INTERVAL = 30  # seconds
+
+
+async def _run_periodic_mv_refresh() -> None:
+    """M-09: refresh materialized views on a fixed schedule instead of inside
+    write-path triggers that block concurrent DML."""
+    while True:
+        await asyncio.sleep(_MV_REFRESH_INTERVAL)
+        try:
+            await asyncio.to_thread(_refresh_materialized_views)
+        except Exception:
+            logger.exception("Periodic MV refresh failed")
+
+
+def _refresh_materialized_views() -> None:
+    from app.shared.infrastructure.database import get_connection, release_connection
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY v_tutor_active_students")
+            cur.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY v_tutor_ratings")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_connection(conn)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("API server starting")
@@ -212,14 +241,19 @@ async def lifespan(app: FastAPI):
     # on incoming requests).
     from app.middleware.rate_limit import run_periodic_cleanup
     cleanup_task = asyncio.create_task(run_periodic_cleanup())
+    # M-09: periodic MV refresh replaces the former statement-level triggers
+    # that held exclusive locks during write transactions.
+    mv_refresh_task = asyncio.create_task(_run_periodic_mv_refresh())
 
     yield
     # Shutdown
     cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
+    mv_refresh_task.cancel()
+    for t in (cleanup_task, mv_refresh_task):
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
     close_pool()
     logger.info("API server shutting down — flushing logs")
     logging.shutdown()

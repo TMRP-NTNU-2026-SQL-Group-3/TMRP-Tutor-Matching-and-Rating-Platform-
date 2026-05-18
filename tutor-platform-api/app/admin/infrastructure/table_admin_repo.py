@@ -1,5 +1,6 @@
 from psycopg2 import sql
 
+from app.admin.domain.tables import validate_table
 from app.admin.infrastructure.csv_utils import coerce_csv_value, validate_columns
 from app.shared.infrastructure.base_repository import BaseRepository
 from app.shared.infrastructure.password_history import save_password_history as _persist_history
@@ -7,14 +8,14 @@ from app.shared.infrastructure.password_history import save_password_history as 
 
 class TableAdminRepository(BaseRepository):
     """Infrastructure helper for admin-level table operations: bulk counts,
-    deletes, CSV-shaped inserts, and serial-sequence resets. All table names
-    must be pre-validated against the ALLOWED_TABLES whitelist by the caller."""
+    deletes, CSV-shaped inserts, and serial-sequence resets."""
 
     def get_schema_columns(self, table: str) -> set[str]:
         """Return the set of column names defined on `table` in the current
         database. Used by B9 to reject CSV headers that reference columns the
         target table does not have, before the INSERT would surface a raw
         psycopg2 error that leaks schema detail to the admin UI."""
+        validate_table(table)
         rows = self.fetch_all(
             "SELECT column_name FROM information_schema.columns "
             "WHERE table_schema = current_schema() AND table_name = %s",
@@ -23,6 +24,7 @@ class TableAdminRepository(BaseRepository):
         return {r["column_name"] for r in rows}
 
     def count(self, table: str) -> int:
+        validate_table(table)
         stmt = sql.SQL("SELECT COUNT(*) AS cnt FROM {tbl}").format(
             tbl=sql.Identifier(table)
         )
@@ -33,6 +35,7 @@ class TableAdminRepository(BaseRepository):
         return {t: self.count(t) for t in tables}
 
     def delete_all(self, table: str) -> None:
+        validate_table(table)
         stmt = sql.SQL("DELETE FROM {tbl}").format(tbl=sql.Identifier(table))
         self.cursor.execute(stmt)
 
@@ -40,10 +43,12 @@ class TableAdminRepository(BaseRepository):
         self.cursor.execute("DELETE FROM users WHERE user_id <> %s", (admin_user_id,))
 
     def select_all(self, table: str) -> list[dict]:
+        validate_table(table)
         stmt = sql.SQL("SELECT * FROM {tbl}").format(tbl=sql.Identifier(table))
         return self.fetch_all(stmt)
 
     def insert_csv_row(self, table: str, columns: list[str], raw_values: list) -> None:
+        validate_table(table)
         validate_columns(columns)
         col_list = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
         placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in columns)
@@ -55,6 +60,7 @@ class TableAdminRepository(BaseRepository):
 
     def get_primary_key_columns(self, table: str) -> list[str]:
         """Return PK column names for `table` in declaration order."""
+        validate_table(table)
         rows = self.fetch_all(
             """
             SELECT kcu.column_name
@@ -79,6 +85,7 @@ class TableAdminRepository(BaseRepository):
         `pk_cols` should be pre-fetched once per table via get_primary_key_columns
         so the caller avoids a DB round-trip per row.
         """
+        validate_table(table)
         validate_columns(columns)
         _USERS_UPSERT_DENY = {"password_hash", "role"}
         non_pk_cols = [c for c in columns if c not in pk_cols]
