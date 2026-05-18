@@ -159,7 +159,10 @@ def decode_access_token(token: str) -> dict | None:
                 logger.warning("Access token for user_id=%s rejected: issued before forced revocation", sub)
                 return None
         except RuntimeError:
-            pass
+            # Pool not yet initialised (test harness). In production the
+            # lifespan handler guarantees the pool is ready before any
+            # request is served, so this branch is unreachable.
+            logger.debug("Skipping access-token revocation check: DB pool not available")
     return payload
 
 

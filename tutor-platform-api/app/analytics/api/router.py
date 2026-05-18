@@ -87,7 +87,7 @@ def get_stats_task(task_id: str, user=Depends(get_current_user)):
             message="Task result is not valid JSON",
         )
     # M-03: verify the caller owns this task result to prevent IDOR.
-    result_owner = result.get("_owner_user_id")
+    result_owner = result.pop("_owner_user_id", None)
     if result_owner is not None and str(result_owner) != str(user["sub"]):
         raise DomainException("無權查看此任務結果", status_code=403)
     return ApiResponse(success=True, data={"task_id": task_id, "status": "complete", "result": result})

@@ -20,12 +20,14 @@ from app.shared.infrastructure.security import revoke_all_user_tokens
 _LOGIN_USER_MAX_ATTEMPTS = 5
 _LOGIN_USER_WINDOW_SECONDS = 900  # 15 minutes
 
-# M-06: progressive lockout — after the first 5/15min window is exhausted,
-# a longer 1-hour bucket with a tighter cap kicks in so repeated bursts
-# are punished progressively. Over 24h this limits to ~60 guesses instead
-# of the previous ~480.
-_LOGIN_ESCALATION_MAX_ATTEMPTS = 15
-_LOGIN_ESCALATION_WINDOW_SECONDS = 3600  # 1 hour
+# M-06: progressive lockout — a 6-hour bucket layered on top of the 5/15min
+# bucket. The short bucket still gates each 15-min burst to 5 real guesses,
+# but the long bucket caps sustained throughput: after 10 total attempts
+# (including rejected ones that still record a hit), the account is locked
+# for the remainder of the 6-hour window. Effective cap: ~40 guesses/24h
+# vs the previous ~480.
+_LOGIN_ESCALATION_MAX_ATTEMPTS = 10
+_LOGIN_ESCALATION_WINDOW_SECONDS = 21600  # 6 hours
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
