@@ -191,6 +191,8 @@ services:
       # reverse proxy (e.g. Caddy, Traefik, or a cloud load balancer).
       # Auth cookies carry the Secure flag and will not be sent over plain HTTP.
       # For a quick self-hosted setup, see the optional caddy service below.
+      # When using the caddy profile, set WEB_PORT=8080 (or any unused port)
+      # to avoid a host-port conflict with caddy's port 80.
       - "${WEB_PORT:-80}:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8080/ || exit 1"]
