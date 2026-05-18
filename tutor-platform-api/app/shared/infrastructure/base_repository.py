@@ -105,7 +105,7 @@ class BaseRepository:
         return new_id
 
     def fetch_paginated(
-        self, sql: str, params: tuple, page: int, page_size: int
+        self, sql: "str | psql.Composable", params: tuple, page: int, page_size: int
     ) -> tuple[list[dict], int]:
         count_sql = psql.SQL("SELECT COUNT(*) AS cnt FROM ({inner}) AS _sub").format(
             inner=psql.SQL(sql)

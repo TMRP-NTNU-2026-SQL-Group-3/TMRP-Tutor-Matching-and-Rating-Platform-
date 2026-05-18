@@ -122,8 +122,9 @@ services:
       - ALL
     secrets:
       - db_password
+      # jwt_secret_key and admin_password are unused by the worker but
+      # required by the shared Settings model; remove once config is split.
       - jwt_secret_key
-      - jwt_secret_key_previous
       - admin_password
     env_file: ./tutor-platform-api/.env.docker
     environment:

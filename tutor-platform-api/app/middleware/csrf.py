@@ -34,7 +34,7 @@ class CSRFMiddleware:
             return
 
         method = scope.get("method", "GET")
-        path = scope.get("path", "/")
+        path = scope.get("path", "/").rstrip("/") or "/"
         if method in _SAFE_METHODS or path in _CSRF_EXEMPT_PATHS:
             await self.app(scope, receive, send)
             return

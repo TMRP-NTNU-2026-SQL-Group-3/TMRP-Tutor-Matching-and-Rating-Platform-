@@ -84,8 +84,8 @@ class Contract:
         # surface at construction time, not as a mystery NULL downstream.
         if self.hourly_rate < 1:
             raise ValueError("hourly_rate must be >= 1")
-        if self.sessions_per_week < 0:
-            raise ValueError("sessions_per_week must be >= 0")
+        if self.sessions_per_week < 1:
+            raise ValueError("sessions_per_week must be >= 1")
         if self.trial_price is not None and self.trial_price < 0:
             raise ValueError("trial_price must be >= 0")
         if self.trial_count is not None and self.trial_count < 0:

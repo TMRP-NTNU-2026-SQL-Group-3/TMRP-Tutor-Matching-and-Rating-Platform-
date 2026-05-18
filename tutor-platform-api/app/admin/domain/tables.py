@@ -5,6 +5,7 @@ from app.shared.domain.exceptions import DomainException
 # Treated as the single source of truth for which tables admin endpoints
 # may operate on. Reverse this for import ordering.
 DELETE_ORDER: tuple[str, ...] = (
+    "rate_limit_hits",
     "session_edit_logs", "messages", "conversations", "reviews", "exams",
     "sessions", "matches", "tutor_availability", "tutor_subjects",
     "students", "tutors", "subjects", "users",

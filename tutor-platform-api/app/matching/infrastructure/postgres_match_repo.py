@@ -72,71 +72,75 @@ class PostgresMatchRepository(BaseRepository, IMatchRepository):
         )
         return self._row_to_entity(row) if row else None
 
+    @staticmethod
+    def _status_and_clause(status: str | None) -> tuple[psql.Composable, tuple]:
+        if status:
+            return psql.SQL(" AND m.status = %s"), (status,)
+        return psql.SQL(""), ()
+
+    @staticmethod
+    def _status_where_clause(status: str | None) -> tuple[psql.Composable, tuple]:
+        if status:
+            return psql.SQL(" WHERE m.status = %s"), (status,)
+        return psql.SQL(""), ()
+
     def find_by_tutor_user_id(self, user_id: int, *, limit: int, offset: int, status: str | None = None) -> list[dict]:
-        status_clause = " AND m.status = %s" if status else ""
-        status_params = (status,) if status else ()
-        return self.fetch_all(
-            f"""SELECT m.*, s.subject_name, st.name AS student_name
+        status_clause, status_params = self._status_and_clause(status)
+        query = psql.SQL(
+            """SELECT m.*, s.subject_name, st.name AS student_name
                FROM matches m
                INNER JOIN subjects s ON m.subject_id = s.subject_id
                INNER JOIN students st ON m.student_id = st.student_id
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
-               WHERE t.user_id = %s{status_clause} ORDER BY m.updated_at DESC
-               LIMIT %s OFFSET %s""",
-            (user_id,) + status_params + (limit, offset),
-        )
+               WHERE t.user_id = %s{status} ORDER BY m.updated_at DESC
+               LIMIT %s OFFSET %s"""
+        ).format(status=status_clause)
+        return self.fetch_all(query, (user_id,) + status_params + (limit, offset))
 
     def count_by_tutor_user_id(self, user_id: int, status: str | None = None) -> int:
-        # When status=None this counts all matches (including historical ones).
-        # Callers must pass the same status value used in find_by_tutor_user_id
-        # so the pagination total is consistent with the rows returned.
-        status_clause = " AND m.status = %s" if status else ""
-        status_params = (status,) if status else ()
-        row = self.fetch_one(
-            f"""SELECT COUNT(*) AS cnt FROM matches m
+        status_clause, status_params = self._status_and_clause(status)
+        query = psql.SQL(
+            """SELECT COUNT(*) AS cnt FROM matches m
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
-               WHERE t.user_id = %s{status_clause}""",
-            (user_id,) + status_params,
-        )
+               WHERE t.user_id = %s{status}"""
+        ).format(status=status_clause)
+        row = self.fetch_one(query, (user_id,) + status_params)
         return int(row["cnt"]) if row else 0
 
     def find_by_parent_user_id(self, user_id: int, *, limit: int, offset: int, status: str | None = None) -> list[dict]:
-        status_clause = " AND m.status = %s" if status else ""
-        status_params = (status,) if status else ()
-        return self.fetch_all(
-            f"""SELECT m.*, s.subject_name, st.name AS student_name,
+        status_clause, status_params = self._status_and_clause(status)
+        query = psql.SQL(
+            """SELECT m.*, s.subject_name, st.name AS student_name,
                       u.display_name AS tutor_display_name
                FROM matches m
                INNER JOIN subjects s ON m.subject_id = s.subject_id
                INNER JOIN students st ON m.student_id = st.student_id
                INNER JOIN tutors t ON m.tutor_id = t.tutor_id
                INNER JOIN users u ON t.user_id = u.user_id
-               WHERE m.parent_user_id = %s{status_clause} ORDER BY m.updated_at DESC
-               LIMIT %s OFFSET %s""",
-            (user_id,) + status_params + (limit, offset),
-        )
+               WHERE m.parent_user_id = %s{status} ORDER BY m.updated_at DESC
+               LIMIT %s OFFSET %s"""
+        ).format(status=status_clause)
+        return self.fetch_all(query, (user_id,) + status_params + (limit, offset))
 
     def count_by_parent_user_id(self, user_id: int, status: str | None = None) -> int:
-        status_clause = " AND m.status = %s" if status else ""
-        status_params = (status,) if status else ()
-        row = self.fetch_one(
-            f"SELECT COUNT(*) AS cnt FROM matches m WHERE m.parent_user_id = %s{status_clause}",
-            (user_id,) + status_params,
-        )
+        status_clause, status_params = self._status_and_clause(status)
+        query = psql.SQL(
+            "SELECT COUNT(*) AS cnt FROM matches m WHERE m.parent_user_id = %s{status}"
+        ).format(status=status_clause)
+        row = self.fetch_one(query, (user_id,) + status_params)
         return int(row["cnt"]) if row else 0
 
     def find_all(self, *, limit: int, offset: int, status: str | None = None) -> list[dict]:
-        status_clause = " WHERE m.status = %s" if status else ""
-        status_params = (status,) if status else ()
-        return self.fetch_all(
-            f"""SELECT m.*, s.subject_name, st.name AS student_name
+        status_clause, status_params = self._status_where_clause(status)
+        query = psql.SQL(
+            """SELECT m.*, s.subject_name, st.name AS student_name
                FROM matches m
                INNER JOIN subjects s ON m.subject_id = s.subject_id
-               INNER JOIN students st ON m.student_id = st.student_id{status_clause}
+               INNER JOIN students st ON m.student_id = st.student_id{status}
                ORDER BY m.updated_at DESC
-               LIMIT %s OFFSET %s""",
-            status_params + (limit, offset),
-        )
+               LIMIT %s OFFSET %s"""
+        ).format(status=status_clause)
+        return self.fetch_all(query, status_params + (limit, offset))
 
     def count_all(self, status: str | None = None) -> int:
         if status:

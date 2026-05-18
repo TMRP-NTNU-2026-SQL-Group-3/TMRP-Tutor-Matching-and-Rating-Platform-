@@ -106,6 +106,7 @@ class BodySizeLimitMiddleware:
                 (b"x-content-type-options", b"nosniff"),
                 (b"x-frame-options", b"DENY"),
                 (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                (b"content-security-policy", b"default-src 'none'; frame-ancestors 'none'"),
                 (b"cache-control", b"no-store"),
             ],
         })

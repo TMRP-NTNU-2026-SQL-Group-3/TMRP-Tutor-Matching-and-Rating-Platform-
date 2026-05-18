@@ -193,9 +193,11 @@ api.interceptors.response.use(
       }
     }
 
-    // 5xx / network — exponential backoff, up to 2 retries.
+    // 5xx / network — exponential backoff, up to 2 retries (safe methods only).
     const retryCount = originalConfig._retryCount || 0
-    const isRetryable = !error.response || error.response.status >= 500 || error.code === 'ECONNABORTED'
+    const safeMethods = new Set(['get', 'head', 'options'])
+    const isRetryable = safeMethods.has((originalConfig.method || 'get').toLowerCase())
+      && (!error.response || error.response.status >= 500 || error.code === 'ECONNABORTED')
     if (isRetryable && retryCount < 2) {
       originalConfig._retryCount = retryCount + 1
       await new Promise((r) => setTimeout(r, 1000 * 2 ** retryCount))

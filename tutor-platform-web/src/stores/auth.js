@@ -115,17 +115,18 @@ export const useAuthStore = defineStore('auth', () => {
     // resolve into the next user's request stream.
     resetRefreshState()
 
-    // SEC-C02: fire-and-forget backend logout. HttpOnly cookies are sent
-    // automatically; the server clears them via Set-Cookie in the response.
-    // FE-15: log network failures in development so connectivity issues are
-    // visible; a silent failure leaves a valid session cookie on the server.
-    axios.post(`${API_BASE_URL}/api/auth/logout`, null, {
+    // SEC-C02: attempt backend logout with one retry so the refresh token
+    // does not linger valid for 7 days after a transient network failure.
+    const doLogout = () => axios.post(`${API_BASE_URL}/api/auth/logout`, null, {
       withCredentials: true,
-    }).catch((err) => {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[auth] logout request failed:', err?.message)
-      }
     })
+    doLogout().catch(() =>
+      new Promise((r) => setTimeout(r, 1500)).then(() =>
+        doLogout().catch((err) => {
+          console.warn('[auth] logout request failed after retry:', err?.message)
+        })
+      )
+    )
   }
 
   // FE-3: invalidate the in-memory verified flag when another tab (or an XSS

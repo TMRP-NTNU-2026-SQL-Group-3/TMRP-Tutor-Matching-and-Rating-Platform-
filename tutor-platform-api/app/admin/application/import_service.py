@@ -30,8 +30,9 @@ try:
     _FK_VIOLATION = _pg_errors.ForeignKeyViolation
     _UNIQUE_VIOLATION = _pg_errors.UniqueViolation
     _NOT_NULL_VIOLATION = _pg_errors.NotNullViolation
+    _INVALID_TEXT = _pg_errors.InvalidTextRepresentation
 except ImportError:  # pragma: no cover — psycopg2 is a hard runtime dep
-    _FK_VIOLATION = _UNIQUE_VIOLATION = _NOT_NULL_VIOLATION = ()
+    _FK_VIOLATION = _UNIQUE_VIOLATION = _NOT_NULL_VIOLATION = _INVALID_TEXT = ()
 
 
 def _format_row_error(exc: Exception) -> str:
@@ -46,6 +47,8 @@ def _format_row_error(exc: Exception) -> str:
         diag = getattr(exc, "diag", None)
         col = getattr(diag, "column_name", None) if diag else None
         return f"欄位不可為 NULL: {col}" if col else "欄位不可為 NULL"
+    if _INVALID_TEXT and isinstance(exc, _INVALID_TEXT):
+        return "欄位值的型別不正確"
     return str(exc)
 
 logger = logging.getLogger("app.admin")

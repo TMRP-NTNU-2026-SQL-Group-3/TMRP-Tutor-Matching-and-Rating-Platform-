@@ -7,7 +7,7 @@ from app.shared.domain.exceptions import PermissionDeniedError, TooManyRequestsE
 from app.teaching.api.dependencies import get_session_service
 from app.teaching.api.schemas import SessionCreateBody, SessionUpdate
 from app.teaching.application.session_service import SessionAppService
-from app.teaching.domain.exceptions import SessionNotFoundError
+from app.teaching.domain.exceptions import MatchNotActiveError, SessionNotFoundError
 
 # Spec §7.6: POST/GET /api/matches/{match_id}/sessions
 match_sessions_router = APIRouter(prefix="/api/matches", tags=["sessions"])
@@ -82,6 +82,23 @@ def update_session(
         raise HTTPException(status_code=404, detail="找不到此上課日誌")
     return ApiResponse(success=True, data={"session_id": result["session_id"]}, message=result["message"])
 
+
+@router.delete("/{session_id}", summary="刪除上課日誌", response_model=ApiResponse)
+def delete_session(
+    session_id: int,
+    user=Depends(require_role("tutor")),
+    service: SessionAppService = Depends(get_session_service),
+):
+    try:
+        service.delete(
+            session_id=session_id,
+            tutor_user_id=int(user["sub"]),
+        )
+    except (SessionNotFoundError, PermissionDeniedError):
+        raise HTTPException(status_code=404, detail="找不到此上課日誌")
+    except MatchNotActiveError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return ApiResponse(success=True, data={"session_id": session_id}, message="上課日誌已刪除")
 
 
 @router.get("/{session_id}/edit-logs", summary="查看修改紀錄", response_model=ApiResponse)

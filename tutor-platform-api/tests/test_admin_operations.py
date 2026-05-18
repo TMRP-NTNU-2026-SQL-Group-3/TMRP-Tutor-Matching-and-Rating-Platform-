@@ -90,9 +90,12 @@ class TestAdminAnonymize:
 class TestAdminResetUserPassword:
     def test_reset_password_success(self, client, admin_headers):
         """Admin can reset any user's password when the account exists."""
-        with patch(_ADMIN_REPO) as MockRepo:
+        with patch(_ADMIN_REPO) as MockRepo, \
+             patch("app.admin.api.router.verify_password", return_value=False):
             repo = MockRepo.return_value
             repo.conn = MagicMock()
+            repo.fetch_one.return_value = {"password_hash": "$2b$12$fakehash"}
+            repo.fetch_all.return_value = []
             repo.reset_user_password.return_value = True
             repo.record_admin_action.return_value = None
 
@@ -111,7 +114,7 @@ class TestAdminResetUserPassword:
         with patch(_ADMIN_REPO) as MockRepo:
             repo = MockRepo.return_value
             repo.conn = MagicMock()
-            repo.reset_user_password.return_value = False
+            repo.fetch_one.return_value = None
 
             resp = client.post(
                 "/api/admin/users/999/reset-password",

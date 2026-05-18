@@ -428,8 +428,8 @@ async function confirmResetFromModal() {
     pendingResetToken.value = ''
     const deleted = result?.deleted || {}
     const total = Object.values(deleted).reduce((a, v) => a + (Number(v) || 0), 0)
-    resetResult.value = result?.backup
-      ? `已清空 ${total} 筆資料；備份：${result.backup}`
+    resetResult.value = result?.backup_created
+      ? `已清空 ${total} 筆資料；備份：${result.backup_created}`
       : `已清空 ${total} 筆資料`
     toast.success('資料庫已清空')
     showResetModal.value = false

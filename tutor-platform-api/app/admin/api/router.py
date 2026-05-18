@@ -18,6 +18,7 @@ from app.admin.domain.tables import (
 from app.admin.infrastructure.table_admin_repo import TableAdminRepository
 from app.identity.api.dependencies import get_db, require_role
 from app.shared.infrastructure.database_tx import transaction
+from app.shared.infrastructure.security import verify_password
 from app.middleware.rate_limit import check_and_record_bucket
 from app.shared.api.schemas import ApiResponse
 from app.shared.infrastructure.security import (
@@ -361,6 +362,17 @@ def admin_reset_user_password(
     repo: TableAdminRepository = Depends(get_admin_repo),
 ):
     with transaction(repo.conn):
+        target = repo.fetch_one("SELECT password_hash FROM users WHERE user_id = %s", (user_id,))
+        if not target:
+            raise HTTPException(status_code=404, detail="使用者不存在")
+        old_hash = target["password_hash"]
+        prior_hashes = [old_hash] if old_hash and old_hash != "ANONYMIZED" else []
+        prior_hashes += [r["password_hash"] for r in repo.fetch_all(
+            "SELECT password_hash FROM password_history WHERE user_id = %s ORDER BY changed_at DESC LIMIT 5",
+            (user_id,),
+        )]
+        if any(verify_password(body.new_password, h) for h in prior_hashes):
+            raise HTTPException(status_code=422, detail="新密碼不得與近期使用過的密碼相同")
         found = repo.reset_user_password(user_id, hash_password(body.new_password))
         if not found:
             raise HTTPException(status_code=404, detail="使用者不存在")
