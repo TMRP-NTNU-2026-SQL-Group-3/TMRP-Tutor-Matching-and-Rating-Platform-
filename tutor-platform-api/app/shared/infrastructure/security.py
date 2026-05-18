@@ -149,6 +149,17 @@ def decode_access_token(token: str) -> dict | None:
     if payload.get("type") != "access":
         logger.warning("Rejected non-access token (type=%s)", payload.get("type"))
         return None
+    # M-04: check user-level revocation so access tokens issued before a
+    # forced password reset are rejected immediately, not after expiry.
+    sub = payload.get("sub")
+    iat = payload.get("iat")
+    if sub is not None and iat is not None:
+        try:
+            if _is_token_revoked_for_user(int(sub), float(iat)):
+                logger.warning("Access token for user_id=%s rejected: issued before forced revocation", sub)
+                return None
+        except RuntimeError:
+            pass
     return payload
 
 
@@ -383,7 +394,18 @@ def decode_refresh_token(token: str) -> dict | None:
         return None
     jti = payload.get("jti")
     if jti and is_refresh_token_blacklisted(jti):
-        logger.warning("Reuse of invalidated refresh token jti=%s", jti)
+        # M-01: token family detection — a blacklisted JTI means the token was
+        # already consumed. This is a replay (stolen token or race). Revoke ALL
+        # tokens for the user so the attacker's derived chain is also killed.
+        sub = payload.get("sub")
+        if sub is not None:
+            logger.warning(
+                "Refresh token replay detected jti=%s user_id=%s — revoking all tokens",
+                jti, sub,
+            )
+            revoke_all_user_tokens(int(sub))
+        else:
+            logger.warning("Reuse of invalidated refresh token jti=%s (no sub)", jti)
         return None
     sub = payload.get("sub")
     iat = payload.get("iat")

@@ -11,7 +11,7 @@ logger = logging.getLogger("app.tasks.stats_tasks")
 _MONTH_RE = re.compile(r'^\d{4}-\d{2}$')
 
 
-def _parse_month(month: str | None) -> tuple[int, int] | str:
+def _parse_month(month: str | None, tz: str = "Asia/Taipei") -> tuple[int, int] | str:
     """解析月份字串，回傳 (year, mon) 或錯誤訊息字串。"""
     if month:
         if not _MONTH_RE.match(month):
@@ -26,39 +26,41 @@ def _parse_month(month: str | None) -> tuple[int, int] | str:
         if not (2000 <= year <= max_year):
             return f"無效的年份值（2000-{max_year}）"
     else:
-        now = datetime.now(timezone.utc)
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo(tz))
         year, mon = now.year, now.month
     return year, mon
 
 
 @huey.task(retries=3, retry_delay=10)
-def calculate_income_stats(user_id: int, month: str | None = None) -> dict:
+def calculate_income_stats(user_id: int, month: str | None = None, tz: str = "Asia/Taipei") -> dict:
     """非同步計算老師收入統計。"""
-    logger.info("計算收入統計: user_id=%d, month=%s", user_id, month)
+    logger.info("計算收入統計: user_id=%d, month=%s, tz=%s", user_id, month, tz)
     conn = get_connection()
     try:
         repo = StatsRepository(conn)
         tutor = repo.get_tutor_by_user(user_id)
         if not tutor:
-            return {"error": "找不到老師資料"}
+            return {"error": "找不到老師資料", "_owner_user_id": user_id}
 
-        parsed = _parse_month(month)
+        parsed = _parse_month(month, tz)
         if isinstance(parsed, str):
-            return {"error": parsed}
+            return {"error": parsed, "_owner_user_id": user_id}
         year, mon = parsed
 
         tutor_id = tutor["tutor_id"]
-        summary = repo.income_summary(tutor_id, year, mon)
+        summary = repo.income_summary(tutor_id, year, mon, tz=tz)
         if summary is None:
             summary = {"total_hours": 0, "total_income": 0,
                        "session_count": 0, "missing_rate_count": 0}
-        breakdown = repo.income_breakdown(tutor_id, year, mon)
+        breakdown = repo.income_breakdown(tutor_id, year, mon, tz=tz)
 
         for row in breakdown:
             row["hours"] = float(row["hours"] or 0)
             row["income"] = float(row["income"] or 0)
 
         return {
+            "_owner_user_id": user_id,
             "year": year,
             "month": mon,
             "total_hours": float(summary["total_hours"] or 0),
@@ -75,29 +77,30 @@ def calculate_income_stats(user_id: int, month: str | None = None) -> dict:
 
 
 @huey.task(retries=3, retry_delay=10)
-def calculate_expense_stats(user_id: int, month: str | None = None) -> dict:
+def calculate_expense_stats(user_id: int, month: str | None = None, tz: str = "Asia/Taipei") -> dict:
     """非同步計算家長支出統計。"""
-    logger.info("計算支出統計: user_id=%d, month=%s", user_id, month)
+    logger.info("計算支出統計: user_id=%d, month=%s, tz=%s", user_id, month, tz)
     conn = get_connection()
     try:
         repo = StatsRepository(conn)
 
-        parsed = _parse_month(month)
+        parsed = _parse_month(month, tz)
         if isinstance(parsed, str):
-            return {"error": parsed}
+            return {"error": parsed, "_owner_user_id": user_id}
         year, mon = parsed
 
-        summary = repo.expense_summary(user_id, year, mon)
+        summary = repo.expense_summary(user_id, year, mon, tz=tz)
         if summary is None:
             summary = {"total_hours": 0, "total_expense": 0,
                        "session_count": 0, "missing_rate_count": 0}
-        breakdown = repo.expense_breakdown(user_id, year, mon)
+        breakdown = repo.expense_breakdown(user_id, year, mon, tz=tz)
 
         for row in breakdown:
             row["hours"] = float(row["hours"] or 0)
             row["expense"] = float(row["expense"] or 0)
 
         return {
+            "_owner_user_id": user_id,
             "year": year,
             "month": mon,
             "total_hours": float(summary["total_hours"] or 0),

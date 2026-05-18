@@ -49,7 +49,7 @@ def get_income_stats(
     tz = _validate_tz(tz)
     _parse_month(month, tz)  # validate inputs before dispatch
     from app.tasks.stats_tasks import calculate_income_stats
-    task = calculate_income_stats(int(user["sub"]), month)
+    task = calculate_income_stats(int(user["sub"]), month, tz)
     return ApiResponse(success=True, data={"task_id": str(task.id)}, message="統計任務已排入佇列")
 
 
@@ -62,7 +62,7 @@ def get_expense_stats(
     tz = _validate_tz(tz)
     _parse_month(month, tz)  # validate inputs before dispatch
     from app.tasks.stats_tasks import calculate_expense_stats
-    task = calculate_expense_stats(int(user["sub"]), month)
+    task = calculate_expense_stats(int(user["sub"]), month, tz)
     return ApiResponse(success=True, data={"task_id": str(task.id)}, message="統計任務已排入佇列")
 
 
@@ -86,6 +86,10 @@ def get_stats_task(task_id: str, user=Depends(get_current_user)):
             data={"task_id": task_id, "status": "corrupted"},
             message="Task result is not valid JSON",
         )
+    # M-03: verify the caller owns this task result to prevent IDOR.
+    result_owner = result.get("_owner_user_id")
+    if result_owner is not None and str(result_owner) != str(user["sub"]):
+        raise DomainException("無權查看此任務結果", status_code=403)
     return ApiResponse(success=True, data={"task_id": task_id, "status": "complete", "result": result})
 
 

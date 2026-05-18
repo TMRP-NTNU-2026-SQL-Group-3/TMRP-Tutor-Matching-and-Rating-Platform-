@@ -12,6 +12,7 @@ logger = logging.getLogger("app.rate_limit")
 RATE_LIMITS: dict[str, tuple[int, int]] = {
     "/api/auth/login": (10, 60),
     "/api/auth/register": (5, 60),
+    "/api/auth/password": (5, 60),
     # L-01: dedicated cap for refresh. Without this, refresh falls back to the
     # `default` (60/min) bucket, which lets a stolen refresh token mint a new
     # access token once per second and bypass the login bucket entirely. The
@@ -64,6 +65,7 @@ def _get_rate_limit(path: str) -> tuple[int, int]:
 FAIL_CLOSED_PATHS: frozenset[str] = frozenset({
     "/api/auth/login",
     "/api/auth/register",
+    "/api/auth/password",
     "/api/admin/reset/request",
     "/api/admin/reset/confirm",
     "/api/admin/import-all",

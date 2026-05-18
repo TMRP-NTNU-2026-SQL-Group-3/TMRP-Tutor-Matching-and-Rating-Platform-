@@ -60,9 +60,16 @@ class TestRefreshToken:
         assert resp.status_code == 401
 
     def test_refresh_blacklisted_jti_returns_401(self, client):
-        """A previously invalidated (blacklisted) JTI cannot mint a new token pair."""
+        """A previously invalidated (blacklisted) JTI cannot mint a new token pair.
+
+        M-01: replay of a blacklisted JTI now also triggers revoke_all_user_tokens,
+        so that call must be mocked alongside the blacklist check.
+        """
         refresh_tok = create_refresh_token({"sub": "1", "role": "parent"})
-        with patch(f"{_SECURITY}.is_refresh_token_blacklisted", return_value=True):
+        with (
+            patch(f"{_SECURITY}.is_refresh_token_blacklisted", return_value=True),
+            patch(f"{_SECURITY}.revoke_all_user_tokens"),
+        ):
             resp = client.post(
                 self.ENDPOINT,
                 cookies={"refresh_token": refresh_tok, "csrf_token": _CSRF},

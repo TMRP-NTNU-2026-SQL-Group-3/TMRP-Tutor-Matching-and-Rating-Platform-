@@ -20,6 +20,13 @@ from app.shared.infrastructure.security import revoke_all_user_tokens
 _LOGIN_USER_MAX_ATTEMPTS = 5
 _LOGIN_USER_WINDOW_SECONDS = 900  # 15 minutes
 
+# M-06: progressive lockout — after the first 5/15min window is exhausted,
+# a longer 1-hour bucket with a tighter cap kicks in so repeated bursts
+# are punished progressively. Over 24h this limits to ~60 guesses instead
+# of the previous ~480.
+_LOGIN_ESCALATION_MAX_ATTEMPTS = 15
+_LOGIN_ESCALATION_WINDOW_SECONDS = 3600  # 1 hour
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 _REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 3600
@@ -86,10 +93,21 @@ def login(
     # of bcrypt cannot be used to amplify a distributed brute-force attack.
     # The generic 429 message is identical for existing and unknown usernames
     # to avoid leaking account existence.
-    user_bucket = f"login_user|{body.username.lower()}"
-    # M-06: sensitive — fail closed if the rate-limit DB is unreachable,
-    # so a counter outage cannot remove the per-account brake that defends
-    # against distributed-IP credential stuffing.
+    normalized_username = body.username.lower()
+    user_bucket = f"login_user|{normalized_username}"
+    # M-06: check the longer escalation window first — if the hourly budget
+    # is exhausted, the 15-min bucket check is moot.
+    escalation_bucket = f"login_escalation|{normalized_username}"
+    if not check_and_record_bucket(
+        escalation_bucket,
+        _LOGIN_ESCALATION_MAX_ATTEMPTS,
+        _LOGIN_ESCALATION_WINDOW_SECONDS,
+        fail_closed=True,
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="此帳號嘗試次數過多，請稍後再試",
+        )
     if not check_and_record_bucket(
         user_bucket,
         _LOGIN_USER_MAX_ATTEMPTS,
@@ -186,6 +204,10 @@ def update_me(
     return ApiResponse(success=True, data=data)
 
 
+_PASSWORD_CHANGE_MAX_ATTEMPTS = 5
+_PASSWORD_CHANGE_WINDOW_SECONDS = 900  # 15 minutes
+
+
 @router.put("/password", summary="變更密碼", description="驗證目前密碼後更新為新密碼。", response_model=ApiResponse)
 def change_password(
     body: ChangePasswordRequest,
@@ -195,6 +217,19 @@ def change_password(
     service: AuthService = Depends(get_auth_service),
 ):
     uid = int(user["sub"])
+    # M-05: per-user rate limit to prevent current-password brute-forcing
+    # via the authenticated change-password endpoint.
+    pw_bucket = f"password_change|{uid}"
+    if not check_and_record_bucket(
+        pw_bucket,
+        _PASSWORD_CHANGE_MAX_ATTEMPTS,
+        _PASSWORD_CHANGE_WINDOW_SECONDS,
+        fail_closed=True,
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="密碼變更嘗試次數過多，請稍後再試",
+        )
     with transaction(conn):
         service.change_password(
             user_id=uid,
