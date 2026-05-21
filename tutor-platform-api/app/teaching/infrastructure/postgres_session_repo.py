@@ -1,4 +1,5 @@
 import json
+from datetime import date, datetime, time
 from decimal import Decimal
 
 from app.shared.infrastructure.base_repository import BaseRepository
@@ -15,6 +16,11 @@ def _log_value(value) -> str | None:
     if isinstance(value, Decimal):
         as_int = int(value)
         value = as_int if value == as_int else float(value)
+    # date / datetime / time are likewise not JSON-serializable. Store the
+    # ISO-8601 string so an edit to a temporal column (e.g. session_date,
+    # a TIMESTAMPTZ) is audit-logged instead of crashing the request.
+    elif isinstance(value, (datetime, date, time)):
+        value = value.isoformat()
     return json.dumps(value)
 
 
