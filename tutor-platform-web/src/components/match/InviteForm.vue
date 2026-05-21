@@ -22,13 +22,20 @@
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">科目 *</label>
-          <select v-model="form.subject_id" required
+          <!-- A tutor with no selectable subjects cannot be invited (the server
+               rejects the match anyway); explain it instead of showing an
+               empty, unselectable dropdown. -->
+          <select v-if="subjects.length" v-model="form.subject_id" required
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition">
             <option :value="null" disabled>請選擇</option>
             <option v-for="s in subjects" :key="s.subject_id" :value="s.subject_id">
               {{ s.subject_name }} (${{ s.hourly_rate }}/hr)
             </option>
           </select>
+          <p v-else role="alert"
+            class="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+            此老師尚未提供可選擇的授課科目，目前無法發送邀請。
+          </p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">每小時費用 *</label>
@@ -52,7 +59,7 @@
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"></textarea>
       </div>
       <p v-if="error" class="text-sm text-danger bg-red-50 rounded-lg p-3">{{ error }}</p>
-      <p v-if="!canSubmit && !submitting" class="text-xs text-gray-400">請填寫所有必填欄位（*）後才能送出</p>
+      <p v-if="!canSubmit && !submitting && subjects.length" class="text-xs text-gray-400">請填寫所有必填欄位（*）後才能送出</p>
       <div class="flex gap-3">
         <button type="submit" :disabled="submitting || localSubmitting || !canSubmit"
           class="bg-primary-600 hover:bg-primary-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">

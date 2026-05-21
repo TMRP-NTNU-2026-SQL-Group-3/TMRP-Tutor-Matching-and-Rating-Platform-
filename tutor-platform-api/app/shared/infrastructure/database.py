@@ -1,4 +1,5 @@
 import logging
+import threading
 
 import psycopg2
 from psycopg2 import pool
@@ -9,42 +10,56 @@ logger = logging.getLogger("app.db")
 
 _pool: pool.ThreadedConnectionPool | None = None
 _rl_pool: pool.ThreadedConnectionPool | None = None
+# Guards init_pool()/close_pool() so the FastAPI lifespan and the Huey worker
+# startup hook can both call them without racing on the module globals.
+_pool_lock = threading.Lock()
 
 _TCP_KEEPALIVE_OPTS = dict(keepalives=1, keepalives_idle=60, keepalives_interval=10, keepalives_count=3)
 
 
 def init_pool():
-    """Initialize the PostgreSQL connection pool. Call once at app startup."""
+    """Initialize the PostgreSQL connection pool. Call once at app startup.
+
+    Idempotent and thread-safe: a call made while a pool already exists is a
+    no-op. Both the FastAPI lifespan and the Huey worker's on_startup hook
+    call this — the worker runs in a separate process from the API, so it must
+    open its own pool, and the guard below stops a second worker thread from
+    leaking a duplicate pool.
+    """
     global _pool, _rl_pool
-    _pool = pool.ThreadedConnectionPool(
-        minconn=settings.db_pool_min,
-        maxconn=settings.db_pool_max,
-        dsn=settings.database_url,
-        **_TCP_KEEPALIVE_OPTS,
-    )
-    # M-08: dedicated pool for rate-limit middleware so its DB checks do not
-    # compete with handler connections from the main pool. Cap is sized to
-    # match expected concurrent rate-limit checks (one per inbound request +
-    # per-username/per-action sub-buckets) so a burst does not exhaust the
-    # rl pool and force sensitive endpoints (login) into fail-closed mode,
-    # which would surface to legitimate users as spurious 429s.
-    _rl_pool = pool.ThreadedConnectionPool(
-        minconn=2,
-        maxconn=max(10, settings.db_pool_max // 2),
-        dsn=settings.database_url,
-        **_TCP_KEEPALIVE_OPTS,
-    )
+    with _pool_lock:
+        if _pool is not None:
+            return
+        _pool = pool.ThreadedConnectionPool(
+            minconn=settings.db_pool_min,
+            maxconn=settings.db_pool_max,
+            dsn=settings.database_url,
+            **_TCP_KEEPALIVE_OPTS,
+        )
+        # M-08: dedicated pool for rate-limit middleware so its DB checks do not
+        # compete with handler connections from the main pool. Cap is sized to
+        # match expected concurrent rate-limit checks (one per inbound request +
+        # per-username/per-action sub-buckets) so a burst does not exhaust the
+        # rl pool and force sensitive endpoints (login) into fail-closed mode,
+        # which would surface to legitimate users as spurious 429s.
+        _rl_pool = pool.ThreadedConnectionPool(
+            minconn=2,
+            maxconn=max(10, settings.db_pool_max // 2),
+            dsn=settings.database_url,
+            **_TCP_KEEPALIVE_OPTS,
+        )
 
 
 def close_pool():
     """Close the connection pool. Call at app shutdown."""
     global _pool, _rl_pool
-    if _pool:
-        _pool.closeall()
-        _pool = None
-    if _rl_pool:
-        _rl_pool.closeall()
-        _rl_pool = None
+    with _pool_lock:
+        if _pool:
+            _pool.closeall()
+            _pool = None
+        if _rl_pool:
+            _rl_pool.closeall()
+            _rl_pool = None
 
 
 def _require_pool() -> pool.ThreadedConnectionPool:

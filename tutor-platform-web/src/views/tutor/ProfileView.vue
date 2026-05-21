@@ -83,13 +83,20 @@
             <option v-for="d in dayOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
           </select>
           <input v-model="slot.start_time" type="time"
-            class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
+            :aria-invalid="isInvalidSlot(slot) || null"
+            class="rounded-lg border px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"
+            :class="isInvalidSlot(slot) ? 'border-red-400' : 'border-gray-300'" />
           <span class="text-sm text-gray-500">至</span>
           <input v-model="slot.end_time" type="time"
-            class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" />
+            :aria-invalid="isInvalidSlot(slot) || null"
+            class="rounded-lg border px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"
+            :class="isInvalidSlot(slot) ? 'border-red-400' : 'border-gray-300'" />
           <button type="button" @click="availabilityList.splice(idx, 1)"
             class="text-red-500 hover:text-red-700 text-sm font-medium transition-colors">移除</button>
         </div>
+        <p v-if="hasInvalidSlots" role="alert" class="text-xs text-red-600">
+          紅框時段的結束時間需晚於開始時間，請修正後才能儲存。
+        </p>
         <button type="button" @click="addAvailabilityRow"
           class="text-primary-600 hover:text-primary-700 text-sm font-medium transition-colors">+ 新增時段</button>
         <div v-if="previewSlots.length" class="pt-3 border-t border-gray-100 space-y-2">
@@ -312,6 +319,17 @@ function availableSubjectsFor(item) {
 
 const hasFreeSubject = computed(() => chosenSubjectIds.value.size < allSubjects.value.length)
 
+// A slot is invalid once both endpoints are filled but the end is not strictly
+// after the start. The backend rejects this, and previewSlots/handleSave drop
+// it from their filters, so flag it inline instead of letting the row vanish
+// from the preview with no explanation. Partly-filled rows are not yet errors.
+function isInvalidSlot(slot) {
+  if (!slot.start_time || !slot.end_time) return false
+  return slot.start_time >= slot.end_time
+}
+
+const hasInvalidSlots = computed(() => availabilityList.value.some(isInvalidSlot))
+
 const previewSlots = computed(() =>
   availabilityList.value
     .filter(s => s.start_time && s.end_time && s.start_time < s.end_time)
@@ -369,6 +387,10 @@ async function handleSave() {
   success.value = ''
   if (hasDuplicateSubjects.value) {
     error.value = '同一科目不能重複加入'
+    return
+  }
+  if (hasInvalidSlots.value) {
+    error.value = '時段的結束時間必須晚於開始時間'
     return
   }
   saving.value = true

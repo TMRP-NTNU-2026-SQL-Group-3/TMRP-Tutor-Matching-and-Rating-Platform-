@@ -605,6 +605,34 @@ SEED_DEMO_USERS: list[tuple[str, str, str, str]] = [
     ("parent", "ParentDemo2026", "parent", "示範家長"),
 ]
 
+# Profile, subjects and availability for the demo tutor. A freshly inserted
+# `tutors` row carries no tutor_subjects entries, which leaves the parent's
+# invite form with an empty, unselectable subject dropdown — the matching demo
+# cannot be completed against such an account. Subject names are resolved to
+# IDs at seed time (seed_subjects runs first), keeping this list independent of
+# the SERIAL values assigned to the subjects table.
+DEMO_TUTOR_PROFILE: dict[str, object] = {
+    "university": "國立臺灣大學",
+    "department": "資訊工程學系",
+    "grade_year": 3,
+    "self_intro": "臺大資工三年級，擅長把抽象的數理與程式概念拆解成生活化的例子。",
+    "teaching_experience": "三年家教經驗，指導過國高中數學與大學程式設計入門。",
+}
+
+DEMO_TUTOR_SUBJECTS: list[tuple[str, int]] = [
+    # (subject_name, hourly_rate)
+    ("數學", 600),
+    ("英文", 550),
+    ("程式設計", 800),
+]
+
+DEMO_TUTOR_AVAILABILITY: list[tuple[int, str, str]] = [
+    # (day_of_week, start_time, end_time) — 1=Mon … 7=Sun, per spec §6.2.6
+    (1, "18:00", "21:00"),
+    (3, "18:00", "21:00"),
+    (6, "09:00", "12:00"),
+]
+
 
 # ──────────────────────────────────────────────
 # Functions
@@ -695,14 +723,57 @@ def ensure_admin_user(conn, settings: Settings | None = None) -> None:
     logger.info("  Admin account created: %s", settings.admin_username)
 
 
+def _seed_demo_tutor_profile(cursor, tutor_id: int) -> None:
+    """Populate the demo tutor's profile, subjects and availability.
+
+    Called once, immediately after the demo `tutors` row is created, so the
+    account is fully matchable: the parent's invite form needs at least one
+    tutor_subjects row to render a selectable subject dropdown.
+    """
+    cursor.execute(
+        "UPDATE tutors SET university = %s, department = %s, grade_year = %s, "
+        "self_intro = %s, teaching_experience = %s WHERE tutor_id = %s",
+        (
+            DEMO_TUTOR_PROFILE["university"],
+            DEMO_TUTOR_PROFILE["department"],
+            DEMO_TUTOR_PROFILE["grade_year"],
+            DEMO_TUTOR_PROFILE["self_intro"],
+            DEMO_TUTOR_PROFILE["teaching_experience"],
+            tutor_id,
+        ),
+    )
+
+    # Resolve subject names to SERIAL IDs (seed_subjects has already run).
+    cursor.execute("SELECT subject_id, subject_name FROM subjects")
+    subject_ids = {name: sid for sid, name in cursor.fetchall()}
+    for subject_name, hourly_rate in DEMO_TUTOR_SUBJECTS:
+        subject_id = subject_ids.get(subject_name)
+        if subject_id is None:
+            logger.warning("  Demo tutor subject not found, skipped: %s", subject_name)
+            continue
+        cursor.execute(
+            "INSERT INTO tutor_subjects (tutor_id, subject_id, hourly_rate) "
+            "VALUES (%s, %s, %s)",
+            (tutor_id, subject_id, hourly_rate),
+        )
+
+    for day_of_week, start_time, end_time in DEMO_TUTOR_AVAILABILITY:
+        cursor.execute(
+            "INSERT INTO tutor_availability "
+            "(tutor_id, day_of_week, start_time, end_time) VALUES (%s, %s, %s, %s)",
+            (tutor_id, day_of_week, start_time, end_time),
+        )
+
+
 def seed_demo_users(conn, settings: Settings | None = None) -> None:
     """Seed recognizable demo tutor/parent accounts — DEBUG mode only.
 
     The accounts in SEED_DEMO_USERS carry well-known passwords, so they must
     never exist in a production deployment. This is gated on settings.debug,
     which is false in production. Each account is idempotent (skipped if the
-    username already exists). A tutor also gets a 1:1 tutors row, mirroring
-    AuthService registration (see postgres_user_repo.register_user).
+    username already exists). A tutor also gets a 1:1 tutors row plus a demo
+    profile, subjects and availability (see _seed_demo_tutor_profile) so the
+    account is immediately usable end-to-end in matching demos.
     """
     if settings is None:
         settings = _default_settings
@@ -725,8 +796,14 @@ def seed_demo_users(conn, settings: Settings | None = None) -> None:
         )
         user_id = cursor.fetchone()[0]
         # A tutor needs a 1:1 tutors row, exactly as register_user creates one.
+        # The demo account additionally gets subjects/availability so the
+        # parent-side matching flow can be demoed against it end-to-end.
         if role == "tutor":
-            cursor.execute("INSERT INTO tutors (user_id) VALUES (%s)", (user_id,))
+            cursor.execute(
+                "INSERT INTO tutors (user_id) VALUES (%s) RETURNING tutor_id",
+                (user_id,),
+            )
+            _seed_demo_tutor_profile(cursor, cursor.fetchone()[0])
         logger.info("  Demo user created: %s (role=%s)", username, role)
     conn.commit()
 

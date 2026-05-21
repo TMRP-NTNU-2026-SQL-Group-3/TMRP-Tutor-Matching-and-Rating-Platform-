@@ -150,7 +150,15 @@ async function goMessage() {
     }
     router.push('/messages/' + conv.conversation_id)
   } catch (e) {
-    toast.error(e.message)
+    // The server only allows a conversation once a non-rejected match
+    // exists between the two users (anti-spam guard). It returns a
+    // deliberately generic "無法建立對話" — translate it into an
+    // actionable hint for the parent on this tutor's detail page.
+    if (e.message && e.message.includes('無法建立對話')) {
+      toast.error('需先向這位老師發送媒合邀請，待邀請送出後即可開始聯絡')
+    } else {
+      toast.error(e.message)
+    }
   } finally {
     messageSending.value = false
   }

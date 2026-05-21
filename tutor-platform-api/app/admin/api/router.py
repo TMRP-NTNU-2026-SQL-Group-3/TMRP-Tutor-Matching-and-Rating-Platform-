@@ -491,6 +491,7 @@ def import_all(
 @router.get("/tasks/{task_id}", summary="查詢背景任務", response_model=ApiResponse)
 def get_task_status(task_id: str, user=Depends(require_role("admin"))):
     import json
+    from huey.constants import EmptyData
     from app.worker import huey as huey_instance
     try:
         raw = huey_instance.storage.peek_data(task_id)
@@ -499,7 +500,9 @@ def get_task_status(task_id: str, user=Depends(require_role("admin"))):
         # so the admin dashboard does not crash.
         logger.exception("Huey peek_data failed for task_id=%s", task_id)
         return ApiResponse(success=True, data={"task_id": task_id, "status": "pending", "error": True})
-    if raw is huey_instance.EmptyData:
+    # EmptyData is huey's "no result yet" sentinel; it lives in huey.constants,
+    # not on the Huey instance — `huey_instance.EmptyData` raises AttributeError.
+    if raw is EmptyData:
         return ApiResponse(success=True, data={"task_id": task_id, "status": "pending"})
     # H-02: task payloads are JSON (see app.shared.infrastructure.huey_json_serializer).
     # Refuse to fall back to pickle — deserializing untrusted storage bytes as
