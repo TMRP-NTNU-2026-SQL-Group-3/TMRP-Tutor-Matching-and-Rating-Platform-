@@ -55,12 +55,16 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
     # SEC-03: double-submit CSRF token. Not httpOnly so the SPA can read it
     # via document.cookie and reflect it in the X-CSRF-Token request header.
     # CSRFMiddleware validates that cookie == header on every mutating request.
-    # TTL is bound to the access token lifetime so the CSRF token rotates on
-    # every /refresh call, limiting the attack window if a token is leaked.
+    # The token still rotates on every login and /refresh because this function
+    # overwrites the cookie with a fresh value each time. max_age is bound to
+    # the refresh token lifetime (not the 5-minute access token) on purpose:
+    # if the CSRF cookie expired together with the access token, the next
+    # mutating request would be rejected by CSRFMiddleware (403) before the
+    # SPA's refresh-on-401 retry could mint a new session.
     response.set_cookie(
         key="csrf_token", value=secrets.token_urlsafe(32),
         httponly=False, secure=secure, samesite="lax",
-        path="/", max_age=settings.jwt_expire_minutes * 60,
+        path="/", max_age=_REFRESH_TOKEN_TTL_SECONDS,
     )
 
 
@@ -247,10 +251,12 @@ def change_password(
         # cannot survive a user-initiated password change.
         revoke_all_user_tokens(uid, conn=conn)
     # SEC-6: rotate CSRF token on credential change to close the window where
-    # a leaked pre-change CSRF token could still authorize requests.
+    # a leaked pre-change CSRF token could still authorize requests. max_age
+    # matches _set_auth_cookies — bound to the refresh token, not the access
+    # token, so the cookie outlives the 5-minute access token.
     response.set_cookie(
         key="csrf_token", value=secrets.token_urlsafe(32),
         httponly=False, secure=settings.cookie_secure, samesite="lax",
-        path="/", max_age=settings.jwt_expire_minutes * 60,
+        path="/", max_age=_REFRESH_TOKEN_TTL_SECONDS,
     )
     return ApiResponse(success=True, message="密碼已更新")
