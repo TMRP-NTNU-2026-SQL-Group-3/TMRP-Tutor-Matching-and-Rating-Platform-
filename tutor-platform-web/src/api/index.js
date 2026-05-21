@@ -222,7 +222,11 @@ api.interceptors.response.use(
     }
     const status = error.response?.status
     const message = (status && status >= 500) ? '伺服器發生錯誤，請稍後再試' : rawMessage
-    return Promise.reject(new Error(message))
+    // Attach the HTTP status so callers can branch on it — e.g. treat a 403 on
+    // a sub-resource as "unavailable" rather than a fatal page-load failure.
+    const apiError = new Error(message)
+    apiError.status = status
+    return Promise.reject(apiError)
   }
 )
 

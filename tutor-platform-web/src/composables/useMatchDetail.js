@@ -27,6 +27,7 @@ export function useMatchDetail() {
   const refetching = ref(false)
   const error = ref('')
   const examsUnavailable = ref(false)
+  const sessionsUnavailable = ref(false)
   const showTerminate = ref(false)
   const showContractConfirm = ref(false)
   const actionLoading = ref(false)
@@ -72,6 +73,7 @@ export function useMatchDetail() {
     else refetching.value = true
     error.value = ''
     examsUnavailable.value = false
+    sessionsUnavailable.value = false
     try {
       const detail = await matchesApi.getDetail(matchId, { signal })
       if (currentFetchId !== _fetchId) return false
@@ -93,7 +95,18 @@ export function useMatchDetail() {
       }
 
       const [sessData, reviewData] = await Promise.all([
-        sessionsApi.list({ match_id: matchId }, { signal }),
+        // BUG-FIX: session logs are intentionally unreadable for matches that
+        // never became active (pending/rejected) — the backend returns 403.
+        // Treat that as an empty log so the invitation page still renders and
+        // the tutor can accept/reject it. Any other error (abort, network,
+        // 5xx) still propagates and is handled as a real load failure.
+        sessionsApi.list({ match_id: matchId }, { signal }).catch((e) => {
+          if (e?.status === 403) {
+            sessionsUnavailable.value = true
+            return []
+          }
+          throw e
+        }),
         reviewsApi.list({ match_id: matchId }, { signal }),
       ])
       if (currentFetchId !== _fetchId) return false
@@ -106,15 +119,26 @@ export function useMatchDetail() {
       reviews.value = reviewData
 
       if (detail.student_id != null) {
-        const examData = await examsApi.list({ student_id: detail.student_id }, { signal })
-        if (currentFetchId !== _fetchId) return false
-        // The exams API returns every exam for the student (across tutors/subjects).
-        // Restrict to this match's subject so the trend chart and "本配對考試紀錄"
-        // panel don't leak data from other matches.
-        const subjectId = detail.subject_id
-        exams.value = subjectId
-          ? examData.filter(e => e.subject_id === subjectId)
-          : examData
+        try {
+          const examData = await examsApi.list({ student_id: detail.student_id }, { signal })
+          if (currentFetchId !== _fetchId) return false
+          // The exams API returns every exam for the student (across tutors/subjects).
+          // Restrict to this match's subject so the trend chart and "本配對考試紀錄"
+          // panel don't leak data from other matches.
+          const subjectId = detail.subject_id
+          exams.value = subjectId
+            ? examData.filter(e => e.subject_id === subjectId)
+            : examData
+        } catch (e) {
+          // BUG-FIX: exam history is only readable once the match is active or
+          // in trial — a pending/rejected match yields 403. Mark exams as
+          // unavailable instead of failing the whole detail page. Aborts and
+          // other errors still propagate to the outer handler.
+          if (currentFetchId !== _fetchId) return false
+          if (e?.status !== 403) throw e
+          exams.value = []
+          examsUnavailable.value = true
+        }
       } else {
         exams.value = []
         examsUnavailable.value = true
@@ -226,7 +250,7 @@ export function useMatchDetail() {
 
   return {
     match, sessions, exams, reviews,
-    loading, refetching, error, examsUnavailable, actionLoading,
+    loading, refetching, error, examsUnavailable, sessionsUnavailable, actionLoading,
     showTerminate, showContractConfirm, userId, displayReason,
     fetchMatch, doAction, doTerminate, doConfirmTrial,
     showReviewForm, reviewSubmitting, reviewError, submitReview,

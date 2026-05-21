@@ -127,7 +127,8 @@
       <!-- Sessions -->
       <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
         <h2 class="text-lg font-semibold text-gray-900 mb-4">上課日誌</h2>
-        <SessionTimeline :sessions="sessions" />
+        <p v-if="sessionsUnavailable" class="text-gray-400 text-sm">配對尚未開始，目前沒有上課日誌</p>
+        <SessionTimeline v-else :sessions="sessions" />
       </div>
 
       <!-- Progress Chart -->
@@ -238,7 +239,7 @@ import ProgressChart from '@/components/stats/ProgressChart.vue'
 
 const {
   match, sessions, exams, reviews,
-  loading, refetching, error, examsUnavailable, actionLoading,
+  loading, refetching, error, examsUnavailable, sessionsUnavailable, actionLoading,
   showTerminate, showContractConfirm, userId, displayReason,
   fetchMatch, doAction, doTerminate, doConfirmTrial,
   showReviewForm, reviewSubmitting, reviewError, submitReview,

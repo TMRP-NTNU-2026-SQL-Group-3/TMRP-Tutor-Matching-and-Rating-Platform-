@@ -147,7 +147,8 @@
           @cancel="handleSessionFormCancel"
         />
 
-        <SessionTimeline :sessions="paginatedSessions" :show-visibility="true"
+        <p v-if="sessionsUnavailable" class="text-gray-400 text-sm">配對尚未開始，目前沒有上課日誌</p>
+        <SessionTimeline v-else :sessions="paginatedSessions" :show-visibility="true"
           :editable="['active', 'trial'].includes(match.status)"
           @updated="onSessionUpdated" @deleted="onSessionDeleted" />
 
@@ -398,7 +399,7 @@ const { confirm } = useConfirm()
 
 const {
   match, sessions, exams, reviews,
-  loading, refetching, error, examsUnavailable, actionLoading,
+  loading, refetching, error, examsUnavailable, sessionsUnavailable, actionLoading,
   showTerminate, showContractConfirm, userId, displayReason,
   fetchMatch, doAction, doTerminate, doConfirmTrial,
   showReviewForm, reviewSubmitting, reviewError, submitReview,
