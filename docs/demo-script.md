@@ -61,8 +61,15 @@ FROM pg_trigger WHERE NOT tgisinternal ORDER BY 2;   -- 應列出 3 個 trigger
 ### 啟動(demo / 錄影前一天完成)
 
 - [ ] 把未提交的 docker 設定**定版並 commit**;最後一次彩排後不再改任何設定。
-- [ ] `docker compose up -d --build` 啟動。會自動載入 `docker-compose.override.yml`,把 DB 綁 `127.0.0.1:41432`、API 綁 `127.0.0.1:41000`(供 `psql` 與健康檢查連線)。
-- [ ] 在 `tutor-platform-api/.env.docker` 設 **`DEBUG=false`**(讓 `/seed` 能正常灌資料);此模式下啟動驗證器要求 **`COOKIE_SECURE=true`**,一併設好,否則 API 拒絕啟動。瀏覽器把 `localhost` 視為安全來源,Secure cookie 在 `http://localhost` 仍可正常登入。本 demo 不使用 Swagger `/docs`。
+- [ ] `docker compose up -d --build` 啟動。會自動載入 `docker-compose.override.yml`,把 DB 綁 `127.0.0.1:41432`(供 `psql` 連線)、API 綁 `127.0.0.1:41000`(供健康檢查)。
+- [ ] 在 `tutor-platform-api/.env.docker` 設 **`DEBUG=false`**(讓 `/seed` 能正常灌資料)。`DEBUG=false` 會啟用啟動驗證器,以下三項必須**一併改好**,否則 API 在 `Settings()` 載入時即拋 `ValueError`、容器無限重啟:
+  ```ini
+  DEBUG=false
+  COOKIE_SECURE=true                 # 否則:非 debug 模式下 auth cookie 須帶 Secure flag
+  CORS_ORIGINS=https://localhost     # 否則:非 debug 模式下 CORS 來源須為 https://
+  ADMIN_USERNAME=owner_demo01        # 否則:不得為字面值 'admin'(任何非 'admin' 名稱皆可)
+  ```
+  說明:demo 的 SPA 與 API 同源(都經 web 容器 `:41080`,前端走相對路徑),CORS 中介層實際不會被觸發,`CORS_ORIGINS` 只是用來通過驗證器的丟棄值。`ADMIN_USERNAME` 改名後請在**全新 volume** 上啟動(沿用舊 volume 會殘留舊 `admin` 列,變成兩個 admin 帳號)。瀏覽器把 `localhost` 視為安全來源,Secure cookie 在 `http://localhost` 仍可正常登入。本 demo 不使用 Swagger `/docs`。
 - [ ] `docker compose ps` 確認 **4 個容器(db / api / worker / web)全部 healthy** —— worker 沒跑,收入/支出統計會一直轉圈。
 
 ### 灌種子資料(順序很重要)
@@ -107,14 +114,14 @@ psql -h 127.0.0.1 -p 41432 -U <DB_USER> -d <DB_NAME>
 
 ## 4. 資料庫深掘 SQL 腳本
 
-存成 `demo.sql`。主講 **D**(操作 psql)+ **E**(先開 Access ER 圖、輔助講解)。以下佔位符請在彩排時填真實值:`<TID>`= 張家豪的 `tutor_id`;step 3 的 user id 改成種子資料中真實存在的兩個 user。
+存成 `demo.sql`。主講 **D**(操作 psql)+ **E**(先開 Access ER 圖、輔助講解)。以下佔位符請在彩排時填真實值:`<TID>` = 張家豪的 `tutor_id`;`<MID>` = 張家豪某筆「尚無 parent_to_tutor 評價」的媒合 `match_id`、`<PUID>` = 任一家長 `user_id`(步驟 5 用);`<UID_大>`/`<UID_小>` = 一組目前沒有對話的真實 user_id(步驟 3 用)。
 
 ### 步驟 1 — ER 圖與表清單
 
 E 先開 `tutor-platform-api/data/tutoring.accdb` 的 relationship view(課程要求的產出),一句帶過。再回 psql:
 
 ```sql
-\dt                 -- 19 張表:14 張業務表 + 5 張基礎設施表
+\dt                 -- 19 張表(對應 §10 第2章的 7 個領域分組)
 \d tutor_subjects   -- 指出 composite PK (tutor_id, subject_id) —— 解多對多並帶 per-subject 費率
 \d matches          -- 指出 partial unique index idx_matches_one_active
 ```
@@ -137,14 +144,15 @@ INSERT INTO subjects (subject_name, category) VALUES ('占星學', 'astrology');
 SELECT user_a_id, user_b_id FROM conversations ORDER BY 1, 2;
 
 BEGIN;
-INSERT INTO conversations (user_a_id, user_b_id) VALUES (9, 4);  -- 故意大的放前面
+-- <UID_大>、<UID_小>:一組目前沒有對話的真實 user_id;故意把大的填在前面
+INSERT INTO conversations (user_a_id, user_b_id) VALUES (<UID_大>, <UID_小>);
 SELECT conversation_id, user_a_id, user_b_id
 FROM conversations ORDER BY conversation_id DESC LIMIT 1;
--- 結果:user_a_id=4, user_b_id=9 —— trg_conversations_order_pair 已自動交換
+-- 結果:user_a_id 變成較小值、user_b_id 較大 —— trg_conversations_order_pair 已自動交換
 ROLLBACK;                                                        -- 不留髒資料
 ```
 
-> 講解:「`fn_conversations_order_pair` 這個 BEFORE INSERT trigger 自動把小的 user id 排到前面,搭配 `(user_a_id, user_b_id)` 唯一索引,保證任兩人之間只有一條對話。若代入的配對已有對話會觸發唯一鍵衝突 —— 換一組沒對話的就好。」
+> 講解:「`trg_conversations_order_pair` 這個 trigger(`BEFORE INSERT OR UPDATE`,背後是 `fn_conversations_order_pair` 函式)自動把較小的 user id 排到前面,搭配 `(user_a_id, user_b_id)` 唯一索引,保證任兩人之間只有一條對話。若代入的配對已有對話會觸發唯一鍵衝突 —— 換一組沒對話的就好。」
 
 ### 步驟 4 — 刻意的反正規化 + trigger 回填
 
@@ -165,14 +173,29 @@ FROM v_tutor_ratings ORDER BY tutor_id;
 >
 > **關鍵(這是強過 trigger 的 SQL 觀念):** 「它**不是**每次寫入就刷新 —— 那會在寫入交易中持有 MV 的排他鎖、拖慢併發寫入。我們改用一個**每 30 秒**跑一次的背景任務 `REFRESH MATERIALIZED VIEW CONCURRENTLY`。代價是評分有最多 30 秒的延遲,換來寫入路徑不被鎖卡住 —— 這是**新鮮度 vs 寫入併發**的工程取捨。`CONCURRENTLY` 不鎖讀取,但需要 `tutor_id` 上的唯一索引。」
 
-可現場示範刷新(承 Part A §7 家長剛送出的評價):
+現場示範「快照 vs 即時」—— 直接對 base table 寫入一筆評價,觀察 MV 不會自己跟上:
 
 ```sql
--- 家長剛在 app 送出新評價,但背景任務還沒到 30 秒 → MV 仍是舊值
-REFRESH MATERIALIZED VIEW CONCURRENTLY v_tutor_ratings;   -- 手動刷新
-SELECT tutor_id, review_count, ROUND(avg_rating::numeric, 2) AS avg_rating
-FROM v_tutor_ratings ORDER BY tutor_id;                   -- review_count 增加了
+-- 1. 記下張家豪目前的 review_count(<TID> = 張家豪的 tutor_id)
+SELECT review_count FROM v_tutor_ratings WHERE tutor_id = <TID>;
+
+-- 2. 直接對 base table 插入一筆 parent_to_tutor 評價(不經 app)
+--    <MID> = 張家豪某筆「尚無 parent_to_tutor 評價」的媒合 match_id;<PUID> = 任一家長 user_id
+INSERT INTO reviews (match_id, reviewer_user_id, review_type, rating_1, rating_2)
+VALUES (<MID>, <PUID>, 'parent_to_tutor', 5, 5)
+RETURNING review_id;
+
+-- 3. 立刻再查 MV —— 數字仍是舊值:MV 是物化快照,寫入 base table 不會即時反映
+SELECT review_count FROM v_tutor_ratings WHERE tutor_id = <TID>;
+
+-- 4. 手動刷新(背景任務每 30 秒對每個 MV 跑的就是這行),數字才更新
+REFRESH MATERIALIZED VIEW CONCURRENTLY v_tutor_ratings;
+SELECT review_count FROM v_tutor_ratings WHERE tutor_id = <TID>;
 ```
+
+> 講解:「第 3 步 review_count **沒變** —— 正好證明 MV 是**物化快照**,寫入 base table 不會即時反映。第 4 步手動 `REFRESH` 後才更新,而這行正是背景任務每 30 秒自動跑的指令。(若第 3 步數字剛好已變,代表背景任務在這數秒內恰好刷新過 —— 一樣印證『最多 30 秒延遲』的設計。)」
+>
+> **彩排注意:** 第 2 步的 INSERT 會留在資料庫。記下 `RETURNING` 的 `review_id`,demo 後執行 `DELETE FROM reviews WHERE review_id = <值>;` 再 `REFRESH` 一次還原;或在 Part A 結束後用後台「清空資料庫」重灌。
 
 ### 步驟 6 — 多表 JOIN(搜尋頁背後的查詢)
 
@@ -189,7 +212,7 @@ WHERE s.subject_name = '數學'
 ORDER BY vr.avg_rating DESC NULLS LAST;
 ```
 
-> 講解:「這就是家長搜尋頁背後的查詢 —— 跨 users、tutors、tutor_subjects、subjects 四表,再 LEFT JOIN materialized view 取評分。沒評價的家教用 `NULLS LAST` 排到最後。」
+> 講解:「這就是家長搜尋頁背後的查詢 —— 跨 users、tutors、tutor_subjects、subjects 四表,再 LEFT JOIN materialized view 取評分。`ORDER BY ... DESC NULLS LAST` 讓尚未被評價過的家教(`avg_rating` 為 NULL)排到最後,而不是被當成 0 分擠到最前。」
 
 ### 步驟 7 — 稽核軌跡:session_edit_logs
 
@@ -203,13 +226,20 @@ ORDER BY sel.log_id DESC LIMIT 10;
 
 > 講解:「家教每改一個課程記錄欄位,後端就在 `session_edit_logs` 補一列 —— 欄位名、舊值、新值、時間。Google Docs 式的逐欄稽核軌跡。」
 
-### 步驟 8 — EXPLAIN ANALYZE 證明索引生效
+### 步驟 8 — EXPLAIN:規劃器是成本導向的
 
 ```sql
-EXPLAIN ANALYZE
-SELECT * FROM tutor_subjects WHERE subject_id = 1;
--- 指出走 idx_tutor_subjects_subject 索引,而非 Seq Scan
+EXPLAIN ANALYZE SELECT * FROM tutor_subjects WHERE subject_id = 1;
+-- demo 資料量小(tutor_subjects 僅數列),規劃器正確選 Seq Scan:
+-- 全表掃一個 page 比「走索引 + 回表」更便宜。
+
+SET enable_seqscan = off;
+EXPLAIN SELECT * FROM tutor_subjects WHERE subject_id = 1;
+-- 強制關閉 seq scan 後,規劃器改用 idx_tutor_subjects_subject —— 證明索引存在且可用
+RESET enable_seqscan;
 ```
+
+> 講解:「規劃器是**成本導向**的 —— 不是『有索引就一定走索引』。種子資料只有幾列,全表掃最便宜;`idx_tutor_subjects_subject` 要在資料量大時才回本。關掉 `enable_seqscan` 強迫規劃器把索引路徑算出來,證明它隨時可用。」
 
 ---
 
@@ -280,13 +310,13 @@ SELECT * FROM tutor_subjects WHERE subject_id = 1;
 
 ### ④ 評價 + 統計 — C,1.5 分
 
-1. 家長寫 parent→tutor 評價(這筆會用在 §4 步驟 5 的 MV 示範);家教寫 tutor→student、tutor→parent 評價。
+1. 家長寫 parent→tutor 評價;家教寫 tutor→student、tutor→parent 評價。
 2. 秀收入長條圖(月/學生/科目切換)、支出圖、學生進步折線圖。
-   > 鋪陳台詞:「家長剛送出的評價,等一下會看到它如何反映到 materialized view —— 以及為什麼不是『立刻』。」
+   > 鋪陳台詞:「評分背後有個 materialized view,等一下資料庫段會看到它怎麼運作 —— 以及為什麼評分不是『寫了就立刻更新』。」
 
 ### ⑤ 資料庫深掘 — D + E,6 分 ★ 全場高潮
 
-照 [§4](#4-資料庫深掘-sql-腳本) 步驟 1–8 走(時間緊則步驟 8 可略)。步驟 5 的 MV 刷新示範直接呼應 ④ 家長剛送出的評價。
+照 [§4](#4-資料庫深掘-sql-腳本) 步驟 1–8 走(時間緊則步驟 8 可略)。步驟 5 在 psql 內自行寫入一筆評價來呈現「快照 vs 即時」,不依賴 ④ 的時間差。
 
 ### ⑥ Access 對照 + 收尾 — A,1 分
 
@@ -299,6 +329,7 @@ SELECT * FROM tutor_subjects WHERE subject_id = 1;
 | 風險 | 預案 |
 |---|---|
 | docker / 投影出包 | 直接播**備案錄影**。 |
+| API 容器一直重啟、healthy 不亮 | 多半是 `.env.docker` 切 `DEBUG=false` 後驗證器擋下:確認 `COOKIE_SECURE=true`、`CORS_ORIGINS` 全為 `https://`、`ADMIN_USERNAME` 非 `admin`(見 §2)。`docker compose logs api` 會印出具體 `ValueError`。 |
 | `/seed` 跳過、沒灌進資料 | 冪等守衛:資料庫已有任何非 admin 使用者就跳過。務必 `DEBUG=false`(否則開機自動建 demo 帳號觸發跳過),且 seed 前別先註冊帳號。需重灌請用後台「清空資料庫」兩步驟流程。 |
 | 找不到種子帳號密碼 | `docker compose logs api | Select-String "SEED CREDENTIALS" -Context 0,7`;彩排時就抄上小抄。 |
 | 現場註冊密碼被拒 | 政策 ≥10 字、含字母+數字;密碼寫小抄照打,彩排用同一組。 |
@@ -306,7 +337,7 @@ SELECT * FROM tutor_subjects WHERE subject_id = 1;
 | 統計圖一直轉圈 | 確認 worker 容器 healthy;彩排時先點過一次。 |
 | `terminate` 卡住 | 要**對方**按 `agree_terminate`;兩瀏覽器並排,別反覆登入。 |
 | 步驟 3 對話 INSERT 觸發唯一鍵衝突 | 代入的配對已有對話 —— 先 `SELECT ... FROM conversations` 挑一組沒對話的;已用 `ROLLBACK` 包住不留髒資料。 |
-| 步驟 5 MV 看起來沒變 | 正常 —— 背景任務每 30 秒才刷新一次。照腳本手動 `REFRESH MATERIALIZED VIEW CONCURRENTLY` 即可,並把「為何不即時刷新」當賣點講。 |
+| 步驟 5 INSERT 觸發唯一鍵衝突 | `<MID>` 已有同一 `<PUID>` 的 parent_to_tutor 評價(`idx_reviews_unique`)—— 改用張家豪「尚無 parent_to_tutor 評價」的媒合(如 pending 那筆),或換一個 `<PUID>`。 |
 | JWT 5 分鐘過期 | 前端自動 refresh,不影響;不用處理。 |
 | trigger/MV 名稱與腳本不符 | 彩排時用 §1 的兩條核對 SQL 確認。 |
 
@@ -314,7 +345,7 @@ SELECT * FROM tutor_subjects WHERE subject_id = 1;
 
 # Part B — YouTube 介紹影片
 
-錄影沒有現場風險,可重錄、可剪接、時間不限,並且是一份作品集。建議總長 **20–25 分鐘**,以 YouTube 章節(章節時間戳)切分,讓觀眾跳看。比現場版多出「資料庫設計總覽」與「工程實踐」兩個可以講深的章節。
+錄影沒有現場風險,可重錄、可剪接、時間不限,並且是一份作品集。建議總長 **25–30 分鐘**(逐章腳本合計約 26 分),以 YouTube 章節(章節時間戳)切分,讓觀眾跳看。比現場版多出「資料庫設計總覽」與「工程實踐」兩個可以講深的章節。
 
 ## 9. Part B — 影片規格與章節總表
 
