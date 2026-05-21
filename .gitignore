@@ -41,3 +41,8 @@ tutor-platform-api/logs/
 
 # Claude Code
 .claude/
+
+# Demo / presentation scripts (local only)
+docs/demo-script.md
+docs/video-script.md
+demo.sql
