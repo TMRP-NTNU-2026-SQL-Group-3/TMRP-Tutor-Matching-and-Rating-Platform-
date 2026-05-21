@@ -4,7 +4,11 @@ Patches the Teaching BC infrastructure repo (`PostgresSessionRepository`)
 at its import site inside `app.teaching.api.dependencies`.
 """
 
+from datetime import datetime, timezone
+from decimal import Decimal
 from unittest.mock import patch
+
+from app.teaching.infrastructure.postgres_session_repo import _log_value
 
 
 _REPO_PATH = "app.teaching.api.dependencies.PostgresSessionRepository"
@@ -163,6 +167,69 @@ class TestUpdateSession:
         assert "無實際變動" in resp.json()["message"]
         assert _edit_log_insert_calls(repo) == []
 
+    def test_update_unchanged_date_no_phantom_log(self, client, tutor_headers, mock_conn):
+        """Re-sending session_date unchanged writes no edit-log row: the stored
+        value is tz-aware (TIMESTAMPTZ) while the JSON body parses to a naive
+        datetime, and the two must still compare equal."""
+        with patch(_REPO_PATH) as MockRepo:
+            repo = MockRepo.return_value
+            old_session = {
+                "session_id": 50,
+                "match_id": 1,
+                "session_date": datetime(2025, 4, 1, 14, 0, 0, tzinfo=timezone.utc),
+                "hours": 2.0,
+                "content_summary": "原內容",
+                "homework": None,
+                "student_performance": None,
+                "next_plan": None,
+                "visible_to_parent": False,
+            }
+            repo.get_by_id_for_update.return_value = old_session
+            repo.get_match_for_create.return_value = {
+                "match_id": 1, "status": "active", "tutor_user_id": 2,
+            }
+
+            resp = client.put(
+                self.ENDPOINT.format(session_id=50),
+                json={"session_date": "2025-04-01T14:00:00"},
+                headers=tutor_headers,
+            )
+
+        assert resp.status_code == 200
+        assert "無實際變動" in resp.json()["message"]
+        assert _edit_log_insert_calls(repo) == []
+
+    def test_update_changed_date_logs_once(self, client, tutor_headers, mock_conn):
+        """A genuinely different session_date is still logged as one edit."""
+        with patch(_REPO_PATH) as MockRepo:
+            repo = MockRepo.return_value
+            old_session = {
+                "session_id": 50,
+                "match_id": 1,
+                "session_date": datetime(2025, 4, 1, 14, 0, 0, tzinfo=timezone.utc),
+                "hours": 2.0,
+                "content_summary": "原內容",
+                "homework": None,
+                "student_performance": None,
+                "next_plan": None,
+                "visible_to_parent": False,
+            }
+            repo.get_by_id_for_update.return_value = old_session
+            repo.get_match_for_create.return_value = {
+                "match_id": 1, "status": "active", "tutor_user_id": 2,
+            }
+
+            resp = client.put(
+                self.ENDPOINT.format(session_id=50),
+                json={"session_date": "2025-04-05T14:00:00"},
+                headers=tutor_headers,
+            )
+
+        assert resp.status_code == 200
+        log_calls = _edit_log_insert_calls(repo)
+        assert len(log_calls) == 1
+        assert log_calls[0].args[1] == "session_date"
+
     def test_update_not_tutor_denied(self, client, parent_headers, mock_conn):
         """Parent cannot modify session records."""
         resp = client.put(
@@ -303,3 +370,35 @@ class TestEditLogs:
         data = resp.json()["data"]
         assert len(data) == 1
         assert data[0]["field_name"] == "hours"
+
+
+# ━━━━━━━━━━ _log_value serialization ━━━━━━━━━━
+
+class TestLogValueSerialization:
+    """Unit tests for _log_value: the edit-log value serializer must JSON-encode
+    every column type a session edit can carry, and pin datetimes to UTC so a
+    naive payload value and the tz-aware stored value share one form."""
+
+    def test_naive_datetime_pinned_to_utc(self):
+        assert _log_value(datetime(2025, 4, 1, 14, 0, 0)) == '"2025-04-01T14:00:00+00:00"'
+
+    def test_aware_datetime_unchanged(self):
+        aware = datetime(2025, 4, 1, 14, 0, 0, tzinfo=timezone.utc)
+        assert _log_value(aware) == '"2025-04-01T14:00:00+00:00"'
+
+    def test_naive_and_aware_same_instant_serialize_identically(self):
+        naive = datetime(2025, 4, 1, 14, 0, 0)
+        aware = datetime(2025, 4, 1, 14, 0, 0, tzinfo=timezone.utc)
+        assert _log_value(naive) == _log_value(aware)
+
+    def test_none_returns_none(self):
+        assert _log_value(None) is None
+
+    def test_decimal_integer_collapses(self):
+        assert _log_value(Decimal("2.0")) == "2"
+
+    def test_decimal_fraction_kept(self):
+        assert _log_value(Decimal("1.5")) == "1.5"
+
+    def test_text_is_json_encoded(self):
+        assert _log_value("hello") == '"hello"'

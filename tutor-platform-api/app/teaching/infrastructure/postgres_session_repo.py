@@ -1,5 +1,5 @@
 import json
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 
 from app.shared.infrastructure.base_repository import BaseRepository
@@ -18,8 +18,15 @@ def _log_value(value) -> str | None:
         value = as_int if value == as_int else float(value)
     # date / datetime / time are likewise not JSON-serializable. Store the
     # ISO-8601 string so an edit to a temporal column (e.g. session_date,
-    # a TIMESTAMPTZ) is audit-logged instead of crashing the request.
-    elif isinstance(value, (datetime, date, time)):
+    # a TIMESTAMPTZ) is audit-logged instead of crashing the request. A
+    # naive datetime (parsed from the JSON body) is pinned to UTC so the
+    # logged old/new pair shares one tz form instead of one carrying a
+    # +00:00 offset and the other none.
+    elif isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        value = value.isoformat()
+    elif isinstance(value, (date, time)):
         value = value.isoformat()
     return json.dumps(value)
 

@@ -37,6 +37,11 @@ def _normalize(value):
     exact in Decimal but not in float, causing spurious "changed" logs.
     All numeric inputs are therefore normalized to Decimal, and integers
     collapse to a plain int for clean comparison with JSON payloads.
+
+    session_date is a TIMESTAMPTZ: psycopg2 returns it tz-aware, while the
+    JSON request body parses to a naive datetime. Without coercion the two
+    compare unequal and an unchanged date is logged as a phantom edit, so
+    both are pinned to UTC (the DB session timezone) before comparison.
     """
     if value is None:
         return None
@@ -50,6 +55,11 @@ def _normalize(value):
             return str(value)
         as_int = int(d)
         return as_int if d == as_int else d
+    from datetime import datetime, timezone
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
     return str(value)
 
 
