@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../TMRP-LOGO.png" alt="TMRP — Tutor Matching and Rating Platform" width="320" />
+</p>
+
 # TMRP — System Architecture
 
 A complete architectural reference for the **Tutor Matching and Rating Platform**. This document is structured as a series of progressively deeper views, following the **C4 model** (Context → Container → Component → Code) and supplemented with cross-cutting diagrams for data, security, and runtime behaviour.
@@ -64,7 +68,7 @@ graph TB
     Tutor  -->|uses| Browser
     Admin  -->|uses| Browser
     Browser -->|HTTPS| TLS
-    TLS -->|HTTP :8080| TMRP
+    TLS -->|HTTP :41080| TMRP
 
     class Parent,Tutor,Admin person
     class TMRP system
@@ -73,7 +77,7 @@ graph TB
 
 **Notes**
 - TMRP has **no third-party integrations** in the current revision: no payment gateway, no email/SMS provider, no OAuth IdP, and no real-time message bus. Every external interaction is a browser-originated HTTP request.
-- TLS termination is **out-of-scope for the compose stack** — the `web` container's `nginx-unprivileged` image listens on plain HTTP 8080. The `Strict-Transport-Security` header and `COOKIE_SECURE` flag are only meaningful when an upstream TLS terminator sets `X-Forwarded-Proto: https`.
+- TLS termination is **out-of-scope for the compose stack** — the `web` container's `nginx-unprivileged` image listens on plain HTTP 41080. The `Strict-Transport-Security` header and `COOKIE_SECURE` flag are only meaningful when an upstream TLS terminator sets `X-Forwarded-Proto: https`.
 
 ---
 
@@ -93,10 +97,10 @@ graph TB
     subgraph compose["Docker Compose · network appnet (172.28.0.0/24)"]
         direction TB
 
-        Web["<b>web</b> container<br/>nginx-unprivileged<br/>:8080 → host :80<br/>IP 172.28.0.10"]:::container
-        API["<b>api</b> container<br/>FastAPI + Uvicorn<br/>:8000 (internal only)<br/>IP 172.28.0.20"]:::container
+        Web["<b>web</b> container<br/>nginx-unprivileged<br/>:41080 → host :41080<br/>IP 172.28.0.10"]:::container
+        API["<b>api</b> container<br/>FastAPI + Uvicorn<br/>:41000 (internal only)<br/>IP 172.28.0.20"]:::container
         Worker["<b>worker</b> container<br/>huey_consumer<br/>(no HTTP surface)"]:::container
-        DB[("<b>db</b> container<br/>PostgreSQL 16-alpine<br/>:5432 internal")]:::store
+        DB[("<b>db</b> container<br/>PostgreSQL 16-alpine<br/>:41432 internal")]:::store
 
         PgVol[("Volume: pgdata<br/>/var/lib/postgresql/data")]:::store
         ApiData[("Volume: api-data<br/>/app/data — huey.db")]:::store
@@ -113,7 +117,7 @@ graph TB
         Worker --- ApiLogs
     end
 
-    Browser -->|"HTTPS terminated upstream<br/>then HTTP :80 → :8080"| Web
+    Browser -->|"HTTPS terminated upstream<br/>then HTTP :41080"| Web
 
     Secrets[/"Docker Secrets<br/>db_password<br/>jwt_secret_key<br/>jwt_secret_key_previous (optional)<br/>admin_password"/]:::external
     EnvFile[/".env (repo root)<br/>DB_USER, DB_NAME"/]:::external
@@ -131,10 +135,10 @@ graph TB
 
 | Container | Image / Build | Port | Purpose |
 |---|---|---|---|
-| `web` | Build from `tutor-platform-web/Dockerfile` (multi-stage: Vite build → nginx-unprivileged) | 8080 internal, 80 on host | Serves SPA static assets, reverse-proxies `/api/*` and `/health`, applies edge rate limit and security headers. Pinned IP 172.28.0.10 so the API can trust its `X-Forwarded-For`. |
-| `api` | Build from `tutor-platform-api/Dockerfile` | 8000 (no host binding in prod) | FastAPI app exposing `/api/*` and `/health`. Initialises the DB schema on startup, then accepts requests. |
+| `web` | Build from `tutor-platform-web/Dockerfile` (multi-stage: Vite build → nginx-unprivileged) | 41080 internal, 41080 on host | Serves SPA static assets, reverse-proxies `/api/*` and `/health`, applies edge rate limit and security headers. Pinned IP 172.28.0.10 so the API can trust its `X-Forwarded-For`. |
+| `api` | Build from `tutor-platform-api/Dockerfile` | 41000 (no host binding in prod) | FastAPI app exposing `/api/*` and `/health`. Initialises the DB schema on startup, then accepts requests. |
 | `worker` | Same image as `api`, command override `huey_consumer app.worker.huey` | none | Consumes the SQLite-backed Huey queue, runs CSV import/export, seed generation, stats aggregation, and the daily review-lock scheduler. |
-| `db` | `postgres:16-alpine` (digest-pinned) | 5432 internal | Primary store. Single Postgres instance, runs as UID 70, all capabilities dropped. |
+| `db` | `postgres:16-alpine` (digest-pinned) | 41432 internal | Primary store. Single Postgres instance, runs as UID 70, all capabilities dropped. |
 
 **Cross-process state**
 - `pgdata` — Postgres data directory (durable).
@@ -387,18 +391,18 @@ graph LR
 
     subgraph Host["Docker Host"]
         direction LR
-        HostPort[("Host :80")]:::edge
+        HostPort[("Host :41080")]:::edge
         subgraph Net["Bridge network appnet · 172.28.0.0/24"]
-            Web2["web · nginx<br/>:8080<br/>172.28.0.10<br/>cap_drop: ALL<br/>no-new-privileges"]:::internal
-            Api2["api · uvicorn<br/>:8000<br/>172.28.0.20<br/>FORWARDED_ALLOW_IPS=<br/>127.0.0.1, 172.28.0.10"]:::internal
+            Web2["web · nginx<br/>:41080<br/>172.28.0.10<br/>cap_drop: ALL<br/>no-new-privileges"]:::internal
+            Api2["api · uvicorn<br/>:41000<br/>172.28.0.20<br/>FORWARDED_ALLOW_IPS=<br/>127.0.0.1, 172.28.0.10"]:::internal
             Worker2["worker · huey_consumer<br/>cap_drop: ALL"]:::internal
-            Db2[("db · postgres:16<br/>:5432<br/>UID 70<br/>cap_drop: ALL")]:::store
+            Db2[("db · postgres:16<br/>:41432<br/>UID 70<br/>cap_drop: ALL")]:::store
         end
     end
 
     Internet -->|HTTPS 443| TLS
     TLS -->|HTTP, with X-Forwarded-Proto| HostPort
-    HostPort -->|"80 → 8080"| Web2
+    HostPort -->|":41080"| Web2
     Web2 -->|"limit_req 20 r/s burst 40<br/>proxy_pass /api/* and /health<br/>proxy_cookie_flags secure samesite=lax<br/>X-Forwarded-For = $remote_addr"| Api2
     Api2 -->|"psycopg2 pool"| Db2
     Worker2 -->|"psycopg2"| Db2
@@ -410,7 +414,7 @@ graph LR
 | File | Role | Notable differences |
 |---|---|---|
 | `docker-compose.yml` | Production base. | No host port bindings on `db` or `api`. Resource limits per service. Pinned image digests. Custom bridge with fixed IPs. |
-| `docker-compose.override.yml` | Auto-loaded in local dev. | Binds `db→127.0.0.1:5433`, `api→127.0.0.1:8001` so Swagger and `psql` work from the host. |
+| `docker-compose.override.yml` | Auto-loaded in local dev. | Binds `db→127.0.0.1:41432`, `api→127.0.0.1:41000` so Swagger and `psql` work from the host. |
 | `docker-compose.run.yml` | Local-Postgres alternative. | `DEBUG=true`, `COOKIE_SECURE=false`. Drops API port bindings. Used when running Postgres outside Docker. |
 
 ### Container hardening (applied uniformly to db, api, worker, web)
@@ -805,9 +809,11 @@ erDiagram
 - `refresh_token_blacklist` stores only `(jti, expires_at, created_at)` — there is **no** `user_id` column; per-user mass revocation is handled by `user_token_revocations` instead.
 - Schema bootstrap (`init_db.run_bootstrap`) is idempotent and serialised across uvicorn workers via a Postgres advisory lock.
 
-**Materialised views** (created alongside the base tables in `init_db.py`; refreshed `CONCURRENTLY` by statement-level triggers, so they are read-only derivations of the 19 tables above):
-- `v_tutor_ratings` — per-tutor aggregation of `parent_to_tutor` reviews (averages of `rating_1..rating_4`, `review_count`, blended `avg_rating`). Refreshed after any write to `reviews`. Unique index on `tutor_id` so `REFRESH … CONCURRENTLY` is allowed.
-- `v_tutor_active_students` — `COUNT(*)` of `matches` per tutor where `status IN ('active','trial')`. Refreshed after `INSERT`/`UPDATE OF status`/`DELETE` on `matches`. Used by the tutor search/detail hot paths to avoid re-scanning `matches` per request.
+**Materialised views** (created alongside the base tables in `init_db.py`; read-only derivations of the 19 tables above):
+- `v_tutor_ratings` — per-tutor aggregation of `parent_to_tutor` reviews (averages of `rating_1..rating_4`, `review_count`, blended `avg_rating`). Unique index on `tutor_id` so `REFRESH … CONCURRENTLY` is allowed.
+- `v_tutor_active_students` — `COUNT(*)` of `matches` per tutor where `status IN ('active','trial')`. Used by the tutor search/detail hot paths to avoid re-scanning `matches` per request.
+
+Both views are refreshed by a periodic `asyncio` task (`_run_periodic_mv_refresh` in `app/main.py`) that runs `REFRESH MATERIALIZED VIEW CONCURRENTLY` on both every 30 seconds. Statement-level refresh triggers were removed (change M-09) because they held an exclusive lock on the view for the duration of every write transaction; the periodic design trades up-to-30-second staleness for a lock-free write path.
 
 ---
 

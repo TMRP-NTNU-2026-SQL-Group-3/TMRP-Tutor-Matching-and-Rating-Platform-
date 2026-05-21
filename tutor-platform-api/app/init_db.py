@@ -351,9 +351,9 @@ CREATE INDEX IF NOT EXISTS idx_matches_parent_status   ON matches (parent_user_i
 
 -- B11: v_tutor_ratings used to be a regular VIEW, so every tutor page
 -- re-scanned the full reviews table. Materialising it turns reads into a
--- single-row lookup; the refresh trigger below keeps it current on
--- review write. If an older deployment still has the non-materialised
--- VIEW, drop it before recreating as a materialised view.
+-- single-row lookup; the periodic _run_periodic_mv_refresh task in
+-- app/main.py keeps it current. If an older deployment still has the
+-- non-materialised VIEW, drop it before recreating as a materialised view.
 DO $$
 BEGIN
     IF EXISTS (
@@ -398,8 +398,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_tutor_ratings_tutor
 -- Previously a plain VIEW, scanned by the tutor search / detail hot paths.
 -- Converted to a MATERIALIZED VIEW so the group-by over `matches` is not
 -- re-executed on every listing request. Refreshed CONCURRENTLY by the
--- trigger below after any write that can change a tutor's active-student
--- count. A unique index on `tutor_id` is required for CONCURRENTLY.
+-- periodic _run_periodic_mv_refresh task in app/main.py. A unique index
+-- on `tutor_id` is required for CONCURRENTLY.
 --
 -- Migration block: older deployments may still have the plain VIEW. The
 -- DO block drops it only if `relkind = 'v'`; if relkind is already 'm'
@@ -427,9 +427,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_tutor_active_tutor
     ON v_tutor_active_students (tutor_id);
 
 -- M-09: MV refresh moved from statement-level triggers to a periodic
--- background task (see app.tasks.mv_refresh) to avoid holding exclusive
--- locks on the MVs during write transactions. Drop legacy triggers if
--- they exist from an older deployment.
+-- background task (see _run_periodic_mv_refresh in app/main.py) to avoid
+-- holding exclusive locks on the MVs during write transactions. Drop
+-- legacy triggers if they exist from an older deployment.
 DROP TRIGGER IF EXISTS trg_matches_refresh_active_students ON matches;
 DROP TRIGGER IF EXISTS trg_reviews_refresh_ratings ON reviews;
 DROP FUNCTION IF EXISTS fn_refresh_tutor_active_students();
@@ -593,6 +593,20 @@ SEED_SUBJECTS: list[tuple[str, str]] = [
 
 
 # ──────────────────────────────────────────────
+# Demo accounts — DEBUG mode only
+# ──────────────────────────────────────────────
+
+# Recognizable tutor/parent accounts for local development and project demos.
+# (username, password, role, display_name). These use well-known passwords, so
+# seed_demo_users() refuses to create them unless DEBUG is true — a production
+# deployment (DEBUG=false) must never ship with guessable credentials.
+SEED_DEMO_USERS: list[tuple[str, str, str, str]] = [
+    ("tutor", "TutorDemo2026", "tutor", "示範教師"),
+    ("parent", "ParentDemo2026", "parent", "示範家長"),
+]
+
+
+# ──────────────────────────────────────────────
 # Functions
 # ──────────────────────────────────────────────
 
@@ -631,6 +645,7 @@ def run_bootstrap(conn, settings: Settings | None = None) -> None:
         create_schema(conn)
         seed_subjects(conn)
         ensure_admin_user(conn, settings)
+        seed_demo_users(conn, settings)
         verify_bootstrap(conn, settings)
     finally:
         cursor.execute("SELECT pg_advisory_unlock(%s)", (_BOOTSTRAP_LOCK_KEY,))
@@ -680,6 +695,42 @@ def ensure_admin_user(conn, settings: Settings | None = None) -> None:
     logger.info("  Admin account created: %s", settings.admin_username)
 
 
+def seed_demo_users(conn, settings: Settings | None = None) -> None:
+    """Seed recognizable demo tutor/parent accounts — DEBUG mode only.
+
+    The accounts in SEED_DEMO_USERS carry well-known passwords, so they must
+    never exist in a production deployment. This is gated on settings.debug,
+    which is false in production. Each account is idempotent (skipped if the
+    username already exists). A tutor also gets a 1:1 tutors row, mirroring
+    AuthService registration (see postgres_user_repo.register_user).
+    """
+    if settings is None:
+        settings = _default_settings
+
+    if not settings.debug:
+        logger.info("  DEBUG is off; skipping demo user seed")
+        return
+
+    cursor = conn.cursor()
+    for username, password, role, display_name in SEED_DEMO_USERS:
+        cursor.execute("SELECT 1 FROM users WHERE username = %s", (username,))
+        if cursor.fetchone() is not None:
+            logger.info("  Demo user '%s' already exists; skipping", username)
+            continue
+
+        cursor.execute(
+            "INSERT INTO users (username, password_hash, role, display_name) "
+            "VALUES (%s, %s, %s, %s) RETURNING user_id",
+            (username, hash_password(password), role, display_name),
+        )
+        user_id = cursor.fetchone()[0]
+        # A tutor needs a 1:1 tutors row, exactly as register_user creates one.
+        if role == "tutor":
+            cursor.execute("INSERT INTO tutors (user_id) VALUES (%s)", (user_id,))
+        logger.info("  Demo user created: %s (role=%s)", username, role)
+    conn.commit()
+
+
 def verify_bootstrap(conn, settings: Settings | None = None) -> None:
     """Smoke-test that the database came up in the expected shape.
 
@@ -726,16 +777,19 @@ def initialize_database() -> None:
 
     conn = psycopg2.connect(settings.database_url)
     try:
-        logger.info("[1/4] Creating tables and indexes...")
+        logger.info("[1/5] Creating tables and indexes...")
         create_schema(conn)
 
-        logger.info("[2/4] Seeding reference data...")
+        logger.info("[2/5] Seeding reference data...")
         seed_subjects(conn)
 
-        logger.info("[3/4] Creating admin account...")
+        logger.info("[3/5] Creating admin account...")
         ensure_admin_user(conn, settings)
 
-        logger.info("[4/4] Verifying bootstrap state...")
+        logger.info("[4/5] Seeding demo users (DEBUG only)...")
+        seed_demo_users(conn, settings)
+
+        logger.info("[5/5] Verifying bootstrap state...")
         verify_bootstrap(conn, settings)
     finally:
         conn.close()

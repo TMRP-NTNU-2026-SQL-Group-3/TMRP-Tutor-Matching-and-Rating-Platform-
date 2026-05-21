@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../TMRP-LOGO.png" alt="TMRP — Tutor Matching and Rating Platform" width="320" />
+</p>
+
 # tutor-platform-web
 
 Vue 3 single-page application for TMRP (Tutor Matching and Rating Platform). Ships as a Vite-built static bundle served by Nginx in production.
@@ -41,7 +45,7 @@ All data flows through `/api/*` REST calls to the FastAPI backend. There's no di
 | Node.js | 18+ |
 | npm | 9+ (bundled with Node 18) |
 
-A running backend at `http://localhost:8000` (or wherever `VITE_API_BASE_URL` points).
+A running backend at `http://localhost:41000` (or wherever `VITE_API_BASE_URL` points).
 
 ---
 
@@ -53,7 +57,7 @@ npm install
 npm run dev
 ```
 
-Dev server starts on <http://localhost:5273> (port configured in `vite.config.js`).
+Dev server starts on <http://localhost:41173> (port configured in `vite.config.js`).
 
 For first-time setup alongside the backend, use `tutor-platform-api/start.bat` (Windows) or `docker compose up` from the repo root — both bring up the API, worker, database, and frontend together.
 
@@ -63,7 +67,7 @@ For first-time setup alongside the backend, use `tutor-platform-api/start.bat` (
 
 | Script | What it does |
 |--------|--------------|
-| `npm run dev` | Vite dev server with HMR on port 5273 |
+| `npm run dev` | Vite dev server with HMR on port 41173 |
 | `npm run lint` | Runs `scripts/check-no-v-html.mjs` to fail the build if `v-html` creeps into a template (XSS guard) |
 | `npm run build` | Production build into `dist/`. Auto-runs `lint` first via `prebuild`. |
 | `npm run preview` | Serve the production build locally (sanity check before deploy) |
@@ -76,18 +80,18 @@ Vite only exposes variables prefixed with `VITE_`. Set them in a `.env` file or 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `VITE_API_BASE_URL` | `""` | Base URL prepended to axios requests. Both `.env.development` and `.env.production` ship with an empty value. Override with a full origin only when the API is at a different host; `.env.example` shows `http://localhost:8000` as a reference for that scenario. |
+| `VITE_API_BASE_URL` | `""` | Base URL prepended to axios requests. Both `.env.development` and `.env.production` ship with an empty value. Override with a full origin only when the API is at a different host; `.env.example` shows `http://localhost:41000` as a reference for that scenario. |
 
 ### The empty-baseURL pattern
 
 Both dev mode and Docker production use `VITE_API_BASE_URL=""`. The routing layer is different in each case:
 
-- **Dev (`npm run dev`)**: `.env.development` sets `VITE_API_BASE_URL=""`. The Vite dev server's built-in proxy (configured in `vite.config.js`) forwards every `/api/*` request to `http://localhost:8000`, keeping cookies same-origin.
-- **Docker production**: `docker-compose.yml` passes `VITE_API_BASE_URL=""` as a build arg. The browser sends relative paths which Nginx inside the web container proxies to `api:8000`.
+- **Dev (`npm run dev`)**: `.env.development` sets `VITE_API_BASE_URL=""`. The Vite dev server's built-in proxy (configured in `vite.config.js`) forwards every `/api/*` request to `http://localhost:41000`, keeping cookies same-origin.
+- **Docker production**: `docker-compose.yml` passes `VITE_API_BASE_URL=""` as a build arg. The browser sends relative paths which Nginx inside the web container proxies to `api:41000`.
 
 In both cases every frontend API call already includes the `/api/` prefix (e.g. `axios.post('/api/auth/login', ...)`), so an empty base URL produces the correct relative path.
 
-**Do not** change this to `/api` (you'd get `/api/api/...`) or to `http://api:8000` (the browser can't resolve container hostnames). The rationale is documented in `src/api/baseURL.js` and `nginx.conf`.
+**Do not** change this to `/api` (you'd get `/api/api/...`) or to `http://api:41000` (the browser can't resolve container hostnames). The rationale is documented in `src/api/baseURL.js` and `nginx.conf`.
 
 ---
 
@@ -96,11 +100,11 @@ In both cases every frontend API call already includes the `/api/` prefix (e.g. 
 ```
 tutor-platform-web/
 ├── Dockerfile                       # Multi-stage: Vite build → nginx-unprivileged static serve
-├── nginx.conf                       # /api/* → api:8000, SPA fallback, asset caching,
+├── nginx.conf                       # /api/* → api:41000, SPA fallback, asset caching,
 │                                    # edge rate limit (20 r/s, burst 40), HSTS gated on x-forwarded-proto
 ├── nginx-security-headers.conf      # Shared CSP / X-Frame-Options / Referrer-Policy snippet
 │                                    # included from every `location` that calls add_header
-├── vite.config.js                   # Port 5273, @ alias, dev proxy (/api → localhost:8000),
+├── vite.config.js                   # Port 41173, @ alias, dev proxy (/api → localhost:41000),
 │                                    # vendor/charts manual chunks, sourcemap off, SRI plugin
 ├── vite-plugin-sri.js               # Post-build plugin: injects sha384 integrity attributes
 │                                    # into index.html for every emitted JS/CSS chunk
@@ -246,12 +250,12 @@ const { data } = await searchTutors({ subject: 'math', minRating: 4 })
 
 The SRI plugin runs in the `writeBundle` hook (post-enforce), not `generateBundle`, because Vite's `vite:build-import-analysis` plugin rewrites entry-chunk code to inline `__VITE_PRELOAD__` lists after `generateBundle` returns — hashing the in-memory chunk there yields a stale digest and the browser silently blocks the script. Reading the on-disk bytes after the bundle is fully written guarantees the hash matches what the browser fetches.
 
-The production `Dockerfile` is a two-stage build: a Node image runs `npm run build`, then the `dist/` folder is copied into an `nginx-unprivileged` image that listens on **8080** (non-root nginx cannot bind <1024). `docker-compose.yml` maps host `80 → 8080` so the site is still served at `http://localhost/`. Nginx serves the SPA and proxies `/api/*` and `/health` to the `api` container.
+The production `Dockerfile` is a two-stage build: a Node image runs `npm run build`, then the `dist/` folder is copied into an `nginx-unprivileged` image that listens on **41080** (non-root nginx cannot bind <1024). `docker-compose.yml` maps host `41080 → 41080` so the site is served at `http://localhost:41080/`. Nginx serves the SPA and proxies `/api/*` and `/health` to the `api` container.
 
 Relevant bits of `nginx.conf`:
 
 - `limit_req_zone $binary_remote_addr zone=api_edge:10m rate=20r/s;` — edge-layer rate limit applied to `/api/*` with `burst=40 nodelay`; this is the first gate before FastAPI's `RateLimitMiddleware`.
-- `location /api/ { proxy_pass http://api:8000; }` — note: **no trailing slash** on the proxy target, so the `/api/` prefix is preserved when reaching the backend. Changing this to `http://api:8000/` would strip the prefix and every endpoint would 404.
+- `location /api/ { proxy_pass http://api:41000; }` — note: **no trailing slash** on the proxy target, so the `/api/` prefix is preserved when reaching the backend. Changing this to `http://api:41000/` would strip the prefix and every endpoint would 404.
 - `location / { try_files $uri $uri/ /index.html; }` — SPA fallback for client-side routing.
 - `location = /index.html` — explicit `no-store` so clients always fetch a fresh entry document (prevents loading a stale index that references hashed assets that no longer exist).
 - `location /assets/ { expires 1y; }` — long cache for hashed bundles.
@@ -267,7 +271,7 @@ Relevant bits of `nginx.conf`:
 The backend isn't running. Start it with `start.bat` in `../tutor-platform-api/`, or `docker compose up`.
 
 **CORS error in the browser console**
-The API's `CORS_ORIGINS` doesn't include the frontend origin. For local dev, set `CORS_ORIGINS=http://localhost:5273` in `../tutor-platform-api/.env` (the shipped `.env.example` already uses 5273, but `Settings`'s built-in default is 5173 — watch for this mismatch if you copy defaults straight from `config.py`).
+The API's `CORS_ORIGINS` doesn't include the frontend origin. For local dev, set `CORS_ORIGINS=http://localhost:41173` in `../tutor-platform-api/.env` (the shipped `.env.example` and `Settings`'s built-in default both use 41173).
 
 **Pages 404 after refresh in production**
 Nginx SPA fallback isn't configured. The shipped `nginx.conf` handles this with `try_files ... /index.html`. If you're serving the bundle through a different server, add an equivalent fallback.

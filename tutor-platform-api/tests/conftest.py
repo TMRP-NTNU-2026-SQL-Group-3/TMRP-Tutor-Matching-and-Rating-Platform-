@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 # so required env vars must be populated before app.main is imported below. The
 # values here are test-only fixtures; do not reuse them anywhere else.
 os.environ.setdefault(
-    "DATABASE_URL", "postgresql://test:test@localhost:5432/test"
+    "DATABASE_URL", "postgresql://test:test@localhost:41432/test"
 )
 os.environ.setdefault(
     "JWT_SECRET_KEY", "test_" + "0" * 60

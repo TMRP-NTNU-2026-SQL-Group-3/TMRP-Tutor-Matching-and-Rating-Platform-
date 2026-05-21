@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./TMRP-LOGO.png" alt="TMRP — Tutor Matching and Rating Platform" width="360" />
+</p>
+
 # TMRP — Tutor Matching and Rating Platform
 
 A full-stack web application that connects parents with private tutors. Parents search for tutors, chat in-app, send match invitations, and track their children's lesson notes and exam scores. Tutors manage students, lesson records, and earnings. After a match ends, both sides exchange structured ratings.
@@ -140,10 +144,10 @@ Once the containers are healthy:
 
 | Service | URL |
 |---------|-----|
-| Frontend | http://localhost (host 80 → container 8080, Nginx runs non-root) |
-| API (dev only) | http://127.0.0.1:8001 (bound to loopback by `docker-compose.override.yml`; the production compose does not publish the API port at all — all traffic must go through Nginx at `/api/*`) |
-| Swagger UI (dev only) | http://127.0.0.1:8001/docs (requires `ENABLE_DOCS=true`; config validator enforces `DEBUG=true` as a prerequisite — `ENABLE_DOCS` is the explicit gate, `DEBUG` is not an independent toggle) |
-| PostgreSQL (dev only) | 127.0.0.1:5433 (bound to loopback by `docker-compose.override.yml`; credentials from repo-root `.env`) |
+| Frontend | http://localhost:41080 (host 41080 → container 41080, Nginx runs non-root) |
+| API (dev only) | http://127.0.0.1:41000 (bound to loopback by `docker-compose.override.yml`; the production compose does not publish the API port at all — all traffic must go through Nginx at `/api/*`) |
+| Swagger UI (dev only) | http://127.0.0.1:41000/docs (requires `ENABLE_DOCS=true`; config validator enforces `DEBUG=true` as a prerequisite — `ENABLE_DOCS` is the explicit gate, `DEBUG` is not an independent toggle) |
+| PostgreSQL (dev only) | 127.0.0.1:41432 (bound to loopback by `docker-compose.override.yml`; credentials from repo-root `.env`) |
 
 `docker-compose.override.yml` is auto-loaded by `docker compose up` and exposes the API and database on loopback so you can hit them from the host. To run without those host bindings (the intended production posture), pass the production file explicitly:
 
@@ -209,9 +213,9 @@ Running without Docker is useful for active development and debugging.
 
 | Service | URL |
 |---------|-----|
-| Frontend | http://localhost:5173 |
-| API | http://localhost:8000 |
-| Swagger UI | http://localhost:8000/docs |
+| Frontend | http://localhost:41173 |
+| API | http://localhost:41000 |
+| Swagger UI | http://localhost:41000/docs |
 
 ---
 
@@ -220,7 +224,7 @@ Running without Docker is useful for active development and debugging.
 ```
 project-root/
 ├── docker-compose.yml           # Production stack: db, api, worker, web (no host port bindings for db/api)
-├── docker-compose.override.yml  # Auto-loaded in dev; binds db→127.0.0.1:5433 and api→127.0.0.1:8001
+├── docker-compose.override.yml  # Auto-loaded in dev; binds db→127.0.0.1:41432 and api→127.0.0.1:41000
 ├── docker-compose.run.yml       # Optional: drops API ports + flips DEBUG/COOKIE_SECURE for local-Postgres runs
 ├── .env.example                 # Repo-root env template (DB credentials for compose)
 ├── secrets/                     # Docker secrets (db_password, jwt_secret_key, jwt_secret_key_previous, admin_password)
@@ -257,8 +261,8 @@ project-root/
 │   └── tests/
 │
 └── tutor-platform-web/          # Vue 3 frontend
-    ├── Dockerfile               # Vite build → nginx-unprivileged (listens on 8080)
-    ├── nginx.conf               # /api/* → api:8000, SPA fallback, edge rate limit
+    ├── Dockerfile               # Vite build → nginx-unprivileged (listens on 41080)
+    ├── nginx.conf               # /api/* → api:41000, SPA fallback, edge rate limit
     ├── vite.config.js
     ├── package.json
     ├── scripts/                 # check-no-v-html.mjs (pre-build lint guard)
@@ -513,13 +517,13 @@ Nginx in the `web` container adds an edge-layer `limit_req_zone` (20 r/s, burst 
 
 ### TLS is a hard prerequisite in production (MEDIUM-12)
 
-The `web` container listens on plain HTTP port 8080 because the official `nginx-unprivileged` image cannot bind 443 without extra capabilities. The container emits `Strict-Transport-Security` and sets JWT cookies without `Secure` unless `COOKIE_SECURE=true` is set — **both only make sense when a TLS-terminating reverse proxy (Caddy, Traefik, an AWS ALB, Cloudflare, ...) sits in front of the container**.
+The `web` container listens on plain HTTP port 41080 because the official `nginx-unprivileged` image cannot bind 443 without extra capabilities. The container emits `Strict-Transport-Security` and sets JWT cookies without `Secure` unless `COOKIE_SECURE=true` is set — **both only make sense when a TLS-terminating reverse proxy (Caddy, Traefik, an AWS ALB, Cloudflare, ...) sits in front of the container**.
 
 Deployment rules:
 
 - In production, **you must terminate TLS before traffic reaches this container**. Exposing port 80 directly to the internet will ship auth cookies and JWTs in cleartext and silently neuter the HSTS header (browsers will ignore it over HTTP).
 - Set `COOKIE_SECURE=true` in the API environment so auth cookies carry the `Secure` attribute. The default is `false` to keep local `docker compose up` usable without a TLS cert.
-- Point the TLS proxy at `web:8080` (inside the compose/overlay network) and let it rewrite `X-Forwarded-Proto` to `https`. Uvicorn is launched with `--proxy-headers` (see MEDIUM-2) and will honour the forwarded scheme when generating redirects.
+- Point the TLS proxy at `web:41080` (inside the compose/overlay network) and let it rewrite `X-Forwarded-Proto` to `https`. Uvicorn is launched with `--proxy-headers` (see MEDIUM-2) and will honour the forwarded scheme when generating redirects.
 
 The full deployment checklist is documented in `SECURITY.md`.
 

@@ -1,6 +1,7 @@
 <template>
   <div class="min-h-[60vh] flex items-center justify-center">
     <div class="text-center space-y-4">
+      <img src="/TMRP-LOGO.png" alt="TMRP" class="mx-auto w-28 h-auto rounded-lg" />
       <p class="text-7xl font-bold text-gray-200">404</p>
       <h1 class="text-xl font-semibold text-gray-700">找不到這個頁面</h1>
       <p class="text-sm text-gray-500">您所尋找的網址不存在或已移除。</p>

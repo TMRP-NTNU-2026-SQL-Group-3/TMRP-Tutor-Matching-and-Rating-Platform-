@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     log_format: str = "json"
 
     # CORS
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "http://localhost:41173"
 
     # SEC-C02: auth cookies. Secure=True requires HTTPS. Defaults to True;
     # set COOKIE_SECURE=false explicitly for local HTTP development.

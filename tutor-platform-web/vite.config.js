@@ -12,11 +12,11 @@ export default defineConfig({
     }
   },
   server: {
-    port: 5273,
+    port: 41173,
     // SEC-C02: proxy API requests so cookies are same-origin in dev.
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:41000',
         changeOrigin: true,
       },
     },

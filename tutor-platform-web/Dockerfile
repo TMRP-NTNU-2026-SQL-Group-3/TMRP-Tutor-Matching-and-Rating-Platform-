@@ -17,9 +17,9 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 
 # ── Stage 2: Serve ──
-# 改用官方 unprivileged 變體：預設以 nginx (uid 101) 身分執行、監聽 8080，
-# 不需要 CAP_NET_BIND_SERVICE 也不會 root；相容 docker-compose 將 8080 對外
-# 映射到 host 的 80 埠。
+# 改用官方 unprivileged 變體：以 nginx (uid 101) 身分執行，不需要
+# CAP_NET_BIND_SERVICE 也不會 root。本專案的 nginx.conf 將監聽埠設為 41080
+# （冷門埠,非預設 8080），對外埠由 docker-compose 的 ports 映射。
 # MEDIUM-10: pin by @sha256 digest in production — see ./scripts/pin-base-images.sh.
 FROM nginxinc/nginx-unprivileged:alpine@sha256:72cd9a222d01fdf47bd47ad8dc50b0221a768742b84a66c5e0b94ed13bcc6c72
 
@@ -30,6 +30,6 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # add_header directives at http scope, which would fail to start nginx.
 COPY nginx-security-headers.conf /etc/nginx/snippets/security-headers.conf
 
-EXPOSE 8080
+EXPOSE 41080
 
 CMD ["nginx", "-g", "daemon off;"]

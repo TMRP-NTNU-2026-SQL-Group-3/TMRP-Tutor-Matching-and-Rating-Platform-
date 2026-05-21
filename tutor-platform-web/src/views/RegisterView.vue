@@ -2,8 +2,9 @@
   <div class="min-h-[80vh] flex items-center justify-center">
     <div class="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
       <div class="text-center mb-8">
-        <h1 class="text-2xl font-bold text-primary-600">TMRP</h1>
-        <p class="text-gray-500 mt-1">建立新帳號</p>
+        <img src="/TMRP-LOGO.png" alt="TMRP — 家教媒合與評價平台"
+          class="mx-auto w-44 h-auto rounded-lg" />
+        <p class="text-gray-500 mt-3">建立新帳號</p>
       </div>
 
       <form @submit.prevent="handleRegister" class="space-y-4">

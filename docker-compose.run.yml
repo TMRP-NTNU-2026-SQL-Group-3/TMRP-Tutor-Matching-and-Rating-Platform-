@@ -4,7 +4,7 @@
 # public-facing deployment is a critical security misconfiguration.
 #
 # Ad-hoc override: drops port bindings so the stack runs alongside a local
-# Postgres + FastAPI dev server. Port 80 (web) stays as-is.
+# Postgres + FastAPI dev server. The web port (41080) stays as-is.
 # Invoke with:  docker compose -f docker-compose.yml -f docker-compose.run.yml up -d
 services:
   api:
@@ -12,7 +12,7 @@ services:
     environment:
       DEBUG: "true"
       COOKIE_SECURE: "false"
-      CORS_ORIGINS: "http://localhost,http://localhost:80"
+      CORS_ORIGINS: "http://localhost:41080"
       ALLOW_DEBUG: "true"
   worker:
     environment:

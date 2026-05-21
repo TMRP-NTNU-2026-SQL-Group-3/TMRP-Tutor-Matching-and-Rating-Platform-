@@ -42,7 +42,7 @@ if [ -f /run/secrets/db_password ]; then
       exit 1
       ;;
   esac
-  export DATABASE_URL="postgresql://${DB_USER:?}:${DB_PASS}@${DB_HOST:-db}:5432/${DB_NAME:?}"
+  export DATABASE_URL="postgresql://${DB_USER:?}:${DB_PASS}@${DB_HOST:-db}:41432/${DB_NAME:?}"
 fi
 
 if [ -f /run/secrets/jwt_secret_key ]; then

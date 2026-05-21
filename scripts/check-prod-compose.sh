@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Guard that docker-compose.yml (the production invocation base file) never
-# publishes the database (5432) or raw API (8000) ports to the host. Both dev
+# publishes the database (41432) or raw API (41000) ports to the host. Both dev
 # bindings live in docker-compose.override.yml, which is NOT loaded when
 # CI/prod runs `docker compose -f docker-compose.yml up`.
 #
@@ -34,21 +34,21 @@ if [[ -n "$offending" ]]; then
   exit 1
 fi
 
-# Also sanity-check: 5432 must not appear as a host-side port anywhere in the
+# Also sanity-check: 41432 must not appear as a host-side port anywhere in the
 # prod compose file. Catches both db and any future service that might tunnel it.
-if grep -Eq '^\s*-\s*"?[0-9.:]*5432:' "$COMPOSE_FILE"; then
-  echo "check-prod-compose: 5432 host binding found in $COMPOSE_FILE" >&2
-  grep -nE '^\s*-\s*"?[0-9.:]*5432:' "$COMPOSE_FILE" >&2
+if grep -Eq '^\s*-\s*"?[0-9.:]*41432:' "$COMPOSE_FILE"; then
+  echo "check-prod-compose: 41432 host binding found in $COMPOSE_FILE" >&2
+  grep -nE '^\s*-\s*"?[0-9.:]*41432:' "$COMPOSE_FILE" >&2
   exit 1
 fi
 
-# I-01: 8000 must not be published on the host either. Exposing the raw FastAPI
+# I-01: 41000 must not be published on the host either. Exposing the raw FastAPI
 # backend bypasses nginx's rate-limit zone, CSP injection, and XFF normalization.
-if grep -Eq '^\s*-\s*"?[0-9.:]*8000:' "$COMPOSE_FILE"; then
-  echo "check-prod-compose: 8000 host binding found in $COMPOSE_FILE" >&2
-  grep -nE '^\s*-\s*"?[0-9.:]*8000:' "$COMPOSE_FILE" >&2
+if grep -Eq '^\s*-\s*"?[0-9.:]*41000:' "$COMPOSE_FILE"; then
+  echo "check-prod-compose: 41000 host binding found in $COMPOSE_FILE" >&2
+  grep -nE '^\s*-\s*"?[0-9.:]*41000:' "$COMPOSE_FILE" >&2
   echo "Move the binding to docker-compose.override.yml (dev only)." >&2
   exit 1
 fi
 
-echo "check-prod-compose: OK — $COMPOSE_FILE does not expose 5432 or 8000."
+echo "check-prod-compose: OK — $COMPOSE_FILE does not expose 41432 or 41000."

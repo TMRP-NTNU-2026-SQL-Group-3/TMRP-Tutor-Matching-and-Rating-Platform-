@@ -1,9 +1,13 @@
+<p align="center">
+  <img src="../TMRP-LOGO.png" alt="TMRP — Tutor Matching and Rating Platform" width="320" />
+</p>
+
 # TMRP Database Schema Reference
 
 **Platform:** PostgreSQL 16  
 **Tables:** 19  
 **Materialized Views:** 2  
-**Triggers / Functions:** 5  
+**Triggers / Functions:** 3  
 
 ---
 
@@ -583,8 +587,9 @@ Post-engagement multi-dimension ratings. One review per (match, reviewer, type) 
 | `updated_at` | `TIMESTAMPTZ` | nullable | — | Set on edit |
 | `is_locked` | `BOOLEAN` | — | `FALSE` | Locked after 7-day window by scheduled task |
 
-**Unique index:** `idx_reviews_unique (match_id, reviewer_user_id, review_type)` — one review per reviewer per match per type.  
-**Trigger:** `fn_refresh_tutor_ratings` (AFTER INSERT/UPDATE/DELETE) — refreshes `v_tutor_ratings` materialized view.
+**Unique index:** `idx_reviews_unique (match_id, reviewer_user_id, review_type)` — one review per reviewer per match per type.
+
+`reviews` carries no trigger. The `v_tutor_ratings` materialized view it feeds is refreshed by a periodic background task, not synchronously — see [§4 Refresh strategy](#refresh-strategy).
 
 ---
 
@@ -654,7 +659,7 @@ Records a per-user "revoke all tokens issued before this timestamp" watermark. U
 
 ### `v_tutor_ratings`
 
-Pre-aggregated average ratings per tutor, refreshed synchronously by trigger after any review write.
+Pre-aggregated average ratings per tutor. Refreshed by a periodic background task — see [Refresh strategy](#refresh-strategy) below.
 
 ```sql
 SELECT m.tutor_id,
@@ -688,7 +693,7 @@ GROUP BY m.tutor_id
 | Filter | `review_type = 'parent_to_tutor'` only |
 | Granularity | One row per tutor with at least one review (INNER JOIN) |
 | Unique index | `idx_mv_tutor_ratings_tutor (tutor_id)` |
-| Refresh trigger | `fn_refresh_tutor_ratings` (AFTER INSERT / UPDATE / DELETE on `reviews`) |
+| Refresh | Periodic background task — see [Refresh strategy](#refresh-strategy) |
 | Purpose | Eliminates N+1 subqueries on tutor listing; converts aggregation to single-row lookup |
 
 ---
@@ -710,20 +715,33 @@ GROUP BY tutor_id
 | Filter | `status IN ('active', 'trial')` |
 | Granularity | One row per tutor with at least one active/trial match |
 | Unique index | `idx_mv_tutor_active_tutor (tutor_id)` |
-| Refresh trigger | `fn_refresh_tutor_active_students` (AFTER INSERT / UPDATE OF `status` / DELETE on `matches`) |
+| Refresh | Periodic background task — see [Refresh strategy](#refresh-strategy) |
 | Purpose | O(1) capacity check instead of `COUNT(*)` table scan |
+
+---
+
+### Refresh strategy
+
+Both materialized views are refreshed by a periodic background task, **not** by triggers. During API startup `app/main.py` launches an `asyncio` task (`_run_periodic_mv_refresh`) that, every 30 seconds, runs:
+
+```sql
+REFRESH MATERIALIZED VIEW CONCURRENTLY v_tutor_active_students;
+REFRESH MATERIALIZED VIEW CONCURRENTLY v_tutor_ratings;
+```
+
+`CONCURRENTLY` keeps each view readable while it is rebuilt, and is the reason every materialized view carries a unique index on `tutor_id`. An earlier design refreshed the views from statement-level triggers on `reviews` and `matches`; that was removed (change M-09) because the trigger held an exclusive lock on the view for the duration of every write transaction. The periodic approach trades up-to-30-second staleness for a lock-free write path.
 
 ---
 
 ## 5. Triggers & Functions
 
-| Function | Event | Table | Timing | Purpose |
-|----------|-------|-------|--------|---------|
-| `fn_refresh_tutor_ratings` | INSERT, UPDATE, DELETE | `reviews` | AFTER | Refreshes `v_tutor_ratings` |
-| `fn_refresh_tutor_active_students` | INSERT, UPDATE OF `status`, DELETE | `matches` | AFTER | Refreshes `v_tutor_active_students` |
-| `fn_match_set_parent_user` | INSERT, UPDATE OF `student_id` | `matches` | BEFORE | Populates `matches.parent_user_id` from `students.parent_user_id` |
-| `fn_students_propagate_parent` | UPDATE OF `parent_user_id` | `students` | AFTER | Syncs ownership change to all related `matches` rows |
-| `fn_conversations_order_pair` | INSERT, UPDATE | `conversations` | BEFORE | Normalizes `user_a_id < user_b_id` by swapping if caller passes wrong order |
+Three triggers, each backed by one `plpgsql` function. All three maintain data integrity inline on write; none of them refresh the materialized views (see [Refresh strategy](#refresh-strategy)).
+
+| Trigger | Function | Event | Table | Timing | Purpose |
+|---------|----------|-------|-------|--------|---------|
+| `trg_matches_set_parent` | `fn_match_set_parent_user` | INSERT, UPDATE OF `student_id` | `matches` | BEFORE | Populates `matches.parent_user_id` from `students.parent_user_id` |
+| `trg_students_propagate_parent` | `fn_students_propagate_parent` | UPDATE OF `parent_user_id` | `students` | AFTER | Syncs an ownership change to all related `matches` rows |
+| `trg_conversations_order_pair` | `fn_conversations_order_pair` | INSERT, UPDATE OF `user_a_id`, `user_b_id` | `conversations` | BEFORE | Normalizes `user_a_id < user_b_id` by swapping if caller passes wrong order |
 
 ---
 

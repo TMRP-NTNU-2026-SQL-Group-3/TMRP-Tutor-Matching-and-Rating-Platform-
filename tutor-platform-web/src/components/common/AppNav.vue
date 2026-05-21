@@ -3,8 +3,8 @@
     <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-14">
         <!-- Logo -->
-        <router-link to="/" class="text-xl font-bold text-primary-600 shrink-0 hover:no-underline">
-          TMRP
+        <router-link to="/" class="shrink-0 flex items-center hover:no-underline" aria-label="TMRP 首頁">
+          <img src="/TMRP-LOGO.png" alt="TMRP" class="h-9 w-auto" />
         </router-link>
 
         <!-- Desktop nav links -->

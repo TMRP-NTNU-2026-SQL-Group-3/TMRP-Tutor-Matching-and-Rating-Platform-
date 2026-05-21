@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../TMRP-LOGO.png" alt="TMRP — Tutor Matching and Rating Platform" width="320" />
+</p>
+
 # Tutor Matching and Rating Platform — System Specification
 
 **Document ID:** TMP-SPEC-2026-001
@@ -72,7 +76,7 @@ Four processes cooperate over HTTP and a shared PostgreSQL database:
    Browser (Vue 3 SPA)
         │  HTTP / JSON
         ▼
-   Nginx (web container)            serves SPA assets, proxies /api/* to api:8000
+   Nginx (web container)            serves SPA assets, proxies /api/* to api:41000
         │
         ▼
    FastAPI (api container)          REST API, JWT auth, domain services, repositories
@@ -131,7 +135,7 @@ The codebase is split into two top-level applications: a Python backend and a Vu
 ```
 project-root/
 ├── docker-compose.yml              # Production stack (db, api, worker, web)
-├── docker-compose.override.yml     # Auto-loaded in dev; binds db→127.0.0.1:5433, api→127.0.0.1:8001
+├── docker-compose.override.yml     # Auto-loaded in dev; binds db→127.0.0.1:41432, api→127.0.0.1:41000
 ├── docker-compose.run.yml          # Optional local-Postgres convenience configuration
 ├── .env / .env.example             # Repo-root env (DB_USER, DB_NAME consumed by compose)
 ├── .pre-commit-config.yaml         # Lint/format hooks
@@ -201,7 +205,7 @@ Each bounded context follows the same internal layering:
 ```
 tutor-platform-web/
 ├── Dockerfile                       # Vite build → nginx-unprivileged
-├── nginx.conf                       # /api/* → api:8000, SPA fallback, edge rate limit, security headers
+├── nginx.conf                       # /api/* → api:41000, SPA fallback, edge rate limit, security headers
 ├── vite.config.js
 ├── package.json
 ├── scripts/check-no-v-html.mjs      # Pre-build lint guard (rejects v-html)
@@ -389,7 +393,7 @@ Configuration is split by sensitivity:
 | `HUEY_DB_PATH` | `data/huey.db` | SqliteHuey queue file |
 | `LOG_FILE` / `LOG_LEVEL` / `LOG_FORMAT` | `logs/app.log` / `INFO` / `json` | Logging |
 | `COOKIE_SECURE` | `true` | Auth cookies carry the `Secure` attribute; must be `true` when `DEBUG=false` |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allow-list |
+| `CORS_ORIGINS` | `http://localhost:41173` | Comma-separated allow-list |
 | `DB_POOL_MIN` / `DB_POOL_MAX` | `5` / `20` | psycopg2 pool sizing |
 | `DB_PER_USER_QUOTA` | `5` | Max concurrent in-flight requests per authenticated user |
 | `DEBUG` | `false` | Enables developer affordances; gated by startup validator |
@@ -414,13 +418,13 @@ For local development without Docker, `start.bat` opens three terminals: the Hue
 ```
 ================================================
   All services running
-  API Server:   http://localhost:8000
-  Swagger UI:   http://localhost:8000/docs   (when DEBUG=true and ENABLE_DOCS=true)
-  Frontend:     http://localhost:5173
+  API Server:   http://localhost:41000
+  Swagger UI:   http://localhost:41000/docs   (when DEBUG=true and ENABLE_DOCS=true)
+  Frontend:     http://localhost:41173
 ================================================
 ```
 
-For production-style local runs, `docker compose up -d --build` brings up the entire stack and the frontend is reachable at `http://localhost/`.
+For production-style local runs, `docker compose up -d --build` brings up the entire stack and the frontend is reachable at `http://localhost:41080/`.
 
 ### 3.8 Frontend Axios Wrapper
 
@@ -742,7 +746,7 @@ A finished match opens three independent review directions:
 
 #### Presentation
 
-- **Tutor detail page** — radar chart of the four numeric dimensions, sourced from the `v_review_stats` materialised view, plus a paginated review list.
+- **Tutor detail page** — radar chart of the four numeric dimensions, sourced from the `v_tutor_ratings` materialised view, plus a paginated review list.
 - **Match detail page** — all three directions' reviews shown to match participants only.
 
 ### 5.8 Module H — Dashboards
@@ -839,7 +843,7 @@ The authoritative database schema reference — including the full ER diagram, t
 | Reviews & Ratings | `reviews` | 1 |
 | Infrastructure | `rate_limit_hits`, `audit_log`, `idempotency_keys`, `user_token_revocations` | 4 |
 
-Materialised views: `v_tutor_active_students` (active matches per tutor for the capacity check), `v_review_stats` (aggregated rating averages per tutor).
+Materialised views: `v_tutor_active_students` (active matches per tutor for the capacity check), `v_tutor_ratings` (aggregated rating averages per tutor).
 
 ### 6.2 Table Field Reference
 
@@ -1494,7 +1498,7 @@ Total target: 10–15 minutes.
 
 ### 12.1 Architecture Walkthrough (2 min)
 
-1. Open the Swagger UI (`http://localhost:8000/docs`, with `DEBUG=true` and `ENABLE_DOCS=true`) to show the full endpoint catalogue and interactive testing surface.
+1. Open the Swagger UI (`http://localhost:41000/docs`, with `DEBUG=true` and `ENABLE_DOCS=true`) to show the full endpoint catalogue and interactive testing surface.
 2. Open the Access prototype (`docs/tutoring.accdb`) and show the relationship diagram — the course-required artefact.
 3. Walk through the architecture diagram (§2.1): Nginx → FastAPI → PostgreSQL, with the Huey worker on the side.
 
@@ -1564,11 +1568,11 @@ Not in the base scope; consider only if schedule permits.
 
 ### 13.3 Production Deployment Notes
 
-The `web` container listens on plain HTTP port 8080 because the official `nginx-unprivileged` image cannot bind 443 without extra capabilities. In production:
+The `web` container listens on plain HTTP port 41080 because the official `nginx-unprivileged` image cannot bind 443 without extra capabilities. In production:
 
 - Terminate TLS in front of the container (Caddy, Traefik, an AWS ALB, Cloudflare, etc.). Pointing the public address directly at port 80 will ship auth cookies in cleartext and silently neuter the HSTS header.
 - Set `COOKIE_SECURE=true` so auth cookies carry the `Secure` attribute. The default is `false` to keep local `docker compose up` usable without a TLS cert.
-- Point the TLS proxy at `web:8080` inside the overlay network; let it set `X-Forwarded-Proto: https`. Uvicorn runs with `--proxy-headers` and will honour the forwarded scheme when generating redirects.
+- Point the TLS proxy at `web:41080` inside the overlay network; let it set `X-Forwarded-Proto: https`. Uvicorn runs with `--proxy-headers` and will honour the forwarded scheme when generating redirects.
 
 The complete deployment checklist lives in `SECURITY.md`.
 

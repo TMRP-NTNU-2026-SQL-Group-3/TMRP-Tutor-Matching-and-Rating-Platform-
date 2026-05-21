@@ -4,12 +4,14 @@
 #   docker compose -f docker-compose.yml up -d
 #
 # HIGH-5: host port publishing for the database lives here so production
-# never exposes 5432 on the host. Inter-container traffic (api -> db) uses
-# the compose network and does not need this binding.
+# never exposes the database on the host. Inter-container traffic (api -> db)
+# uses the compose network and does not need this binding.
+#
+# Ports use the project's uncommon 41xxx scheme (api 41000, db 41432).
 services:
   db:
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:41432:41432"
   api:
     ports:
-      - "127.0.0.1:8001:8000"
+      - "127.0.0.1:41000:41000"

@@ -19,6 +19,10 @@ services:
     # MEDIUM-10: pin by @sha256 digest in production — see ./scripts/pin-base-images.sh.
     image: postgres:16-alpine@sha256:93d55776e04376e19adb2733e3ccebb4392ee7dd86d8ff238503b30fe719c84f
     restart: on-failure
+    # Listen on the uncommon port 41432 instead of the default 5432. Postgres
+    # prepends `postgres` when the command starts with a flag, so the args
+    # below run as `postgres -p 41432`.
+    command: ["-p", "41432"]
     # HIGH-5: drop all Linux capabilities + block capability regain via
     # setuid/setgid binaries. Postgres binds no privileged port and runs
     # fine without caps; the official alpine image already drops to UID 70
@@ -43,10 +47,10 @@ services:
       - appnet
     # HIGH-5: the host port binding moved to docker-compose.override.yml so
     # `docker compose -f docker-compose.yml up` (production invocation) never
-    # publishes 5432 to the host. The override file is auto-loaded by local
+    # publishes 41432 to the host. The override file is auto-loaded by local
     # `docker compose up`, preserving dev ergonomics.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -p 41432"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -90,7 +94,7 @@ services:
       db:
         condition: service_healthy
     # I-01: no ports: block here — the raw FastAPI backend must never be
-    # reachable from the public internet. Dev binding (127.0.0.1:8001:8000)
+    # reachable from the public internet. Dev binding (127.0.0.1:41000:41000)
     # lives in docker-compose.override.yml, which Docker auto-loads locally
     # but is NOT applied when CI/prod runs `docker compose -f docker-compose.yml up`.
     volumes:
@@ -100,7 +104,7 @@ services:
     # condition: service_healthy behaves predictably regardless of image defaults.
     # start_period: 90s covers the initialize_database() DDL + seed on first boot.
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:41000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 6
@@ -167,12 +171,12 @@ services:
       args:
         # Intentionally empty string: all frontend API calls already carry the
         # /api/ prefix, so an empty baseURL emits relative paths (e.g.,
-        # /api/auth/login) which nginx inside this container proxies to api:8000.
+        # /api/auth/login) which nginx inside this container proxies to api:41000.
         # Do NOT change to "/api" (path becomes /api/api/...) or
-        # http://api:8000 (browsers cannot resolve container hostnames).
+        # http://api:41000 (browsers cannot resolve container hostnames).
         VITE_API_BASE_URL: ""
     restart: on-failure
-    # HIGH-5: container hardening. nginx:alpine binds port 8080 (non-privileged),
+    # HIGH-5: container hardening. nginx-unprivileged binds port 41080 (non-privileged),
     # so dropping NET_BIND_SERVICE along with everything else is safe.
     security_opt:
       - "no-new-privileges:true"
@@ -191,14 +195,19 @@ services:
       # H-03: In production, this service MUST sit behind a TLS-terminating
       # reverse proxy (e.g. Caddy, Traefik, or a cloud load balancer).
       # Auth cookies carry the Secure flag and will not be sent over plain HTTP.
-      # Default host port is 8080 (not 80) so the optional caddy profile below
-      # can bind 80/443 without a manual ``WEB_PORT`` override and so the
-      # default non-TLS dev binding stays out of privileged-port territory.
+      # Default host port is the uncommon 41080 (not 80) so the optional caddy
+      # profile below can bind 80/443 without a manual ``WEB_PORT`` override and
+      # so the default non-TLS dev binding stays out of privileged-port territory.
       # Override with ``WEB_PORT=80`` when running the bare web service on
       # a host without caddy.
-      - "${WEB_PORT:-8080}:8080"
+      - "${WEB_PORT:-41080}:41080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8080/ || exit 1"]
+      # Probe 127.0.0.1, not localhost: nginx-unprivileged runs as UID 101 and
+      # cannot rewrite the root-owned default.conf, so the base image's
+      # 10-listen-on-ipv6-by-default.sh is a no-op and nginx binds IPv4 only.
+      # `localhost` resolves to ::1 first inside the container -> connection
+      # refused. 127.0.0.1 matches the actual 0.0.0.0:41080 bind.
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:41080/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -209,9 +218,11 @@ services:
           memory: 128M
           cpus: "0.5"
 
-  # H-03: Optional TLS-terminating reverse proxy. Enable by setting
-  # DOMAIN in .env.docker (e.g. DOMAIN=tutor.example.com). Caddy obtains
-  # and renews Let's Encrypt certificates automatically.
+  # H-03: Optional TLS-terminating reverse proxy. Enable with the `tls`
+  # profile and set DOMAIN in the repo-root .env (the Compose variable
+  # interpolation source — NOT .env.docker, which only feeds containers):
+  #   docker-compose --profile tls up -d
+  # Caddy obtains and renews Let's Encrypt certificates automatically.
   caddy:
     image: caddy:2-alpine
     profiles: ["tls"]
@@ -219,7 +230,11 @@ services:
     ports:
       - "443:443"
       - "80:80"
-    command: caddy reverse-proxy --from ${DOMAIN:?Set DOMAIN in .env.docker} --to web:8080
+    # DOMAIN is interpolated for the whole file even when the tls profile is
+    # off, so a `:-` default (not `:?`) is required — otherwise a plain
+    # `docker-compose up` would fail on this optional service. Set DOMAIN in
+    # the repo-root .env before enabling the tls profile in production.
+    command: caddy reverse-proxy --from ${DOMAIN:-localhost} --to web:41080
     volumes:
       - caddy-data:/data
       - caddy-config:/config

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../TMRP-LOGO.png" alt="TMRP — Tutor Matching and Rating Platform" width="320" />
+</p>
+
 # tutor-platform-api
 
 FastAPI + PostgreSQL backend for TMRP (Tutor Matching and Rating Platform). Provides the REST API, authentication, background task worker, and schema bootstrap.
@@ -60,7 +64,7 @@ cp tutor-platform-api/.env.docker.example tutor-platform-api/.env.docker
 docker compose up -d --build
 ```
 
-With the auto-loaded `docker-compose.override.yml`, the API is reachable at <http://127.0.0.1:8001> on the host (the override binds `127.0.0.1:8001 → container:8000`). The production compose (`docker compose -f docker-compose.yml up`) does **not** publish the API port — all traffic must go through Nginx in the `web` container at `/api/*`. Swagger UI at `/docs` is only served when both `DEBUG=true` and `ENABLE_DOCS=true` (the startup validator rejects `ENABLE_DOCS=true` when `DEBUG=false`).
+With the auto-loaded `docker-compose.override.yml`, the API is reachable at <http://127.0.0.1:41000> on the host (the override binds `127.0.0.1:41000 → container:41000`). The production compose (`docker compose -f docker-compose.yml up`) does **not** publish the API port — all traffic must go through Nginx in the `web` container at `/api/*`. Swagger UI at `/docs` is only served when both `DEBUG=true` and `ENABLE_DOCS=true` (the startup validator rejects `ENABLE_DOCS=true` when `DEBUG=false`).
 
 The container's healthcheck (`GET /health`) only passes after:
 1. the connection pool is initialised,
@@ -100,7 +104,7 @@ start.bat
 
 `start.bat` launches three terminals:
 - **huey worker** — `huey_consumer app.worker.huey`
-- **FastAPI** — `uvicorn app.main:app --reload --port 8000`
+- **FastAPI** — `uvicorn app.main:app --reload --port 41000`
 - **Vite dev server** — the web frontend
 
 On non-Windows platforms, run each command manually in its own shell.
@@ -132,7 +136,7 @@ Loaded by pydantic-settings from `.env` (local) or `.env.docker` (container).
 | `LOG_FILE` | `logs/app.log` | Rotating log file path |
 | `LOG_LEVEL` | `INFO` | Log level |
 | `LOG_FORMAT` | `json` | `json` or `text` |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated list of allowed origins. For local Vite dev override to `http://localhost:5273` (Vite port is 5273 in this project). Must use `https://` in non-debug mode. |
+| `CORS_ORIGINS` | `http://localhost:41173` | Comma-separated list of allowed origins. For local Vite dev set it to `http://localhost:41173` (Vite port is 41173 in this project). Must use `https://` in non-debug mode. |
 | `COOKIE_SECURE` | `false` | Sets the `Secure` attribute on auth cookies. Must be `true` when `DEBUG=false` (enforced at startup). Leave `false` for local HTTP development only. |
 | `DEBUG` | `false` | When `false`, enforces `COOKIE_SECURE=true`, `https://` CORS origins, and rejects `ENABLE_DOCS=true`. |
 | `ENABLE_DOCS` | `false` | When `true`, exposes `/docs`, `/redoc`, and `/openapi.json`. The startup validator rejects `ENABLE_DOCS=true` when `DEBUG=false`, so schema endpoints can only be enabled in debug (development/staging) deployments. |
