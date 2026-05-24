@@ -40,7 +40,7 @@ const colorMap = {
 
 const iconMap = {
   success: '✓',
-  error: '✕',
+  error: '⊗',
   warning: '⚠',
   info: 'ℹ',
 }
