@@ -15,6 +15,7 @@ Built as the final group project for a university SQL course. The database was o
 - [What the System Does](#what-the-system-does)
 - [Core Features](#core-features)
 - [Technology Stack](#technology-stack)
+- [Zero-Setup Demo (Windows)](#zero-setup-demo-windows)
 - [Quick Start (Docker)](#quick-start-docker)
 - [Local Development](#local-development)
 - [Repository Layout](#repository-layout)
@@ -99,6 +100,18 @@ The backend enforces all business rules — the status machine, rating visibilit
 | Task queue | huey | 2.5.2 |
 | Database | PostgreSQL | 16 (alpine) |
 | Reverse proxy (prod) | Nginx | 1.x (in web image) |
+
+---
+
+## Zero-Setup Demo (Windows)
+
+For trying the system on a machine with **no development environment**, leaving **no permanent trace** afterwards. Intended for reviewers and graders, not contributors — if you already have Docker, use [Quick Start (Docker)](#quick-start-docker) instead.
+
+Double-click **`setup.bat`** and approve the elevation prompt. It enables WSL2 + Virtual Machine Platform (one automatic reboot; it resumes itself at the next logon), installs Docker Desktop, generates fresh secrets and environment files, starts the stack through the development overlay, and opens http://localhost:41080 with the admin login printed to the console.
+
+When finished, double-click **`teardown.bat`** and confirm: it stops the stack, deletes the generated secrets, uninstalls Docker Desktop, and disables the WSL features it added — returning the machine to its prior state.
+
+**Requirements:** Windows 10/11, administrator rights, and CPU virtualization enabled in BIOS/UEFI. The first run downloads ~1 GB and takes 10–20 minutes. A step-by-step Chinese walkthrough is in [`START-HERE-zh-TW.txt`](START-HERE-zh-TW.txt).
 
 ---
 
