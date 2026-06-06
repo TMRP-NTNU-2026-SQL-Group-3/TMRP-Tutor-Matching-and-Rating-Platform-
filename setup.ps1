@@ -241,7 +241,32 @@ function Invoke-Phase1 {
 
     Write-Info 'Enabling Windows Subsystem for Linux + Virtual Machine Platform...'
     dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart | Out-Null
+    $wslExit = $LASTEXITCODE
     dism.exe /online /enable-feature /featurename:VirtualMachinePlatform          /all /norestart | Out-Null
+    $vmpExit = $LASTEXITCODE
+
+    # dism is a native exe: a non-zero exit does NOT throw under
+    # ErrorActionPreference=Stop, so a blocked enablement would otherwise pass
+    # silently, the machine would reboot, and the real cause would only surface
+    # ~6 minutes later as an opaque Docker-engine timeout in Phase 2. Re-query
+    # the authoritative feature state and refuse to reboot if either feature is
+    # not actually on its way to Enabled. The exit code alone is insufficient
+    # (dism returns 3010 — "success, reboot required" — not 0), so we trust the
+    # post-condition, not the return value. EnablePending is the expected state
+    # after a /norestart enable; Enabled covers the no-reboot-needed case.
+    $wslState = (Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux).State
+    $vmpState = (Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform).State
+    $okStates = @('Enabled', 'EnablePending')
+    if (($wslState -notin $okStates) -or ($vmpState -notin $okStates)) {
+        throw @"
+Could not enable the Windows virtualization platform.
+  WSL: $wslState (dism exit $wslExit); VirtualMachinePlatform: $vmpState (dism exit $vmpExit)
+This usually means the machine is managed by a company/school policy (Group
+Policy or MDM) that blocks enabling Windows features. The machine was NOT
+rebooted. Run setup on a personally-owned PC, or ask IT to enable
+"Windows Subsystem for Linux" and "Virtual Machine Platform", then re-run setup.bat.
+"@
+    }
 
     Write-Info 'Scheduling automatic resume after reboot...'
     Register-ResumeTask
