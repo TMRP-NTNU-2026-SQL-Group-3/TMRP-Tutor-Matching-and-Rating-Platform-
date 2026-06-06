@@ -145,15 +145,50 @@ function Get-DockerExe {
 # --- resume-after-reboot scheduled task --------------------------------------
 # A scheduled task (RunLevel Highest, at logon) resumes Phase 2 elevated with
 # no second UAC prompt. We delete it as soon as Phase 2 starts.
+
+# The task must fire for whoever logs in interactively AFTER the reboot — which
+# is not necessarily the identity that elevated this process. If the professor
+# is a standard user and approves UAC with a DIFFERENT admin account, then
+# $env:USERNAME here is that admin; an AtLogOn task bound to it would never fire
+# when the professor logs back into their own account, so Phase 2 would silently
+# never resume. We therefore bind the task to the owner of the interactive
+# desktop (explorer.exe), falling back to the current user when that lookup
+# fails (e.g. explorer not running).
+function Get-InteractiveUser {
+    try {
+        $explorer = Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction Stop |
+                    Select-Object -First 1
+        if ($explorer) {
+            $owner = Invoke-CimMethod -InputObject $explorer -MethodName GetOwner -ErrorAction Stop
+            if ($owner.User) {
+                $domain = if ($owner.Domain) { $owner.Domain } else { $env:COMPUTERNAME }
+                return "$domain\$($owner.User)"
+            }
+        }
+    } catch { }
+    return "$env:USERDOMAIN\$env:USERNAME"
+}
+
 function Register-ResumeTask {
+    $resumeUser = Get-InteractiveUser
     $ps     = (Get-Command powershell.exe).Source
     $action = New-ScheduledTaskAction -Execute $ps `
         -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Normal -File `"$PSCommandPath`" -Resume"
-    $trigger   = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
-    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
+    $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $resumeUser
+    $principal = New-ScheduledTaskPrincipal -UserId $resumeUser `
         -LogonType Interactive -RunLevel Highest
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
         -Principal $principal -Force | Out-Null
+
+    # When the resume user differs from the elevated identity, the seamless
+    # "no second prompt" guarantee no longer holds: the task fires for a
+    # standard user, Phase 2 re-launches elevated, and one more approval prompt
+    # appears. Warn so the professor expects it instead of assuming a failure.
+    $current = "$env:USERDOMAIN\$env:USERNAME"
+    if ($resumeUser -and ($resumeUser -ne $current)) {
+        Write-Warn2 "Setup will resume after reboot for: $resumeUser"
+        Write-Warn2 'You may see one more approval prompt when it continues — that is expected.'
+    }
 }
 
 function Unregister-ResumeTask {

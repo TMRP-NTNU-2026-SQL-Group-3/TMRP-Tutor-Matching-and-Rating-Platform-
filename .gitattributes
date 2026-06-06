@@ -1,0 +1,10 @@
+# Shell scripts MUST keep LF line endings. They are COPYed into Linux
+# containers and run as the image ENTRYPOINT (see tutor-platform-api/Dockerfile).
+# If the repo is delivered via `git clone` on a Windows machine with the default
+# core.autocrlf=true, these files would be rewritten to CRLF and the kernel
+# would fail to exec the `#!/bin/sh` shebang ("no such file or directory").
+# Pinning eol=lf here makes every delivery method (git clone or zip) safe.
+*.sh text eol=lf
+
+# Same reasoning for the entrypoint regardless of extension.
+docker-entrypoint.sh text eol=lf

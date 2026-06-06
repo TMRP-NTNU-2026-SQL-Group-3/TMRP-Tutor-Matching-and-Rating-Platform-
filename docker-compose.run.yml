@@ -14,6 +14,13 @@ services:
       COOKIE_SECURE: "false"
       CORS_ORIGINS: "http://localhost:41080"
       ALLOW_DEBUG: "true"
+      # The base compose caps the api container at 512M (deploy.resources).
+      # The Dockerfile defaults to 4 uvicorn workers, which can exceed that cap
+      # on a demo machine and get the container OOM-killed before it ever turns
+      # healthy — leaving the web sidecar (depends_on api: healthy) stuck and
+      # http://localhost:41080 unreachable. A single worker is ample for a demo
+      # and keeps memory comfortably under the limit.
+      UVICORN_WORKERS: "1"
   worker:
     environment:
       DEBUG: "true"
