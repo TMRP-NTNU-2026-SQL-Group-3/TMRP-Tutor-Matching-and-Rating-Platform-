@@ -169,8 +169,8 @@ async def unhandled_exception_handler(request, exc: Exception):
 # init_pool + create_schema both run synchronously before the yield below,
 # FastAPI does not start serving requests until this coroutine yields;
 # the only requirement is that docker healthcheck's start_period is greater
-# than initialization time. docker-compose.yml sets start_period=30s, which
-# covers the first cold start.
+# than initialization time. docker-compose.yml sets the api start_period=90s,
+# which covers the first cold start (DDL + seed).
 _MV_REFRESH_INTERVAL = 30  # seconds
 
 

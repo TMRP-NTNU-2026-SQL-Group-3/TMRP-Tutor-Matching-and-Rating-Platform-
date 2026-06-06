@@ -292,7 +292,27 @@ Docker engine did not become ready in time. The most common causes are:
 
     # --- env + secrets ---
     Write-Step 'Generating local configuration and secrets'
+    # Capture this BEFORE New-ProjectConfig flips it. A false value means we are
+    # about to generate brand-new secrets — first run, or a run after the
+    # manifest was lost (teardown, a disk-cleanup tool, or a DIFFERENT Windows
+    # user, since the manifest lives in per-user LOCALAPPDATA while Docker
+    # volumes are engine-wide).
+    $freshConfig = -not (Get-Manifest).configured
     $creds = New-ProjectConfig
+
+    # When fresh secrets were just generated, drop any leftover data volume from
+    # a previous run before starting. Postgres only reads POSTGRES_PASSWORD_FILE
+    # when it initializes an EMPTY data dir; a surviving tmrp_pgdata volume would
+    # still hold the OLD db password, so the api would fail authentication
+    # forever and the web sidecar (depends_on api: healthy) would never start —
+    # leaving http://localhost:41080 unreachable with no obvious cause. Dropping
+    # it is safe: configured=false means we no longer hold that volume's password
+    # anyway, so its data is already unusable.
+    if ($freshConfig) {
+        Write-Info 'Clearing any leftover data volume from a previous run...'
+        Push-Location $RepoRoot
+        try { & $docker @ComposeArgs down -v *> $null } catch { } finally { Pop-Location }
+    }
 
     # --- build + run ---
     Write-Step 'Building and starting the stack (first build downloads images — please wait)'
