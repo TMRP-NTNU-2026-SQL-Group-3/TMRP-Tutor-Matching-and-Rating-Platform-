@@ -107,9 +107,9 @@ The backend enforces all business rules — the status machine, rating visibilit
 
 For trying the system on a machine with **no development environment**, leaving **no permanent trace** afterwards. Intended for reviewers and graders, not contributors — if you already have Docker, use [Quick Start (Docker)](#quick-start-docker) instead.
 
-Double-click **`setup.bat`** and approve the elevation prompt. It enables WSL2 + Virtual Machine Platform (one automatic reboot; it resumes itself at the next logon), installs Docker Desktop, generates fresh secrets and environment files, starts the stack through the development overlay, and opens http://localhost:41080 with the admin login printed to the console.
+Double-click **`setup.bat`** and approve the elevation prompt. It enables WSL2 + Virtual Machine Platform (one automatic reboot; it resumes itself at the next logon), installs Docker Desktop, generates fresh secrets and environment files, starts the stack through the development overlay, and opens http://localhost:41080 with the admin login printed to the console. On a **standard (non-administrator) account** the post-reboot resume may show one more approval prompt — that is expected; if declined, it does not loop, just re-run `setup.bat`.
 
-When finished, double-click **`teardown.bat`** and confirm: it stops the stack, deletes the generated secrets, uninstalls Docker Desktop, and disables the WSL features it added — returning the machine to its prior state.
+When finished, double-click **`teardown.bat`** and confirm: it stops the stack, deletes the generated secrets, and reverses **only what setup installed** — uninstalling Docker Desktop and disabling the WSL features only when its install record shows it added them. A Docker/WSL that pre-existed the demo (or a lost install record) is deliberately left in place, so the demo never removes software you were already using.
 
 **Requirements:** Windows 10/11, administrator rights, and CPU virtualization enabled in BIOS/UEFI. The first run downloads ~1 GB and takes 10–20 minutes. A step-by-step Chinese walkthrough is in [`START-HERE-zh-TW.txt`](START-HERE-zh-TW.txt).
 

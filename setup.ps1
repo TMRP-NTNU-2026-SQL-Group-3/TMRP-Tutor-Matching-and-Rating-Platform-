@@ -174,11 +174,20 @@ function Register-ResumeTask {
     $ps     = (Get-Command powershell.exe).Source
     $action = New-ScheduledTaskAction -Execute $ps `
         -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Normal -File `"$PSCommandPath`" -Resume"
-    $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $resumeUser
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $resumeUser
+    # B2 backstop: bound the task's lifetime so an orphaned resume (Phase 2 never
+    # completes — the user never logs back in, or keeps declining elevation)
+    # cannot linger and re-fire indefinitely. Expire the logon trigger after a
+    # day and let Task Scheduler delete the task shortly after. The normal path
+    # removes it far sooner — the moment Phase 2 starts (Unregister-ResumeTask).
+    $trigger.EndBoundary = (Get-Date).AddDays(1).ToString('s')
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+        -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -DeleteExpiredTaskAfter (New-TimeSpan -Minutes 1)
     $principal = New-ScheduledTaskPrincipal -UserId $resumeUser `
         -LogonType Interactive -RunLevel Highest
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-        -Principal $principal -Force | Out-Null
+        -Settings $settings -Principal $principal -Force | Out-Null
 
     # When the resume user differs from the elevated identity, the seamless
     # "no second prompt" guarantee no longer holds: the task fires for a
@@ -211,6 +220,32 @@ function Start-CountdownReboot {
 # =============================================================================
 function Invoke-Phase1 {
     Write-Step 'Phase 1 / 2 — preparing the Windows virtualization platform'
+
+    # A3: WSL2 needs Windows 10 2004 (build 19041) or newer. On older builds the
+    # best-effort `wsl --update` later is silently skipped and the failure only
+    # surfaces as an opaque 6-minute Docker-engine timeout in Phase 2. Fail fast
+    # and loud here, BEFORE we enable any features or reboot. Read the build from
+    # the registry (authoritative) rather than OSVersion, which compatibility
+    # shims can misreport — a false low reading would wrongly block a valid PC.
+    $osBuild = 0
+    try {
+        $osBuild = [int](Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuildNumber -ErrorAction Stop).CurrentBuildNumber
+    } catch { $osBuild = [System.Environment]::OSVersion.Version.Build }
+    if ($osBuild -lt 19041) {
+        throw @"
+This Windows build ($osBuild) is too old for the WSL2 backend Docker requires.
+WSL2 needs Windows 10 version 2004 (build 19041) or newer, or Windows 11.
+Update Windows (Settings > Windows Update), reboot, then re-run setup.bat.
+"@
+    }
+
+    # A2: the Docker Desktop installer URL is x64-only. Warn (don't block) on ARM
+    # so a later install failure has an obvious cause rather than a cryptic one.
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') {
+        Write-Warn2 'This machine reports an ARM processor.'
+        Write-Warn2 'The bundled Docker Desktop installer targets x64; if it fails to'
+        Write-Warn2 'install, that is the likely reason. A personal x64 PC is recommended.'
+    }
 
     # Soft virtualization check. These WMI fields are unreliable across vendors,
     # so we only warn; the real failure surfaces when Docker's engine won't start.
@@ -341,6 +376,7 @@ Docker engine did not become ready in time. The most common causes are:
 
     # --- build + run ---
     Write-Step 'Building and starting the stack (first build downloads images — please wait)'
+    Assert-ComposeReady -Docker $docker
     Push-Location $RepoRoot
     try {
         & $docker @ComposeArgs up -d --build
@@ -431,6 +467,26 @@ function Wait-Web { param($Url, [int]$TimeoutSec = 300)
     return $false
 }
 
+# A4: docker-compose.run.yml uses the !reset YAML tag, which Compose only
+# understands from v2.24 (2024). We reuse any pre-installed Docker without a
+# version check, so an older one would otherwise fail `up` with an opaque YAML
+# error. Check explicitly and give actionable guidance instead.
+function Assert-ComposeReady { param($Docker)
+    $verRaw = ''
+    try { $verRaw = (& $Docker compose version --short) } catch { $verRaw = '' }
+    if ($verRaw -match '(\d+)\.(\d+)') {
+        $maj = [int]$Matches[1]; $min = [int]$Matches[2]
+        if (($maj -lt 2) -or ($maj -eq 2 -and $min -lt 24)) {
+            throw @"
+The installed Docker Compose ($($verRaw.Trim())) is too old for this project,
+which needs Compose v2.24+ (for the override syntax in docker-compose.run.yml).
+Update Docker Desktop to the latest version, then re-run setup.bat.
+"@
+        }
+    }
+    # Unparseable version: don't block — let `up` surface any real error.
+}
+
 # Create the repo-root .env, the backend .env.docker, and the Docker secret
 # files.
 #
@@ -514,6 +570,25 @@ function Show-Completion { param($Creds)
 try {
     # Re-launch elevated if needed (the resume task already runs elevated).
     if (-not (Test-Admin)) {
+        # B2: when the post-reboot logon task runs as a STANDARD user it cannot
+        # auto-elevate, so we re-launch with RunAs (one UAC prompt). If the user
+        # declines, the logon task fires again next login and would otherwise
+        # prompt on EVERY login forever. Break that loop: auto-elevate at most
+        # once. On a later fire the marker below is present, so we stop
+        # re-prompting and point the user at setup.bat instead. (Admins never
+        # reach this block — their logon task already runs elevated.)
+        if ($Resume) {
+            $attemptFlag = Join-Path $StateDir 'resume-elevation-attempted.flag'
+            if (Test-Path $attemptFlag) {
+                Write-Warn2 'Setup is ready to finish but needs administrator approval.'
+                Write-Warn2 'Double-click setup.bat when you are ready — it will ask once.'
+                Read-Host 'Press Enter to close this window'
+                $script:HandingOff = $true   # already paused here; skip the finally prompt
+                exit
+            }
+            if (-not (Test-Path $StateDir)) { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
+            Set-Content -Path $attemptFlag -Value '1' -Encoding ASCII
+        }
         $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
         if ($Resume) { $a += '-Resume' }
         Start-Process -FilePath 'powershell.exe' -ArgumentList $a -Verb RunAs
@@ -524,6 +599,14 @@ try {
     Write-Host '================================================================' -ForegroundColor Cyan
     Write-Host '   TMRP one-click setup' -ForegroundColor Cyan
     Write-Host '================================================================' -ForegroundColor Cyan
+
+    # A1: a non-ASCII repo path usually works, but can trip Docker bind mounts /
+    # build context on some locales. Surface it so the cause would be obvious.
+    if ($RepoRoot -match '[^\x00-\x7F]') {
+        Write-Warn2 'This folder path contains non-English characters.'
+        Write-Warn2 'If Docker later reports a mount or build error, move this folder to'
+        Write-Warn2 'an English path with no spaces (e.g. C:\TMRP) and re-run setup.bat.'
+    }
 
     if ($Resume) { Invoke-Phase2 } else { Invoke-Phase1 }
 }

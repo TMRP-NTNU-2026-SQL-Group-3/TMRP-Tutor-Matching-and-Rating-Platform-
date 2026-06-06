@@ -61,15 +61,22 @@ function Get-Manifest {
                 vmpEnabledByUs      = [bool]($m.vmpEnabledByUs)
                 dockerInstalledByUs = [bool]($m.dockerInstalledByUs)
                 repoRoot            = if ($m.repoRoot) { $m.repoRoot } else { $RepoRoot }
+                manifestMissing     = $false
             }
         } catch { }
     }
-    # No manifest: assume we installed everything (best-effort full cleanup).
+    # C2: no manifest — we CANNOT prove setup installed Docker or enabled WSL.
+    # The previous behaviour assumed we installed everything and would uninstall
+    # a pre-existing Docker / disable pre-existing WSL, damaging the user's
+    # environment. Default to the SAFE choice instead: remove only the demo's
+    # own containers, volumes and generated files, and leave system software in
+    # place. The caller warns the user and explains how to remove it manually.
     [pscustomobject]@{
-        wslEnabledByUs      = $true
-        vmpEnabledByUs      = $true
-        dockerInstalledByUs = $true
+        wslEnabledByUs      = $false
+        vmpEnabledByUs      = $false
+        dockerInstalledByUs = $false
         repoRoot            = $RepoRoot
+        manifestMissing     = $true
     }
 }
 
@@ -167,8 +174,6 @@ function Uninstall-DockerDesktop {
 
 function Disable-WslPlatform { param($Manifest)
     $needReboot = $false
-    Write-Step 'Removing WSL'
-    try { wsl.exe --uninstall *> $null } catch { }
 
     if ($Manifest.vmpEnabledByUs) {
         Write-Info 'Disabling Virtual Machine Platform...'
@@ -176,6 +181,12 @@ function Disable-WslPlatform { param($Manifest)
         $needReboot = $true
     }
     if ($Manifest.wslEnabledByUs) {
+        Write-Step 'Removing WSL'
+        # C1: only uninstall WSL when WE enabled it. On a machine where WSL was
+        # already present (setup added only VirtualMachinePlatform), running
+        # `wsl --uninstall` here would destroy the professor's pre-existing
+        # distros, so it stays inside this manifest-gated block.
+        try { wsl.exe --uninstall *> $null } catch { }
         Write-Info 'Disabling Windows Subsystem for Linux...'
         Disable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -NoRestart | Out-Null
         $needReboot = $true
@@ -207,6 +218,19 @@ try {
     Write-Host '================================================================' -ForegroundColor Cyan
 
     $manifest = Get-Manifest
+
+    # C2: when no install record exists we deliberately KEEP Docker + WSL. Tell
+    # the user so the "clean state" expectation stays accurate, and give them the
+    # manual path if they do want those removed.
+    if ($manifest.manifestMissing) {
+        Write-Host ''
+        Write-Warn2 'No install record was found for this machine.'
+        Write-Warn2 'To avoid removing software that may have existed before the demo,'
+        Write-Warn2 'Docker Desktop and the WSL / Virtual Machine Platform features will be'
+        Write-Warn2 'LEFT INSTALLED. Only the demo containers, volumes and generated files'
+        Write-Warn2 'are removed. Uninstall Docker from Settings > Apps and run'
+        Write-Warn2 '"wsl --uninstall" yourself if you also want those gone.'
+    }
 
     # Confirmation gate — teardown is destructive and irreversible. Do not run
     # this in your own development working tree: it deletes .env and the real
