@@ -358,6 +358,31 @@ Docker engine did not become ready in time. The most common causes are:
     # user, since the manifest lives in per-user LOCALAPPDATA while Docker
     # volumes are engine-wide).
     $freshConfig = -not (Get-Manifest).configured
+
+    # T3: generating fresh secrets while a previous run's data volume still
+    # exists will wipe that database and mint a NEW admin login. On a genuine
+    # first run no such volume exists, so this is a silent no-op and the
+    # unattended flow is untouched. But when the install record was lost — most
+    # often a DIFFERENT admin account approved UAC, since the manifest lives in
+    # per-user LOCALAPPDATA while Docker volumes are engine-wide — it would
+    # silently reset a working demo and change the printed password. Detect that
+    # case and confirm before destroying anything (nothing has been generated or
+    # dropped yet at this point, so cancelling here leaves the machine untouched).
+    if ($freshConfig -and (Test-DataVolumeExists -Docker $docker)) {
+        Write-Warn2 'A database from a previous run was found, but no setup record'
+        Write-Warn2 'exists for THIS Windows account (often a different admin account'
+        Write-Warn2 'approved the prompt, or the record was cleared).'
+        Write-Warn2 'Continuing will DELETE that database and generate a NEW admin login.'
+        Write-Warn2 'To keep the existing demo and its current login, cancel and re-run'
+        Write-Warn2 'setup.bat from the same account used the first time. To start over'
+        Write-Warn2 'cleanly instead, run teardown.bat first.'
+        $ans = Read-Host 'Type Y to reset and continue (anything else cancels)'
+        if ($ans -notmatch '^(y|yes)$') {
+            Write-Warn2 'Cancelled — the existing database was left untouched.'
+            return
+        }
+    }
+
     $creds = New-ProjectConfig
 
     # When fresh secrets were just generated, drop any leftover data volume from
@@ -485,6 +510,16 @@ Update Docker Desktop to the latest version, then re-run setup.bat.
         }
     }
     # Unparseable version: don't block — let `up` surface any real error.
+}
+
+# T3: report whether the project's Postgres data volume already exists on this
+# engine. Used to detect the dangerous "about to generate fresh secrets while a
+# previous run's database is still around" case before anything is destroyed.
+# The volume is named <project>_pgdata = tmrp_pgdata (project pinned via -p tmrp).
+function Test-DataVolumeExists { param($Docker)
+    $names = @()
+    try { $names = @(& $Docker volume ls --quiet --filter 'name=tmrp_pgdata') } catch { $names = @() }
+    return [bool]($names | Where-Object { $_.Trim() -eq 'tmrp_pgdata' })
 }
 
 # Create the repo-root .env, the backend .env.docker, and the Docker secret
