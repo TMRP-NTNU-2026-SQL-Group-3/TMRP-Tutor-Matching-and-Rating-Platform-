@@ -111,7 +111,7 @@ Double-click **`setup.bat`** and approve the elevation prompt. It enables WSL2 +
 
 When finished, double-click **`teardown.bat`** and confirm: it stops the stack, deletes the generated secrets, and reverses **only what setup installed** — uninstalling Docker Desktop and disabling the WSL features only when its install record shows it added them. A Docker/WSL that pre-existed the demo (or a lost install record) is deliberately left in place, so the demo never removes software you were already using.
 
-**Requirements:** Windows 10/11, administrator rights, and CPU virtualization enabled in BIOS/UEFI. The first run downloads ~1 GB and takes 10–20 minutes. A step-by-step Chinese walkthrough is in [`START-HERE-zh-TW.txt`](START-HERE-zh-TW.txt).
+**Requirements:** Windows 10/11, administrator rights, and CPU virtualization enabled in BIOS/UEFI. Keep at least ~15 GB free for Docker Desktop, the WSL2 distro, base images, and build layers. The first run takes 10–20 minutes and needs internet not only for Docker Desktop (~1 GB) but also for the build itself — base images from Docker Hub plus dependencies from PyPI and the npm registry — so a network that allows only Docker Hub is not enough. A step-by-step Chinese walkthrough is in [`START-HERE-zh-TW.txt`](START-HERE-zh-TW.txt).
 
 ---
 
